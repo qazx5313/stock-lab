@@ -266,6 +266,20 @@ async function loadReal(){
     if(upN+dnN>0){ DATA.market.up = upN; DATA.market.down = dnN; }
     DATA.meta.date = d.replace(/-/g,'/');
 
+    // 大盤指數（真實，取最新一日）
+    try{
+      const idx = await sbGet(
+        `market_index?select=market,index_value,change,change_percent&date=eq.${d}`, 10);
+      (idx||[]).forEach(r=>{
+        const o={ name:(r.market==='TWSE'?'加權指數':'櫃買指數'),
+          v:Number(r.index_value),
+          d:r.change!=null?Number(r.change):0,
+          dp:r.change_percent!=null?Number(r.change_percent):0 };
+        if(r.market==='TWSE') DATA.market.twse=o;
+        else if(r.market==='TPEX') DATA.market.tpex=o;
+      });
+    }catch(e){ console.warn('指數載入略過:',e); }
+
     // 精選股：以 daily_signals 綜合分前 8（符合「系統綜合評分篩出」）
     const sigTop = await sbGet(
       `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score,summary`+
@@ -947,6 +961,42 @@ function vStock(){
 }
 
 /* 手繪 canvas 圖表（無外部依賴，GitHub Pages 直接可用） */
+/* 抓該股真實歷史，轉成 K 線格式存 DATA.stock.series */
+async function loadStockSeries(sym){
+  try{
+    const rows = await sbGet(
+      `daily_prices?select=date,open,high,low,close,volume&symbol=eq.${sym}`+
+      `&order=date.asc`, 5000);
+    if(Array.isArray(rows) && rows.length>=5){
+      DATA.stock.series = rows.map(r=>({
+        o:Number(r.open)||Number(r.close)||0,
+        h:Number(r.high)||Number(r.close)||0,
+        l:Number(r.low)||Number(r.close)||0,
+        c:Number(r.close)||0,
+        v:Number(r.volume)||0,
+        d:String(r.date).slice(0,10)
+      })).filter(x=>x.c>0);
+      // 帶入最新報價到標頭
+      const last=DATA.stock.series[DATA.stock.series.length-1];
+      const prev=DATA.stock.series[DATA.stock.series.length-2];
+      if(last){
+        DATA.stock.px=last.c;
+        if(prev&&prev.c) DATA.stock.dp=+(((last.c-prev.c)/prev.c)*100).toFixed(2);
+      }
+      // 補股名
+      try{
+        const nm=await sbGet(`stocks?select=name&symbol=eq.${sym}`,2);
+        if(nm&&nm[0]&&nm[0].name) DATA.stock.n=nm[0].name;
+      }catch(_){}
+    }else{
+      DATA.stock.series=null; // 無足夠真實資料 -> 由繪圖 fallback
+    }
+  }catch(e){
+    console.warn('個股歷史載入略過:',e);
+    DATA.stock.series=null;
+  }
+}
+
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
   const c=Math.max(base*.6,o+ch);const h=Math.max(o,c)*(1+Math.random()*.012);const l=Math.min(o,c)*(1-Math.random()*.012);
   a.push({o,h,l,c,v:Math.round((6000+Math.random()*9000)*(1+Math.abs(ch)/vol))});p=c;}return a;}
@@ -954,7 +1004,9 @@ function ma(a,k,key='c'){return a.map((_,i)=>i<k-1?null:a.slice(i-k+1,i+1).reduc
 function setupCanvas(id){const c=document.getElementById(id);if(!c)return null;const r=devicePixelRatio||1;
   const w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;const x=c.getContext('2d');x.scale(r,r);return {x,w,h};}
 function drawStockCharts(){
-  const D=genSeries(60,33,1.1);
+  const D=(DATA.stock&&Array.isArray(DATA.stock.series)&&DATA.stock.series.length>=5)
+            ? DATA.stock.series.slice(-60)
+            : genSeries(60,33,1.1);
   const m5=ma(D,5),m10=ma(D,10),m20=ma(D,20),m60v=D.map(d=>d.c);
   // K 線
   let g=setupCanvas('cK');if(g){const{x,w,h}=g;const pad=8;
@@ -1227,8 +1279,10 @@ function vStatus(){
 
 /* ============ 事件綁定 ============ */
 function bindPage(id){
-  document.querySelectorAll('[data-stock]').forEach(el=>el.onclick=()=>{
-    DATA.stock.c=el.dataset.stock; go('stock');});
+  document.querySelectorAll('[data-stock]').forEach(el=>el.onclick=async()=>{
+    DATA.stock.c=el.dataset.stock;
+    await loadStockSeries(el.dataset.stock);
+    go('stock');});
   document.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{
     const t=DATA.themes.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;go('map');}});
   if(id==='screen'){
@@ -1242,7 +1296,7 @@ function bindPage(id){
       const n=Math.max(3,Math.min(DATA.screen.length,DATA.screen.length-((4-SEL.size)%4+4)%4));
       const r=DATA.screen.slice(0,Math.max(3,n));document.getElementById('resBody').innerHTML=rowsScreen(r);
       document.getElementById('resCnt').textContent=r.length;
-      document.querySelectorAll('#resBody [data-stock]').forEach(el=>el.onclick=()=>{DATA.stock.c=el.dataset.stock;go('stock');});};
+      document.querySelectorAll('#resBody [data-stock]').forEach(el=>el.onclick=async()=>{DATA.stock.c=el.dataset.stock;await loadStockSeries(el.dataset.stock);go('stock');});};
   }
   if(id==='ai'){
     document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=()=>{AI_VIEW=el.dataset.ai;go('ai');});
