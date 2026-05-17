@@ -114,6 +114,26 @@ def sb_upsert(table, rows, on_conflict=None, batch=500):
     if not rows:
         log(f"  {table}: 0 筆，略過")
         return 0
+    # 防呆：有 date 欄位的表，週六/週日日期一律剔除（非交易日無真資料）
+    _DATED = {
+        "daily_prices", "daily_signals", "candidate_pool",
+        "institutional_trades", "margin_trades",
+    }
+    if table in _DATED:
+        def _wknd(s):
+            try:
+                y, m, dd = str(s)[:10].split("-")
+                return dt.date(int(y), int(m), int(dd)).weekday() >= 5
+            except Exception:
+                return False
+
+        b = len(rows)
+        rows = [r for r in rows if not _wknd(r.get("date"))]
+        if b - len(rows):
+            log(f"  ⚠️ {table}: 剔除 {b - len(rows)} 筆非交易日(週末)")
+        if not rows:
+            log(f"  {table}: 過濾後 0 筆，略過")
+            return 0
     if not SUPABASE_URL or not SERVICE_KEY:
         raise RuntimeError("缺少 SUPABASE_URL 或 SUPABASE_SERVICE_KEY 環境變數")
 
