@@ -48,6 +48,21 @@ def _headers(write=False):
     return h
 
 
+def sb_one(table, query=""):
+    """單筆查詢：直接用 PostgREST 的 limit，不套分頁 Range（避免 416）。
+    query 例：'select=date&order=date.desc&limit=1'"""
+    if not SUPABASE_URL or not SERVICE_KEY:
+        raise RuntimeError("缺少 SUPABASE_URL / SUPABASE_SERVICE_KEY")
+    base = f"{SUPABASE_URL}/rest/v1/{table}"
+    if query:
+        base += "?" + query
+    r = requests.get(base, headers=_headers(), timeout=TIMEOUT)
+    if r.status_code not in (200, 206):
+        raise RuntimeError(f"讀取失敗 {table} HTTP {r.status_code}: {r.text[:200]}")
+    data = r.json()
+    return data[0] if isinstance(data, list) and data else None
+
+
 def sb_select(table, query="", page_size=1000, max_rows=200000):
     """分頁讀取整張表/查詢結果，回 list[dict]。query 例：'select=date,close&date=eq.2026-05-15'"""
     if not SUPABASE_URL or not SERVICE_KEY:

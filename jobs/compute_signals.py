@@ -16,7 +16,7 @@ compute_signals.py — 第四階段核心計算引擎
 import datetime as dt
 from collections import defaultdict
 
-from sb_common import log, sb_select, sb_upsert, mark_status
+from sb_common import log, sb_select, sb_one, sb_upsert, mark_status
 
 # ---- 產業 -> 題材對應（規則版；之後可在後台維護）----
 INDUSTRY_THEME = {
@@ -110,10 +110,8 @@ def main():
     today = dt.date.today()
     log("=== compute_signals 開始 ===")
 
-    # 1) 抓最近交易日（明確用 date 由大到小排序取第一筆，避免分頁/順序問題）
-    newest = sb_select(
-        "daily_prices", "select=date&order=date.desc&limit=1", page_size=1
-    )
+    # 1) 抓最近交易日（用 sb_one，PostgREST limit，不套分頁 Range）
+    newest = sb_one("daily_prices", "select=date&order=date.desc&limit=1")
     dates = sb_select("daily_prices", "select=date", page_size=1000)
     all_d = sorted({str(r["date"])[:10] for r in dates})
     if not all_d:
@@ -121,7 +119,7 @@ def main():
         mark_status("compute_signals", False, "no daily_prices")
         return
     latest = (
-        str(newest[0]["date"])[:10] if newest else all_d[-1]
+        str(newest["date"])[:10] if newest else all_d[-1]
     )
     log(
         f"資料庫日期範圍：{all_d[0]} ~ {all_d[-1]}（共 {len(all_d)} 個交易日）"
