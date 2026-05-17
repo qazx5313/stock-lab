@@ -31,7 +31,15 @@ jobs:
           THROTTLE_SEC: "3"
         run: python fetch_all.py
 
-      - name: 2) 計算技術指標/題材/候選池
+      - name: 2) 補公司產業別
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python fetch_company_info.py
+
+      - name: 3) 計算技術指標/題材/候選池
         if: always()
         working-directory: jobs
         env:
@@ -39,7 +47,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_signals.py
 
-      - name: 3) AI 量化模擬實驗室
+      - name: 4) AI 量化模擬實驗室
         if: always()
         working-directory: jobs
         env:
