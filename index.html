@@ -217,10 +217,10 @@
 const SB_URL  = 'https://wgyumblfupaspzywiwzc.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXVtYmxmdXBhc3B6eXdpd3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDg5NjksImV4cCI6MjA5NDU4NDk2OX0.pUur9c40B76uOsI4LphE2cwtE_oqBWUMOwIT-L8qu9g';
 
-async function sbGet(path){
-  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
-    headers:{ apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` }
-  });
+async function sbGet(path, hi){
+  const headers = { apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` };
+  if(hi){ headers['Range-Unit']='items'; headers['Range']='0-'+hi; }
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers });
   if(!r.ok){
     const body = await r.text().catch(()=> '');
     throw new Error('Supabase '+r.status+' '+body.slice(0,160));
@@ -234,12 +234,21 @@ let SRC_STATUS = '載入中…';
    全程把狀態寫進畫面頂端橫幅，方便你一眼看出連上沒、卡哪。 */
 async function loadReal(){
   try{
-    // 取最新交易日（用 count 確認有資料；headers 取不到就用長度判斷）
-    const latest = await sbGet('daily_prices?select=date&order=date.desc&limit=1');
-    if(!Array.isArray(latest) || latest.length===0){
+    // 取所有不同的交易日（資料量小，最穩），前端自己排序取最大
+    const days = await sbGet('daily_prices?select=date', 20000);
+    if(!Array.isArray(days) || days.length===0){
       SRC_STATUS = '⚠️ 資料庫尚無 daily_prices 資料，顯示範例'; return;
     }
-    const d = String(latest[0].date).slice(0,10);   // 確保 YYYY-MM-DD
+    // 去重 + 過濾掉「今天之後」的異常日期 + 取最大（最近交易日）
+    const todayStr = new Date().toISOString().slice(0,10);
+    const uniq = [...new Set(days.map(x=>String(x.date).slice(0,10)))]
+                  .filter(s=>/^\d{4}-\d{2}-\d{2}$/.test(s) && s<=todayStr)
+                  .sort();
+    if(uniq.length===0){
+      SRC_STATUS = '⚠️ 找不到有效交易日，顯示範例'; return;
+    }
+    const d = uniq[uniq.length-1];          // 最近一個交易日
+    console.log('[stock-lab] 資料庫交易日清單:', uniq, '採用:', d);
 
     // 用 Prefer:count 拿總筆數，比抓全部 symbol 再 .length 穩又省流量
     async function cnt(q){
@@ -260,7 +269,7 @@ async function loadReal(){
       `daily_prices?select=symbol,close,change_percent&date=eq.${d}`+
       `&order=change_percent.desc.nullslast&limit=8`);
     if(Array.isArray(top) && top.length){
-      const names = await sbGet('stocks?select=symbol,name,industry');
+      const names = await sbGet('stocks?select=symbol,name,industry', 20000);
       const nameMap = {}; (names||[]).forEach(s=>nameMap[s.symbol]=s);
       DATA.picks = top.map(r=>{
         const cp = parseFloat(r.change_percent);
