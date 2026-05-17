@@ -62,6 +62,17 @@ def ymd(d: dt.date) -> str:
     return d.strftime("%Y%m%d")
 
 
+def last_weekday(d: dt.date) -> dt.date:
+    """OpenAPI 收盤端點不回日期，回最近一個工作日當交易日近似值。
+    （週六->週五、週日->週五；國定假日的細微誤差待第四階段用法人實際交易日校正）"""
+    while d.weekday() >= 5:  # 5=六 6=日
+        d -= dt.timedelta(days=1)
+    return d
+
+
+TRADE_DAY = last_weekday(dt.date.today())
+
+
 # ------------------------------------------------------------------
 # HTTP（含重試 + 節流）
 # ------------------------------------------------------------------
@@ -187,7 +198,7 @@ def fetch_twse_price():
         chg = num(d.get("Change"))
         rows.append(
             {
-                "date": TODAY.isoformat(),
+                "date": TRADE_DAY.isoformat(),
                 "symbol": d.get("Code"),
                 "open": num(d.get("OpeningPrice")),
                 "high": num(d.get("HighestPrice")),
@@ -231,7 +242,7 @@ def fetch_tpex_price():
         chg = num(d.get("Change"))
         rows.append(
             {
-                "date": TODAY.isoformat(),
+                "date": TRADE_DAY.isoformat(),
                 "symbol": sym,
                 "open": num(d.get("Open")),
                 "high": num(d.get("High")),
@@ -261,31 +272,39 @@ def fetch_tpex_price():
 def fetch_twse_inst():
     log("TWSE 三大法人買賣超…")
     url = "https://www.twse.com.tw/rwd/zh/fund/T86"
-    j = http_get(
-        url,
-        params={"response": "json", "date": ymd(TODAY), "selectType": "ALL"},
-        expect="json",
-    )
-    if not j or j.get("stat") != "OK":
-        raise RuntimeError(f"T86 回應非 OK：{(j or {}).get('stat')}")
-    rows = []
-    for f in j.get("data", []):
-        # 欄位順序見 j['fields']；常見：
-        # 0證券代號 1證券名稱 ... 外資/投信/自營 買賣超 ... 三大法人買賣超股數(末欄)
-        sym = f[0].strip()
-        rows.append(
-            {
-                "date": TODAY.isoformat(),
-                "symbol": sym,
-                "foreign_buy_sell": to_int(f[4]) if len(f) > 4 else None,
-                "investment_trust_buy_sell": to_int(f[10]) if len(f) > 10 else None,
-                "dealer_buy_sell": to_int(f[11]) if len(f) > 11 else None,
-                "total_buy_sell": to_int(f[-1]),
-                "market": "TWSE",
-            }
+    # 從今天往前找最近一個有資料的交易日（最多回找 10 天，跨假日/連假）
+    for back in range(0, 10):
+        d = TODAY - dt.timedelta(days=back)
+        if d.weekday() >= 5:  # 週六日直接跳過，省一次請求
+            continue
+        j = http_get(
+            url,
+            params={"response": "json", "date": ymd(d), "selectType": "ALL"},
+            expect="json",
         )
-    sb_upsert("institutional_trades", rows, on_conflict="date,symbol")
-    return len(rows)
+        if j and j.get("stat") == "OK" and j.get("data"):
+            rows = []
+            for f in j["data"]:
+                # 0證券代號 1證券名稱 ... 外資/投信/自營 ... 三大法人買賣超(末欄)
+                rows.append(
+                    {
+                        "date": d.isoformat(),
+                        "symbol": f[0].strip(),
+                        "foreign_buy_sell": to_int(f[4]) if len(f) > 4 else None,
+                        "investment_trust_buy_sell": to_int(f[10])
+                        if len(f) > 10
+                        else None,
+                        "dealer_buy_sell": to_int(f[11]) if len(f) > 11 else None,
+                        "total_buy_sell": to_int(f[-1]),
+                        "market": "TWSE",
+                    }
+                )
+            log(f"  （採用交易日 {d}）")
+            sb_upsert("institutional_trades", rows, on_conflict="date,symbol")
+            return len(rows)
+    # 10 天內都查無（極少見：長假），視為正常空資料，不算失敗
+    log("  近 10 日查無法人資料（可能長假），記 0 筆")
+    return 0
 
 
 # ==================================================================
@@ -295,27 +314,31 @@ def fetch_twse_inst():
 def fetch_twse_margin():
     log("TWSE 融資融券…")
     url = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
-    j = http_get(
-        url,
-        params={"response": "json", "date": ymd(TODAY), "selectType": "ALL"},
-        expect="json",
-    )
-    if not j or j.get("stat") != "OK":
-        raise RuntimeError(f"MI_MARGN 回應非 OK：{(j or {}).get('stat')}")
-    rows = []
-    # tables 結構視回傳而定，這裡取個股明細表（含證券代號的那張）
-    tables = j.get("tables") or []
-    target = None
-    for t in tables:
-        flds = t.get("fields", [])
-        if flds and ("股票代號" in "".join(map(str, flds)) or "證券代號" in "".join(map(str, flds))):
-            target = t
-            break
-    if target:
-        for f in target.get("data", []):
+    for back in range(0, 10):
+        d = TODAY - dt.timedelta(days=back)
+        if d.weekday() >= 5:
+            continue
+        j = http_get(
+            url,
+            params={"response": "json", "date": ymd(d), "selectType": "ALL"},
+            expect="json",
+        )
+        if not (j and j.get("stat") == "OK"):
+            continue
+        # 取含證券代號的個股明細表
+        target = None
+        for t in j.get("tables") or []:
+            flds = "".join(map(str, t.get("fields", [])))
+            if "股票代號" in flds or "證券代號" in flds:
+                target = t
+                break
+        if not target or not target.get("data"):
+            continue
+        rows = []
+        for f in target["data"]:
             rows.append(
                 {
-                    "date": TODAY.isoformat(),
+                    "date": d.isoformat(),
                     "symbol": str(f[0]).strip(),
                     "margin_balance": to_int(f[6]) if len(f) > 6 else None,
                     "short_balance": to_int(f[12]) if len(f) > 12 else None,
@@ -325,8 +348,11 @@ def fetch_twse_margin():
                     "market": "TWSE",
                 }
             )
-    sb_upsert("margin_trades", rows, on_conflict="date,symbol")
-    return len(rows)
+        log(f"  （採用交易日 {d}）")
+        sb_upsert("margin_trades", rows, on_conflict="date,symbol")
+        return len(rows)
+    log("  近 10 日查無資券資料（可能長假），記 0 筆")
+    return 0
 
 
 # ==================================================================
@@ -357,7 +383,7 @@ def fetch_mops_announcements():
         if len(cells) >= 4 and cells[0].isdigit():
             rows.append(
                 {
-                    "date": TODAY.isoformat(),
+                    "date": TRADE_DAY.isoformat(),
                     "symbol": cells[0],
                     "company_name": cells[1] if len(cells) > 1 else None,
                     "title": cells[-1][:500],
