@@ -95,19 +95,56 @@ def fetch_twse_day(d):
     return rows
 
 
-# ---- 上櫃：TPEX 依日期 ----
+# ---- 上櫃：TPEX 依日期（新版 JSON API）----
 def fetch_tpex_day(d):
-    # TPEX 民國年格式 yyy/mm/dd
+    """TPEX 新版日成交端點。回傳 tables[].data，欄位：
+    0代號 1名稱 2收盤 3漲跌 4開盤 5最高 6最低 7均價 8成交股數 9成交金額(元) 10成交筆數 ..."""
     roc = f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
-    url = "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php"
-    j = http_json(url, {"l": "zh-tw", "d": roc, "se": "EW", "_": int(time.time())})
-    if not j or not j.get("aaData"):
+    candidates = [
+        # 新版 (2023+) JSON
+        (
+            "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes",
+            {"date": d.strftime("%Y/%m/%d"), "type": "EW", "response": "json"},
+        ),
+        # 新版用民國年
+        (
+            "https://www.tpex.org.tw/www/zh-tw/afterTrading/dailyQuotes",
+            {"date": roc, "type": "EW", "response": "json"},
+        ),
+        # 舊版備援
+        (
+            "https://www.tpex.org.tw/web/stock/aftertrading/daily_close_quotes/stk_quote_result.php",
+            {"l": "zh-tw", "d": roc, "se": "EW", "_": int(time.time())},
+        ),
+    ]
+    data = None
+    for url, params in candidates:
+        j = http_json(url, params)
+        if not j:
+            continue
+        # 新版：tables[0].data 或 data；舊版：aaData
+        if isinstance(j, dict):
+            if j.get("tables"):
+                for t in j["tables"]:
+                    if t.get("data"):
+                        data = t["data"]
+                        break
+            if data is None and j.get("data"):
+                data = j["data"]
+            if data is None and j.get("aaData"):
+                data = j["aaData"]
+        if data:
+            break
+
+    if not data:
         return []
+
     rows = []
-    for f in j["aaData"]:
+    for f in data:
         sym = str(f[0]).strip()
         if not sym.isdigit() or len(sym) != 4:
             continue
+        # 新版欄位：0代號 1名稱 2收盤 3漲跌 4開盤 5最高 6最低 7均價 8股數 9金額
         rows.append(
             {
                 "date": d.isoformat(),
@@ -118,8 +155,8 @@ def fetch_tpex_day(d):
                 "close": num(f[2]) if len(f) > 2 else None,
                 "change": num(f[3]) if len(f) > 3 else None,
                 "change_percent": None,
-                "volume": to_int(f[7]) if len(f) > 7 else None,
-                "amount": to_int(f[8]) if len(f) > 8 else None,
+                "volume": to_int(f[8]) if len(f) > 8 else None,
+                "amount": to_int(f[9]) if len(f) > 9 else None,
                 "turnover_rate": None,
                 "market": "TPEX",
             }
@@ -151,7 +188,10 @@ def main():
                 total_tw += len(tw)
                 total_tp += len(tp)
                 hit_days += 1
-                log(f"  {d}：上市 {len(tw)} / 上櫃 {len(tp)}")
+                flag = ""
+                if tw and not tp:
+                    flag = "  ⚠️ 上櫃 0（TPEX 端點可能仍需調整，請回報此訊息）"
+                log(f"  {d}：上市 {len(tw)} / 上櫃 {len(tp)}{flag}")
             else:
                 log(f"  {d}：無資料（假日或休市）")
         except Exception as e:  # noqa
