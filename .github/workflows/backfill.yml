@@ -1,16 +1,20 @@
-name: 每日盤後抓取與計算
+name: 歷史資料回補（手動執行一次）
+
+# 只手動觸發。第四階段第一次用：補過去歷史收盤，
+# 讓 MA/KD/MACD/RSI 算得出來。跑完一次即可，平日不需再跑。
 
 on:
-  schedule:
-    # GitHub Actions 用 UTC。台灣 = UTC+8。
-    - cron: "30 6 * * 1-5"   # 台灣 14:30 盤後初抓
-    - cron: "15 8 * * 1-5"   # 台灣 16:15 盤後正式抓
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "回補幾個日曆日（建議 120；要更準可填 250）"
+        required: true
+        default: "120"
 
 jobs:
-  pipeline:
+  backfill:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 120
     steps:
       - name: 取出程式碼
         uses: actions/checkout@v4
@@ -23,16 +27,14 @@ jobs:
       - name: 安裝套件
         run: pip install -r requirements.txt
 
-      - name: 1) 抓取盤後資料
+      - name: 回補歷史收盤
         working-directory: jobs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          THROTTLE_SEC: "3"
-        run: python fetch_all.py
+        run: python backfill_history.py --days ${{ github.event.inputs.days }}
 
-      - name: 2) 計算技術指標/題材/候選池
-        if: always()
+      - name: 回補後立即計算一次
         working-directory: jobs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
