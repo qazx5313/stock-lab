@@ -281,8 +281,54 @@ async function loadReal(){
         };
       });
     }
+
+    // ---- 題材熱度：讀 themes（有真實就覆蓋範例）----
+    try{
+      const th = await sbGet(
+        'themes?select=theme_name,heat_score,trend_status,description'+
+        '&order=heat_score.desc', 200);
+      if(Array.isArray(th) && th.length){
+        DATA.themes = th.map((t,i)=>{
+          const mg = String(t.description||'').match(/平均漲幅\s*(-?[\d.]+)%/);
+          return {
+            id:'t'+i, name:t.theme_name, score:t.heat_score,
+            gain:(mg?(parseFloat(mg[1])>0?'+':'')+mg[1]+'%':'—'),
+            vol:'—', limit:0, high:0,
+            status:t.trend_status||'—',
+            desc:t.description||'', chain:'—'
+          };
+        });
+        DATA.themeList = DATA.themes.map(t=>t.name);
+      }
+    }catch(e){ console.warn('themes 載入略過:',e); }
+
+    // ---- 每日篩選：讀 candidate_pool（綜合分排序）----
+    try{
+      const cp = await sbGet(
+        `candidate_pool?select=symbol,name,score,reason&date=eq.${d}`+
+        `&order=score.desc&limit=40`, 100);
+      if(Array.isArray(cp) && cp.length){
+        // 補當日價格/漲跌
+        const pr = await sbGet(
+          `daily_prices?select=symbol,close,change_percent&date=eq.${d}`, 20000);
+        const pm = {}; (pr||[]).forEach(x=>pm[x.symbol]=x);
+        DATA.screen = cp.map(r=>{
+          const p = pm[r.symbol]||{};
+          const cpv = parseFloat(p.change_percent);
+          return {
+            c:r.symbol, n:r.name||r.symbol,
+            t:(r.reason||'').slice(0,8)||'—',
+            px:p.close!=null?p.close:'—',
+            dp:isFinite(cpv)?cpv:0,
+            vol:'—', ts:r.score, cs:r.score, ms:r.score, total:r.score
+          };
+        });
+      }
+    }catch(e){ console.warn('candidate_pool 載入略過:',e); }
+
     SRC_STATUS = '✅ 已連線真實資料 · 交易日 '+DATA.meta.date+
-                 ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down;
+                 ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down+
+                 ' · 題材 '+DATA.themes.length+' · 候選 '+DATA.screen.length;
   }catch(e){
     console.warn('Supabase 載入失敗：', e);
     SRC_STATUS = '⚠️ 連線失敗顯示範例：'+(e&&e.message||e);
