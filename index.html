@@ -211,9 +211,61 @@
 </div>
 <nav class="mob-nav" id="mobNav"></nav>
 <script>
-/* ============ 模擬資料層 (MOCK) ============
-   首版：全部用假資料把畫面跑起來。
-   未來把 DATA.* 換成 TWSE / TPEX / MOPS / Yahoo / FinMind 真實 API 即可。 */
+/* ============ Supabase 設定 ============
+   只用 anon key（公開金鑰，僅能讀取，已設 RLS 保護）。
+   service_role 絕不放這裡，只放 GitHub Actions Secrets。 */
+const SB_URL  = 'https://wgyumblfupaspzywiwzc.supabase.co';
+const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXVtYmxmdXBhc3B6eXdpd3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDg5NjksImV4cCI6MjA5NDU4NDk2OX0.pUur9c40B76uOsI4LphE2cwtE_oqBWUMOwIT-L8qu9g';
+
+async function sbGet(path){
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    headers:{ apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` }
+  });
+  if(!r.ok) throw new Error('Supabase '+r.status);
+  return r.json();
+}
+
+/* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞 */
+async function loadReal(){
+  try{
+    // 最新一個交易日
+    const latest = await sbGet('daily_prices?select=date&order=date.desc&limit=1');
+    if(!latest.length){ flagSource('（資料庫尚無資料，顯示範例）'); return; }
+    const d = latest[0].date;
+
+    // 當日漲跌家數 / 指數類資料先沿用範例（指數需另存，第四階段補）
+    const ups = await sbGet(`daily_prices?select=symbol&date=eq.${d}&change=gt.0`);
+    const dns = await sbGet(`daily_prices?select=symbol&date=eq.${d}&change=lt.0`);
+    DATA.market.up = ups.length;
+    DATA.market.down = dns.length;
+    DATA.meta.date = d.replace(/-/g,'/');
+
+    // 精選股：當日漲幅前 8（有真實資料就用真實）
+    const top = await sbGet(
+      `daily_prices?select=symbol,close,change_percent&date=eq.${d}`+
+      `&order=change_percent.desc&limit=8`);
+    if(top.length){
+      const names = await sbGet('stocks?select=symbol,name,industry');
+      const nameMap = {}; names.forEach(s=>nameMap[s.symbol]=s);
+      DATA.picks = top.map(r=>({
+        c:r.symbol, n:(nameMap[r.symbol]||{}).name||r.symbol,
+        p:r.close, dp:(r.change_percent>0?'+':'')+r.change_percent+'%',
+        theme:(nameMap[r.symbol]||{}).industry||'—', score:'—'
+      }));
+    }
+    flagSource('（已連線真實資料 · '+DATA.meta.date+'）');
+  }catch(e){
+    console.warn('Supabase 載入失敗，顯示範例資料：', e);
+    flagSource('（連線失敗，顯示範例資料）');
+  }
+}
+function flagSource(txt){
+  const el = document.getElementById('pgSub');
+  if(el) el.dataset.src = txt;
+}
+
+/* ============ 模擬資料層 (MOCK / 離線後備) ============
+   連得上 Supabase 時會被真實資料覆蓋；連不上則維持此假資料，畫面不壞。 */
 const DATA = {
   meta:{date:'2025/05/16',weekday:'五',updated:'16:42'},
 
@@ -1016,6 +1068,8 @@ window.addEventListener('resize',()=>{if(CUR==='stock')drawStockCharts();});
 /* ============ 初始化 ============ */
 buildNav();
 go('home');
+/* 背景嘗試載入真實資料，成功後重繪當前頁（連不上就維持範例畫面） */
+loadReal().then(()=>{ go(CUR||'home'); });
 </script>
 </body>
 </html>

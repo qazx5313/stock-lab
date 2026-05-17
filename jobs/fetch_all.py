@@ -1,0 +1,459 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+stock-lab 盤後抓取主程式
+抓 TWSE(上市) / TPEX(上櫃) / MOPS(公開資訊) 全部資料 -> 寫進 Supabase
+
+執行環境：GitHub Actions（能連網）
+本機/沙箱無法連網時會在每個來源印出錯誤並寫進 data_status，不會整支掛掉。
+
+需要的環境變數（GitHub Secrets）：
+  SUPABASE_URL           你的 Supabase Project URL
+  SUPABASE_SERVICE_KEY   service_role key（只放 Secrets，勿 commit）
+
+用法：
+  python jobs/fetch_all.py            # 全部抓
+  python jobs/fetch_all.py --only twse_price   # 只抓某模組（除錯用）
+"""
+
+import os
+import sys
+import time
+import json
+import datetime as dt
+import traceback
+
+import requests
+
+# ------------------------------------------------------------------
+# 基本設定
+# ------------------------------------------------------------------
+SUPABASE_URL = os.environ.get("SUPABASE_URL", "").rstrip("/")
+SERVICE_KEY = os.environ.get("SUPABASE_SERVICE_KEY", "")
+
+# 節流：每次對官方網站請求之間至少間隔幾秒，避免被擋
+THROTTLE_SEC = float(os.environ.get("THROTTLE_SEC", "3"))
+
+# 連線逾時 / 重試
+TIMEOUT = 30
+RETRY = 3
+
+HEADERS_BROWSER = {
+    "User-Agent": (
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0 Safari/537.36"
+    )
+}
+
+TODAY = dt.date.today()
+
+
+def log(msg):
+    print(f"[{dt.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
+
+
+def roc_date(d: dt.date) -> str:
+    """西元轉民國年字串，例 2026-05-16 -> 115/05/16（部分 TWSE 端點要民國）"""
+    return f"{d.year - 1911}/{d.month:02d}/{d.day:02d}"
+
+
+def ymd(d: dt.date) -> str:
+    return d.strftime("%Y%m%d")
+
+
+# ------------------------------------------------------------------
+# HTTP（含重試 + 節流）
+# ------------------------------------------------------------------
+def http_get(url, params=None, expect="json"):
+    last_err = None
+    for attempt in range(1, RETRY + 1):
+        try:
+            r = requests.get(
+                url, params=params, headers=HEADERS_BROWSER, timeout=TIMEOUT
+            )
+            time.sleep(THROTTLE_SEC)
+            if r.status_code != 200:
+                last_err = f"HTTP {r.status_code}"
+                continue
+            if expect == "json":
+                return r.json()
+            return r.text
+        except Exception as e:  # noqa
+            last_err = f"{type(e).__name__}: {e}"
+            time.sleep(THROTTLE_SEC * attempt)
+    raise RuntimeError(f"GET 失敗 {url} ({last_err})")
+
+
+# ------------------------------------------------------------------
+# Supabase 寫入（用 REST，不需額外套件；service_role 繞過 RLS）
+# ------------------------------------------------------------------
+def sb_headers():
+    return {
+        "apikey": SERVICE_KEY,
+        "Authorization": f"Bearer {SERVICE_KEY}",
+        "Content-Type": "application/json",
+        # upsert：主鍵衝突就覆蓋
+        "Prefer": "resolution=merge-duplicates,return=minimal",
+    }
+
+
+def sb_upsert(table, rows, on_conflict=None, batch=500):
+    """批次 upsert。rows 為 list[dict]。"""
+    if not rows:
+        log(f"  {table}: 0 筆，略過")
+        return 0
+    if not SUPABASE_URL or not SERVICE_KEY:
+        raise RuntimeError("缺少 SUPABASE_URL 或 SUPABASE_SERVICE_KEY 環境變數")
+
+    url = f"{SUPABASE_URL}/rest/v1/{table}"
+    if on_conflict:
+        url += f"?on_conflict={on_conflict}"
+
+    total = 0
+    for i in range(0, len(rows), batch):
+        chunk = rows[i : i + batch]
+        for attempt in range(1, RETRY + 1):
+            try:
+                r = requests.post(
+                    url, headers=sb_headers(), data=json.dumps(chunk), timeout=TIMEOUT
+                )
+                if r.status_code in (200, 201, 204):
+                    total += len(chunk)
+                    break
+                else:
+                    if attempt == RETRY:
+                        raise RuntimeError(
+                            f"Supabase 寫入失敗 {table} HTTP {r.status_code}: {r.text[:300]}"
+                        )
+                    time.sleep(2 * attempt)
+            except Exception as e:  # noqa
+                if attempt == RETRY:
+                    raise
+                time.sleep(2 * attempt)
+    log(f"  {table}: 寫入 {total} 筆")
+    return total
+
+
+def mark_status(source, ok, error=""):
+    try:
+        sb_upsert(
+            "data_status",
+            [
+                {
+                    "source": source,
+                    "ok": ok,
+                    "finished_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+                    "error": (error or "")[:1000],
+                    "run_date": TODAY.isoformat(),
+                }
+            ],
+        )
+    except Exception as e:  # noqa
+        log(f"  （data_status 寫入也失敗：{e}）")
+
+
+def num(v):
+    """把官方資料的 '1,234'、'--'、'X' 等轉成數字或 None"""
+    if v is None:
+        return None
+    s = str(v).replace(",", "").replace("+", "").strip()
+    if s in ("", "--", "---", "X", "x", "N/A", "null", "除權息", "除息", "除權"):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def to_int(v):
+    f = num(v)
+    return int(f) if f is not None else None
+
+
+# ==================================================================
+# 1. TWSE 上市 每日收盤行情
+#    端點：STOCK_DAY_ALL（全部上市股票當日行情，回 JSON）
+# ==================================================================
+def fetch_twse_price():
+    log("TWSE 上市收盤行情…")
+    url = "https://openapi.twse.com.tw/v1/exchangeReport/STOCK_DAY_ALL"
+    data = http_get(url, expect="json")
+    rows = []
+    for d in data:
+        # 欄位：Code,Name,TradeVolume,TradeValue,OpeningPrice,HighestPrice,
+        #       LowestPrice,ClosingPrice,Change,Transaction
+        close = num(d.get("ClosingPrice"))
+        chg = num(d.get("Change"))
+        rows.append(
+            {
+                "date": TODAY.isoformat(),
+                "symbol": d.get("Code"),
+                "open": num(d.get("OpeningPrice")),
+                "high": num(d.get("HighestPrice")),
+                "low": num(d.get("LowestPrice")),
+                "close": close,
+                "change": chg,
+                "change_percent": round((chg / (close - chg) * 100), 2)
+                if (close is not None and chg is not None and (close - chg))
+                else None,
+                "volume": to_int(d.get("TradeVolume")),
+                "amount": to_int(d.get("TradeValue")),
+                "turnover_rate": None,
+                "market": "TWSE",
+            }
+        )
+    sb_upsert("daily_prices", rows, on_conflict="date,symbol")
+    # 順便維護 stocks 基本清單
+    stk = [
+        {"symbol": d.get("Code"), "name": d.get("Name"), "market": "TWSE"}
+        for d in data
+        if d.get("Code")
+    ]
+    sb_upsert("stocks", stk, on_conflict="symbol")
+    return len(rows)
+
+
+# ==================================================================
+# 2. TPEX 上櫃 每日收盤行情
+#    端點：tpex_mainboard_daily_close_quotes
+# ==================================================================
+def fetch_tpex_price():
+    log("TPEX 上櫃收盤行情…")
+    url = "https://www.tpex.org.tw/openapi/v1/tpex_mainboard_daily_close_quotes"
+    data = http_get(url, expect="json")
+    rows, stk = [], []
+    for d in data:
+        # 欄位名稱以 TPEX OpenAPI 為準（中文鍵）
+        sym = d.get("SecuritiesCompanyCode") or d.get("Code")
+        name = d.get("CompanyName") or d.get("Name")
+        close = num(d.get("Close"))
+        chg = num(d.get("Change"))
+        rows.append(
+            {
+                "date": TODAY.isoformat(),
+                "symbol": sym,
+                "open": num(d.get("Open")),
+                "high": num(d.get("High")),
+                "low": num(d.get("Low")),
+                "close": close,
+                "change": chg,
+                "change_percent": round((chg / (close - chg) * 100), 2)
+                if (close is not None and chg is not None and (close - chg))
+                else None,
+                "volume": to_int(d.get("TradingShares")),
+                "amount": to_int(d.get("TransactionAmount")),
+                "turnover_rate": None,
+                "market": "TPEX",
+            }
+        )
+        if sym:
+            stk.append({"symbol": sym, "name": name, "market": "TPEX"})
+    sb_upsert("daily_prices", rows, on_conflict="date,symbol")
+    sb_upsert("stocks", stk, on_conflict="symbol")
+    return len(rows)
+
+
+# ==================================================================
+# 3. TWSE 三大法人買賣超（個股）
+#    端點：fund/T86（回 JSON，需帶 response=json & date & selectType=ALL）
+# ==================================================================
+def fetch_twse_inst():
+    log("TWSE 三大法人買賣超…")
+    url = "https://www.twse.com.tw/rwd/zh/fund/T86"
+    j = http_get(
+        url,
+        params={"response": "json", "date": ymd(TODAY), "selectType": "ALL"},
+        expect="json",
+    )
+    if not j or j.get("stat") != "OK":
+        raise RuntimeError(f"T86 回應非 OK：{(j or {}).get('stat')}")
+    rows = []
+    for f in j.get("data", []):
+        # 欄位順序見 j['fields']；常見：
+        # 0證券代號 1證券名稱 ... 外資/投信/自營 買賣超 ... 三大法人買賣超股數(末欄)
+        sym = f[0].strip()
+        rows.append(
+            {
+                "date": TODAY.isoformat(),
+                "symbol": sym,
+                "foreign_buy_sell": to_int(f[4]) if len(f) > 4 else None,
+                "investment_trust_buy_sell": to_int(f[10]) if len(f) > 10 else None,
+                "dealer_buy_sell": to_int(f[11]) if len(f) > 11 else None,
+                "total_buy_sell": to_int(f[-1]),
+                "market": "TWSE",
+            }
+        )
+    sb_upsert("institutional_trades", rows, on_conflict="date,symbol")
+    return len(rows)
+
+
+# ==================================================================
+# 4. TWSE 融資融券（個股）
+#    端點：exchangeReport/MI_MARGN
+# ==================================================================
+def fetch_twse_margin():
+    log("TWSE 融資融券…")
+    url = "https://www.twse.com.tw/rwd/zh/marginTrading/MI_MARGN"
+    j = http_get(
+        url,
+        params={"response": "json", "date": ymd(TODAY), "selectType": "ALL"},
+        expect="json",
+    )
+    if not j or j.get("stat") != "OK":
+        raise RuntimeError(f"MI_MARGN 回應非 OK：{(j or {}).get('stat')}")
+    rows = []
+    # tables 結構視回傳而定，這裡取個股明細表（含證券代號的那張）
+    tables = j.get("tables") or []
+    target = None
+    for t in tables:
+        flds = t.get("fields", [])
+        if flds and ("股票代號" in "".join(map(str, flds)) or "證券代號" in "".join(map(str, flds))):
+            target = t
+            break
+    if target:
+        for f in target.get("data", []):
+            rows.append(
+                {
+                    "date": TODAY.isoformat(),
+                    "symbol": str(f[0]).strip(),
+                    "margin_balance": to_int(f[6]) if len(f) > 6 else None,
+                    "short_balance": to_int(f[12]) if len(f) > 12 else None,
+                    "margin_change": None,
+                    "short_change": None,
+                    "short_margin_ratio": None,
+                    "market": "TWSE",
+                }
+            )
+    sb_upsert("margin_trades", rows, on_conflict="date,symbol")
+    return len(rows)
+
+
+# ==================================================================
+# 5. MOPS 重大訊息（當日）
+#    端點：mopsov（公開資訊觀測站即時重大訊息）
+# ==================================================================
+def fetch_mops_announcements():
+    log("MOPS 重大訊息…")
+    url = "https://mopsov.twse.com.tw/mops/web/ajax_t05sr01_1"
+    txt = http_get(
+        url,
+        params={
+            "step": "1",
+            "TYPEK": "sii",
+            "year": str(TODAY.year - 1911),
+            "month": f"{TODAY.month:02d}",
+            "day": f"{TODAY.day:02d}",
+        },
+        expect="text",
+    )
+    rows = []
+    # MOPS 此頁回 HTML 表格，做最小化解析（找 <tr>）
+    import re
+
+    for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
+        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
+        if len(cells) >= 4 and cells[0].isdigit():
+            rows.append(
+                {
+                    "date": TODAY.isoformat(),
+                    "symbol": cells[0],
+                    "company_name": cells[1] if len(cells) > 1 else None,
+                    "title": cells[-1][:500],
+                    "content": None,
+                    "category": "重大訊息",
+                    "source_url": "https://mops.twse.com.tw",
+                }
+            )
+    sb_upsert("mops_announcements", rows)
+    return len(rows)
+
+
+# ==================================================================
+# 6. MOPS 月營收（最近一個已公布月份）
+#    端點：t21sc03（國內公司月營收彙總）
+# ==================================================================
+def fetch_monthly_revenue():
+    log("MOPS 月營收…")
+    # 月營收次月 10 日前公布，取上個月
+    first = TODAY.replace(day=1)
+    last_month = first - dt.timedelta(days=1)
+    ym = f"{last_month.year}-{last_month.month:02d}"
+    url = "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_{}_{}_0.html".format(
+        last_month.year - 1911, last_month.month
+    )
+    try:
+        txt = http_get(url, expect="text")
+    except Exception as e:  # noqa
+        raise RuntimeError(f"月營收頁抓取失敗（可能該月尚未公布）：{e}")
+    import re
+
+    rows = []
+    for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S):
+        cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
+        cells = [re.sub(r"<[^>]+>", "", c).replace("&nbsp;", "").strip() for c in cells]
+        if len(cells) >= 8 and re.match(r"^\d{4}$", cells[0]):
+            rows.append(
+                {
+                    "year_month": ym,
+                    "symbol": cells[0],
+                    "revenue": to_int(cells[2]),
+                    "mom_percent": num(cells[5]) if len(cells) > 5 else None,
+                    "yoy_percent": num(cells[6]) if len(cells) > 6 else None,
+                    "accumulated_revenue": to_int(cells[7]) if len(cells) > 7 else None,
+                    "accumulated_yoy_percent": num(cells[9])
+                    if len(cells) > 9
+                    else None,
+                }
+            )
+    sb_upsert("monthly_revenue", rows, on_conflict="year_month,symbol")
+    return len(rows)
+
+
+# ==================================================================
+# 主流程
+# ==================================================================
+JOBS = [
+    ("twse_price", fetch_twse_price),
+    ("tpex_price", fetch_tpex_price),
+    ("twse_inst", fetch_twse_inst),
+    ("twse_margin", fetch_twse_margin),
+    ("mops_announcements", fetch_mops_announcements),
+    ("monthly_revenue", fetch_monthly_revenue),
+]
+
+
+def main():
+    only = None
+    if "--only" in sys.argv:
+        only = sys.argv[sys.argv.index("--only") + 1]
+
+    log(f"=== stock-lab 抓取開始 {TODAY} ===")
+    if not SUPABASE_URL or not SERVICE_KEY:
+        log("⚠️  未設定 SUPABASE_URL / SUPABASE_SERVICE_KEY，僅做連線測試會失敗")
+
+    ok_count, fail_count = 0, 0
+    for name, fn in JOBS:
+        if only and name != only:
+            continue
+        try:
+            n = fn()
+            mark_status(name, True, "")
+            log(f"✅ {name} 完成（{n} 筆）")
+            ok_count += 1
+        except Exception as e:  # noqa
+            err = f"{type(e).__name__}: {e}"
+            log(f"❌ {name} 失敗：{err}")
+            traceback.print_exc()
+            mark_status(name, False, err)
+            fail_count += 1
+
+    log(f"=== 結束：成功 {ok_count} / 失敗 {fail_count} ===")
+    # 全失敗才讓 Actions 標紅，部分失敗仍算通過（其他資料還是進得去）
+    if ok_count == 0:
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
