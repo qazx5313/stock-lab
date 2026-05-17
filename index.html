@@ -221,48 +221,88 @@ async function sbGet(path){
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
     headers:{ apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` }
   });
-  if(!r.ok) throw new Error('Supabase '+r.status);
+  if(!r.ok){
+    const body = await r.text().catch(()=> '');
+    throw new Error('Supabase '+r.status+' '+body.slice(0,160));
+  }
   return r.json();
 }
 
-/* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞 */
+let SRC_STATUS = '載入中…';
+
+/* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞。
+   全程把狀態寫進畫面頂端橫幅，方便你一眼看出連上沒、卡哪。 */
 async function loadReal(){
   try{
-    // 最新一個交易日
+    // 取最新交易日（用 count 確認有資料；headers 取不到就用長度判斷）
     const latest = await sbGet('daily_prices?select=date&order=date.desc&limit=1');
-    if(!latest.length){ flagSource('（資料庫尚無資料，顯示範例）'); return; }
-    const d = latest[0].date;
+    if(!Array.isArray(latest) || latest.length===0){
+      SRC_STATUS = '⚠️ 資料庫尚無 daily_prices 資料，顯示範例'; return;
+    }
+    const d = String(latest[0].date).slice(0,10);   // 確保 YYYY-MM-DD
 
-    // 當日漲跌家數 / 指數類資料先沿用範例（指數需另存，第四階段補）
-    const ups = await sbGet(`daily_prices?select=symbol&date=eq.${d}&change=gt.0`);
-    const dns = await sbGet(`daily_prices?select=symbol&date=eq.${d}&change=lt.0`);
-    DATA.market.up = ups.length;
-    DATA.market.down = dns.length;
+    // 用 Prefer:count 拿總筆數，比抓全部 symbol 再 .length 穩又省流量
+    async function cnt(q){
+      const r = await fetch(`${SB_URL}/rest/v1/${q}`,{
+        headers:{ apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`,
+                  Prefer:'count=exact', Range:'0-0' }});
+      const cr = r.headers.get('content-range') || '';
+      const m = cr.match(/\/(\d+)$/);
+      return m ? parseInt(m[1],10) : 0;
+    }
+    const upN = await cnt(`daily_prices?select=symbol&date=eq.${d}&change=gt.0`);
+    const dnN = await cnt(`daily_prices?select=symbol&date=eq.${d}&change=lt.0`);
+    if(upN+dnN>0){ DATA.market.up = upN; DATA.market.down = dnN; }
     DATA.meta.date = d.replace(/-/g,'/');
 
-    // 精選股：當日漲幅前 8（有真實資料就用真實）
+    // 精選股：當日漲幅前 8
     const top = await sbGet(
       `daily_prices?select=symbol,close,change_percent&date=eq.${d}`+
-      `&order=change_percent.desc&limit=8`);
-    if(top.length){
+      `&order=change_percent.desc.nullslast&limit=8`);
+    if(Array.isArray(top) && top.length){
       const names = await sbGet('stocks?select=symbol,name,industry');
-      const nameMap = {}; names.forEach(s=>nameMap[s.symbol]=s);
-      DATA.picks = top.map(r=>({
-        c:r.symbol, n:(nameMap[r.symbol]||{}).name||r.symbol,
-        p:r.close, dp:(r.change_percent>0?'+':'')+r.change_percent+'%',
-        theme:(nameMap[r.symbol]||{}).industry||'—', score:'—'
-      }));
+      const nameMap = {}; (names||[]).forEach(s=>nameMap[s.symbol]=s);
+      DATA.picks = top.map(r=>{
+        const cp = parseFloat(r.change_percent);
+        return {
+          c:r.symbol, n:(nameMap[r.symbol]||{}).name||r.symbol,
+          p:r.close,
+          dp:(isFinite(cp)?(cp>0?'+':'')+cp+'%':'—'),
+          theme:(nameMap[r.symbol]||{}).industry||'—', score:'—'
+        };
+      });
     }
-    flagSource('（已連線真實資料 · '+DATA.meta.date+'）');
+    SRC_STATUS = '✅ 已連線真實資料 · 交易日 '+DATA.meta.date+
+                 ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down;
   }catch(e){
-    console.warn('Supabase 載入失敗，顯示範例資料：', e);
-    flagSource('（連線失敗，顯示範例資料）');
+    console.warn('Supabase 載入失敗：', e);
+    SRC_STATUS = '⚠️ 連線失敗顯示範例：'+(e&&e.message||e);
+  }finally{
+    renderSrcBanner();
   }
 }
-function flagSource(txt){
-  const el = document.getElementById('pgSub');
-  if(el) el.dataset.src = txt;
+
+/* 在頁面最上方顯示一條資料來源橫幅（成功綠 / 失敗橘） */
+function renderSrcBanner(){
+  let bar = document.getElementById('srcBanner');
+  if(!bar){
+    bar = document.createElement('div');
+    bar.id = 'srcBanner';
+    bar.style.cssText =
+      'position:fixed;top:0;left:0;right:0;z-index:9999;font-size:12px;'+
+      'padding:6px 14px;text-align:center;font-weight:700;letter-spacing:.3px;'+
+      'box-shadow:0 1px 4px rgba(0,0,0,.08)';
+    document.body.appendChild(bar);
+    // 把整頁往下推，避免橫幅蓋住內容
+    document.body.style.paddingTop =
+      (parseInt(getComputedStyle(document.body).paddingTop)||0)+30+'px';
+  }
+  const ok = SRC_STATUS.indexOf('✅')===0;
+  bar.style.background = ok ? 'var(--up-soft,#FEE2E2)' : '#FEF3C7';
+  bar.style.color = ok ? 'var(--up,#DC2626)' : '#92400E';
+  bar.textContent = SRC_STATUS;
 }
+function flagSource(txt){ /* 舊介面保留相容，不再使用 */ }
 
 /* ============ 模擬資料層 (MOCK / 離線後備) ============
    連得上 Supabase 時會被真實資料覆蓋；連不上則維持此假資料，畫面不壞。 */
