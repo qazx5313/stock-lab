@@ -267,27 +267,65 @@ def main():
     log(f"算出 {len(signals)} 檔訊號")
     sb_upsert("daily_signals", signals, on_conflict="date,symbol")
 
-    # ---- 題材熱度 ----
+    # ---- 題材熱度（強勢代表股法，非全體平均）----
+    # 只取題材內「綜合分前段的強勢股」當代表，弱勢股不拉低熱度，
+    # 並把 漲停/接近漲停、創波段高、強勢股佔比 納入熱度。
     themes_rows, theme_stock_rows = [], []
     tid = 1
+
+    def theme_metrics(info):
+        members = sorted(info["members"], key=lambda x: x["score"], reverse=True)
+        total_n = len(members)
+        # 代表股 = 綜合分前 40%，至少 5 檔、最多 30 檔
+        k = max(5, min(30, round(total_n * 0.4))) if total_n else 0
+        reps = members[:k] if total_n else []
+        gains = [m["cp"] for m in reps if m["cp"] is not None]
+        rep_gain = (sum(gains) / len(gains)) if gains else 0.0
+        # 強勢指標
+        limit_up = sum(1 for m in reps if m["cp"] is not None and m["cp"] >= 9.0)
+        strong = sum(1 for m in reps if m["cp"] is not None and m["cp"] >= 3.0)
+        strong_ratio = (strong / len(reps)) if reps else 0
+        vols = info["vol"]
+        avg_vol = (sum(vols) / len(vols)) if vols else 1
+        return {
+            "total_n": total_n,
+            "reps": reps,
+            "rep_gain": rep_gain,
+            "limit_up": limit_up,
+            "strong": strong,
+            "strong_ratio": strong_ratio,
+            "avg_vol": avg_vol,
+        }
+
     ranked = sorted(
         theme_heat.items(),
-        key=lambda kv: (sum(kv[1]["gain"]) / len(kv[1]["gain"])) if kv[1]["gain"] else 0,
+        key=lambda kv: theme_metrics(kv[1])["rep_gain"],
         reverse=True,
     )
     for name, info in ranked:
-        n = len(info["gain"]) or 1
-        avg_gain = sum(info["gain"]) / n
-        avg_vol = (sum(info["vol"]) / len(info["vol"])) if info["vol"] else 1
-        heat = max(
-            0, min(100, round(avg_gain * 6 + (avg_vol - 1) * 25 + min(n, 20)))
+        mt = theme_metrics(info)
+        if mt["total_n"] == 0:
+            continue
+        # 熱度 = 代表股漲幅 + 強勢股佔比 + 量能 + 漲停加成
+        heat = round(
+            mt["rep_gain"] * 5
+            + mt["strong_ratio"] * 35
+            + (mt["avg_vol"] - 1) * 20
+            + mt["limit_up"] * 4
         )
+        heat = max(0, min(100, heat))
         status = "主流" if heat >= 75 else ("增溫" if heat >= 55 else "觀察")
         themes_rows.append(
             {
                 "id": tid,
                 "theme_name": name,
-                "description": f"{name}：成分 {n} 檔，平均漲幅 {round(avg_gain,2)}%，量比 {round(avg_vol,2)}x",
+                "description": (
+                    f"{name}：成分 {mt['total_n']} 檔，"
+                    f"強勢代表 {len(mt['reps'])} 檔，"
+                    f"代表平均漲幅 {round(mt['rep_gain'],2)}%，"
+                    f"強勢佔比 {round(mt['strong_ratio']*100)}%，"
+                    f"漲停 {mt['limit_up']}，量比 {round(mt['avg_vol'],2)}x"
+                ),
                 "heat_score": heat,
                 "trend_status": status,
             }
@@ -297,7 +335,9 @@ def main():
                 {
                     "theme_id": tid,
                     "symbol": m["symbol"],
-                    "role": "領漲" if m["cp"] >= avg_gain else "成分",
+                    "role": "領漲"
+                    if (m["cp"] is not None and m["cp"] >= mt["rep_gain"])
+                    else "成分",
                     "supply_chain_level": "",
                     "relevance_score": m["score"],
                     "note": "",
