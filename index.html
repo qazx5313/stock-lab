@@ -266,32 +266,29 @@ async function loadReal(){
     if(upN+dnN>0){ DATA.market.up = upN; DATA.market.down = dnN; }
     DATA.meta.date = d.replace(/-/g,'/');
 
-    // 精選股：當日漲幅前 8
-    const top = await sbGet(
-      `daily_prices?select=symbol,close,change_percent&date=eq.${d}`+
-      `&order=change_percent.desc.nullslast&limit=8`);
-    if(Array.isArray(top) && top.length){
+    // 精選股：以 daily_signals 綜合分前 8（符合「系統綜合評分篩出」）
+    const sigTop = await sbGet(
+      `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score,summary`+
+      `&date=eq.${d}&order=final_score.desc&limit=8`);
+    if(Array.isArray(sigTop) && sigTop.length){
       const names = await sbGet('stocks?select=symbol,name,industry', 20000);
       const nameMap = {}; (names||[]).forEach(s=>nameMap[s.symbol]=s);
-      // 取當日 daily_signals 補技術/籌碼/題材/綜合分與 AI 簡評
-      let sigMap = {};
-      try{
-        const sg = await sbGet(
-          `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score,summary&date=eq.${d}`,
-          20000);
-        (sg||[]).forEach(x=>sigMap[x.symbol]=x);
-      }catch(_){}
-      DATA.picks = top.map(r=>{
-        const cp = parseFloat(r.change_percent);
-        const sg = sigMap[r.symbol] || {};
-        const px = parseFloat(r.close);
+      // 補當日價格/漲跌/量
+      const pr = await sbGet(
+        `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
+      const pm = {}; (pr||[]).forEach(x=>pm[x.symbol]=x);
+      DATA.picks = sigTop.map(sg=>{
+        const p = pm[sg.symbol] || {};
+        const cp = parseFloat(p.change_percent);
+        const px = parseFloat(p.close);
+        const vol = parseInt(p.volume);
         return {
-          c:r.symbol,
-          n:(nameMap[r.symbol]||{}).name||r.symbol,
-          t:(nameMap[r.symbol]||{}).industry||'—',
+          c:sg.symbol,
+          n:(nameMap[sg.symbol]||{}).name||sg.symbol,
+          t:(nameMap[sg.symbol]||{}).industry||'—',
           px:isFinite(px)?px:0,
           dp:isFinite(cp)?cp:0,
-          vol:'—',
+          vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
           ts:sg.technical_score!=null?sg.technical_score:'—',
           cs:sg.chip_score!=null?sg.chip_score:'—',
           ms:sg.theme_score!=null?sg.theme_score:'—',
@@ -327,19 +324,29 @@ async function loadReal(){
         `candidate_pool?select=symbol,name,score,reason&date=eq.${d}`+
         `&order=score.desc&limit=40`, 100);
       if(Array.isArray(cp) && cp.length){
-        // 補當日價格/漲跌
         const pr = await sbGet(
-          `daily_prices?select=symbol,close,change_percent&date=eq.${d}`, 20000);
+          `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
         const pm = {}; (pr||[]).forEach(x=>pm[x.symbol]=x);
+        const sg2 = await sbGet(
+          `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score&date=eq.${d}`, 20000);
+        const sm = {}; (sg2||[]).forEach(x=>sm[x.symbol]=x);
+        const nm = await sbGet('stocks?select=symbol,name', 20000);
+        const nmap = {}; (nm||[]).forEach(s=>nmap[s.symbol]=s.name);
         DATA.screen = cp.map(r=>{
-          const p = pm[r.symbol]||{};
+          const p = pm[r.symbol]||{}; const s = sm[r.symbol]||{};
           const cpv = parseFloat(p.change_percent);
+          const px = parseFloat(p.close);
+          const vol = parseInt(p.volume);
           return {
-            c:r.symbol, n:r.name||r.symbol,
-            t:(r.reason||'').slice(0,8)||'—',
-            px:p.close!=null?p.close:'—',
+            c:r.symbol, n:nmap[r.symbol]||r.name||r.symbol,
+            t:(r.reason||'').slice(0,10)||'—',
+            px:isFinite(px)?px:'—',
             dp:isFinite(cpv)?cpv:0,
-            vol:'—', ts:r.score, cs:r.score, ms:r.score, total:r.score
+            vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
+            ts:s.technical_score!=null?s.technical_score:'—',
+            cs:s.chip_score!=null?s.chip_score:'—',
+            ms:s.theme_score!=null?s.theme_score:'—',
+            total:s.final_score!=null?s.final_score:r.score
           };
         });
       }
