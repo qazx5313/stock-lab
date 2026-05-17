@@ -1,1 +1,33 @@
+name: 每日盤後抓取
 
+on:
+  schedule:
+    # GitHub Actions 用 UTC。台灣 = UTC+8。
+    # 台灣 14:30 -> UTC 06:30（盤後初抓）
+    - cron: "30 6 * * 1-5"
+    # 台灣 16:15 -> UTC 08:15（盤後正式抓，法人/資券較完整）
+    - cron: "15 8 * * 1-5"
+  workflow_dispatch: {}   # 允許手動按按鈕觸發（第一次測試用）
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      - name: 安裝 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 安裝套件
+        run: pip install -r requirements.txt
+
+      - name: 執行抓取
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          THROTTLE_SEC: "3"
+        run: python jobs/fetch_all.py
