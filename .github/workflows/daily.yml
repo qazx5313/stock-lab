@@ -39,6 +39,14 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python fetch_company_info.py
 
+      - name: 2b) 抓大盤指數
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python fetch_index.py
+
       - name: 3) 計算技術指標/題材/候選池
         if: always()
         working-directory: jobs
