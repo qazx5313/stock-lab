@@ -273,13 +273,30 @@ async function loadReal(){
     if(Array.isArray(top) && top.length){
       const names = await sbGet('stocks?select=symbol,name,industry', 20000);
       const nameMap = {}; (names||[]).forEach(s=>nameMap[s.symbol]=s);
+      // 取當日 daily_signals 補技術/籌碼/題材/綜合分與 AI 簡評
+      let sigMap = {};
+      try{
+        const sg = await sbGet(
+          `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score,summary&date=eq.${d}`,
+          20000);
+        (sg||[]).forEach(x=>sigMap[x.symbol]=x);
+      }catch(_){}
       DATA.picks = top.map(r=>{
         const cp = parseFloat(r.change_percent);
+        const sg = sigMap[r.symbol] || {};
+        const px = parseFloat(r.close);
         return {
-          c:r.symbol, n:(nameMap[r.symbol]||{}).name||r.symbol,
-          p:r.close,
-          dp:(isFinite(cp)?(cp>0?'+':'')+cp+'%':'—'),
-          theme:(nameMap[r.symbol]||{}).industry||'—', score:'—'
+          c:r.symbol,
+          n:(nameMap[r.symbol]||{}).name||r.symbol,
+          t:(nameMap[r.symbol]||{}).industry||'—',
+          px:isFinite(px)?px:0,
+          dp:isFinite(cp)?cp:0,
+          vol:'—',
+          ts:sg.technical_score!=null?sg.technical_score:'—',
+          cs:sg.chip_score!=null?sg.chip_score:'—',
+          ms:sg.theme_score!=null?sg.theme_score:'—',
+          fs:sg.final_score!=null?sg.final_score:'—',
+          ai:sg.summary||'—'
         };
       });
     }
@@ -623,7 +640,7 @@ const DATA = {
     {c:'3231',n:'緯創',m:'上市',ind:'電腦週邊',th:'AI 伺服器',lead:false,obs:true},
   ],
 };
-const fmtPx=v=>v.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const fmtPx=v=>{const n=Number(v);return isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';};
 const sgn=v=>(v>0?'+':'')+v;
 const dcls=v=>v>0?'up':(v<0?'down':'muted');
 
@@ -681,7 +698,14 @@ function go(id){
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   document.querySelectorAll('.mob-nav a').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   const v=document.getElementById('view');
-  v.innerHTML=({home:vHome,map:vMap,screen:vScreen,stock:vStock,report:vReport,ai:vAI,admin:vAdmin,status:vStatus}[id])();
+  try{
+    v.innerHTML=({home:vHome,map:vMap,screen:vScreen,stock:vStock,report:vReport,ai:vAI,admin:vAdmin,status:vStatus}[id])();
+  }catch(err){
+    console.error('頁面渲染錯誤 ['+id+']:', err);
+    v.innerHTML='<div class="card" style="margin:16px"><b>此頁載入時發生問題</b>'+
+      '<div style="color:var(--ink-2);font-size:13px;margin-top:8px">'+
+      '其他頁面仍可正常切換。錯誤：'+(err&&err.message||err)+'</div></div>';
+  }
   v.scrollTo&&window.scrollTo(0,0);
   document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{go(el.dataset.go);toggleNav(false);});
   if(id==='stock')drawStockCharts();
