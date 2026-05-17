@@ -114,7 +114,23 @@ def sb_upsert(table, rows, on_conflict=None, batch=500):
     if not rows:
         log(f"  {table}: 0 筆，略過")
         return 0
-    # 防呆：有 date 欄位的表，週六/週日日期一律剔除（非交易日無真資料）
+    # 防呆 1：只允許正規上市櫃普通股代號（4 位數字、首位 1-9）
+    import re as _re
+    _SYMBOLED = {
+        "daily_prices", "daily_signals", "candidate_pool",
+        "institutional_trades", "margin_trades", "stocks",
+        "theme_stocks", "monthly_revenue",
+    }
+    if table in _SYMBOLED:
+        _ok = _re.compile(r"^[1-9]\d{3}$")
+        _b = len(rows)
+        rows = [r for r in rows if _ok.match(str(r.get("symbol", "")).strip())]
+        if _b - len(rows):
+            log(f"  ⚠️ {table}: 剔除 {_b - len(rows)} 筆非普通股代號")
+        if not rows:
+            log(f"  {table}: 過濾後 0 筆，略過")
+            return 0
+    # 防呆 2：有 date 欄位的表，週六/週日日期一律剔除（非交易日無真資料）
     _DATED = {
         "daily_prices", "daily_signals", "candidate_pool",
         "institutional_trades", "margin_trades",

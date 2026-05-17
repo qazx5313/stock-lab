@@ -26,7 +26,7 @@ from collections import defaultdict
 
 import requests
 
-from sb_common import log, sb_select, sb_one, sb_upsert, mark_status
+from sb_common import log, sb_select, sb_one, sb_upsert, sb_delete, mark_status
 
 FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "").strip()
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
@@ -183,6 +183,11 @@ def main():
         atype = ag.get("strategy_type") or ""
         ver = ag.get("strategy_version") or "v1.0"
         log(f"\n--- AI #{aid} {ag.get('name')}（{atype}）---")
+
+        # 重算前清掉這個 agent 的舊紀錄，避免每次跑都疊加重複
+        for _t in ("ai_candidates", "ai_backtests", "ai_deep_analysis",
+                   "ai_positions", "ai_trades"):
+            sb_delete(_t, f"agent_id=eq.{aid}")
 
         picks, backtests, deep_rows = [], [], []
         passed_syms = []

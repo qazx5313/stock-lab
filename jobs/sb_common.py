@@ -90,7 +90,26 @@ def sb_upsert(table, rows, on_conflict=None, batch=500):
     if not rows:
         log(f"  {table}: 0 筆，略過")
         return 0
-    # 防呆：有 date 欄位的表，凡是週六/週日的日期一律剔除（非交易日不可能有真資料）
+    # 防呆 1：有 symbol 欄位的表，只允許正規上市櫃普通股代號
+    #   正規：4 位純數字，首位 1-9（排除 00 開頭 ETF、權證 72504U、興櫃 6 位 703819）
+    import re as _re
+
+    SYMBOLED = {
+        "daily_prices", "daily_signals", "candidate_pool",
+        "institutional_trades", "margin_trades", "stocks",
+        "theme_stocks", "monthly_revenue",
+    }
+    if table in SYMBOLED:
+        _ok = _re.compile(r"^[1-9]\d{3}$")
+        b0 = len(rows)
+        rows = [r for r in rows if _ok.match(str(r.get("symbol", "")).strip())]
+        d0 = b0 - len(rows)
+        if d0:
+            log(f"  ⚠️ {table}: 剔除 {d0} 筆非普通股(權證/興櫃/ETF)代號")
+        if not rows:
+            log(f"  {table}: 過濾後 0 筆，略過")
+            return 0
+    # 防呆 2：有 date 欄位的表，凡是週六/週日的日期一律剔除（非交易日不可能有真資料）
     DATED = {
         "daily_prices", "daily_signals", "candidate_pool",
         "institutional_trades", "margin_trades",
@@ -140,6 +159,23 @@ def sb_upsert(table, rows, on_conflict=None, batch=500):
                 time.sleep(2 * attempt)
     log(f"  {table}: 寫入 {total} 筆")
     return total
+
+
+def sb_delete(table, query):
+    """依條件刪除。query 例：'date=eq.2026-05-15'。用於重算前清當日舊資料避免重複。"""
+    if not SUPABASE_URL or not SERVICE_KEY:
+        raise RuntimeError("缺少 SUPABASE_URL / SUPABASE_SERVICE_KEY")
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{query}"
+    try:
+        r = requests.delete(url, headers=_headers(), timeout=TIMEOUT)
+        if r.status_code in (200, 204):
+            log(f"  {table}: 已清除舊資料（{query}）")
+            return True
+        log(f"  {table}: 清除回應 {r.status_code}")
+        return False
+    except Exception as e:  # noqa
+        log(f"  {table}: 清除失敗 {e}")
+        return False
 
 
 def mark_status(source, ok, error=""):

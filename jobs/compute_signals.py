@@ -16,7 +16,7 @@ compute_signals.py — 第四階段核心計算引擎
 import datetime as dt
 from collections import defaultdict
 
-from sb_common import log, sb_select, sb_one, sb_upsert, mark_status
+from sb_common import log, sb_select, sb_one, sb_upsert, sb_delete, mark_status
 
 # ---- 產業 -> 題材對應（規則版；之後可在後台維護）----
 INDUSTRY_THEME = {
@@ -304,6 +304,7 @@ def main():
         }
         for s in top
     ]
+    sb_delete("candidate_pool", f"date=eq.{latest}")
     sb_upsert("candidate_pool", cand)
     log(f"候選池 {len(cand)} 檔")
 
