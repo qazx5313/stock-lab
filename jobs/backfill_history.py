@@ -173,7 +173,7 @@ def main():
     log(f"=== 歷史回補開始：往前 {days} 個日曆日 ===")
     total_tw, total_tp, hit_days = 0, 0, 0
 
-    for back in range(1, days + 1):
+    for back in range(0, days + 1):
         d = today - dt.timedelta(days=back)
         if d.weekday() >= 5:  # 跳過週末
             continue

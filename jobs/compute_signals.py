@@ -110,15 +110,23 @@ def main():
     today = dt.date.today()
     log("=== compute_signals 開始 ===")
 
-    # 1) 抓最近交易日
+    # 1) 抓最近交易日（明確用 date 由大到小排序取第一筆，避免分頁/順序問題）
+    newest = sb_select(
+        "daily_prices", "select=date&order=date.desc&limit=1", page_size=1
+    )
     dates = sb_select("daily_prices", "select=date", page_size=1000)
     all_d = sorted({str(r["date"])[:10] for r in dates})
     if not all_d:
         log("daily_prices 無資料，結束")
         mark_status("compute_signals", False, "no daily_prices")
         return
-    latest = all_d[-1]
-    log(f"最近交易日：{latest}（歷史可用天數 {len(all_d)}）")
+    latest = (
+        str(newest[0]["date"])[:10] if newest else all_d[-1]
+    )
+    log(
+        f"資料庫日期範圍：{all_d[0]} ~ {all_d[-1]}（共 {len(all_d)} 個交易日）"
+    )
+    log(f"採用最近交易日：{latest}")
 
     # 2) 拉全部歷史價格，依 symbol 整理時間序列
     prices = sb_select(

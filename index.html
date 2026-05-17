@@ -234,21 +234,23 @@ let SRC_STATUS = '載入中…';
    全程把狀態寫進畫面頂端橫幅，方便你一眼看出連上沒、卡哪。 */
 async function loadReal(){
   try{
-    // 取所有不同的交易日（資料量小，最穩），前端自己排序取最大
-    const days = await sbGet('daily_prices?select=date', 20000);
-    if(!Array.isArray(days) || days.length===0){
+    // 直接問資料庫「最大的交易日」（排序取 1 筆，最穩，不受筆數上限影響）
+    const newest = await sbGet('daily_prices?select=date&order=date.desc&limit=1');
+    if(!Array.isArray(newest) || newest.length===0){
       SRC_STATUS = '⚠️ 資料庫尚無 daily_prices 資料，顯示範例'; return;
     }
-    // 去重 + 過濾掉「今天之後」的異常日期 + 取最大（最近交易日）
     const todayStr = new Date().toISOString().slice(0,10);
-    const uniq = [...new Set(days.map(x=>String(x.date).slice(0,10)))]
-                  .filter(s=>/^\d{4}-\d{2}-\d{2}$/.test(s) && s<=todayStr)
-                  .sort();
-    if(uniq.length===0){
+    let d = String(newest[0].date).slice(0,10);
+    // 萬一最大日落在未來（資料異常），退而取 <= 今天的最大日
+    if(d > todayStr){
+      const safe = await sbGet(
+        `daily_prices?select=date&date=lte.${todayStr}&order=date.desc&limit=1`);
+      if(Array.isArray(safe) && safe.length) d = String(safe[0].date).slice(0,10);
+    }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){
       SRC_STATUS = '⚠️ 找不到有效交易日，顯示範例'; return;
     }
-    const d = uniq[uniq.length-1];          // 最近一個交易日
-    console.log('[stock-lab] 資料庫交易日清單:', uniq, '採用:', d);
+    console.log('[stock-lab] 採用最近交易日:', d);
 
     // 用 Prefer:count 拿總筆數，比抓全部 symbol 再 .length 穩又省流量
     async function cnt(q){
