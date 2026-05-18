@@ -37,6 +37,7 @@ jobs:
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
         run: python fetch_company_info.py
 
       - name: 2b) 抓大盤指數
