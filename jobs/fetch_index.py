@@ -43,6 +43,18 @@ def last_weekday(d):
     return d
 
 
+def parse_roc_or_ymd(v):
+    s = str(v or "").strip().replace("/", "").replace("-", "")
+    try:
+        if len(s) == 7:
+            return dt.date(int(s[:3]) + 1911, int(s[3:5]), int(s[5:7]))
+        if len(s) == 8:
+            return dt.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+    except Exception:
+        return None
+    return None
+
+
 def fetch_taiex():
     """加權指數。TWSE OpenAPI 大盤指數收盤行情。"""
     # 含發行量加權股價指數的每日收盤
@@ -54,6 +66,7 @@ def fetch_taiex():
         name = str(row.get("指數") or row.get("Index") or "")
         if "發行量加權股價指數" in name or name.strip() == "發行量加權股價指數":
             return {
+                "date": parse_roc_or_ymd(row.get("日期") or row.get("Date")),
                 "value": num(row.get("收盤指數") or row.get("ClosingIndex")),
                 "change": num(row.get("漲跌點數") or row.get("Change")),
                 "change_percent": num(
@@ -82,12 +95,13 @@ def fetch_tpex_index():
             if not rows:
                 return None
             last = rows[-1]  # [日期, 開, 高, 低, 收, 漲跌]
+            row_date = parse_roc_or_ymd(last[0]) if len(last) > 0 else None
             close = num(last[4]) if len(last) > 4 else None
             chg = num(last[5]) if len(last) > 5 else None
             cp = None
             if close is not None and chg is not None and (close - chg):
                 cp = round(chg / (close - chg) * 100, 2)
-            return {"value": close, "change": chg, "change_percent": cp}
+            return {"date": row_date, "value": close, "change": chg, "change_percent": cp}
         except Exception as e:  # noqa
             log(f"  櫃買指數重試 {attempt}: {e}")
             time.sleep(2 * attempt)
@@ -103,7 +117,7 @@ def main():
     if tw and tw.get("value"):
         rows.append(
             {
-                "date": d.isoformat(),
+                "date": (tw.get("date") or d).isoformat(),
                 "market": "TWSE",
                 "index_value": tw["value"],
                 "change": tw.get("change"),
@@ -121,7 +135,7 @@ def main():
     if tp and tp.get("value"):
         rows.append(
             {
-                "date": d.isoformat(),
+                "date": (tp.get("date") or d).isoformat(),
                 "market": "TPEX",
                 "index_value": tp["value"],
                 "change": tp.get("change"),
