@@ -751,6 +751,8 @@ const DATA = {
 };
 const fmtPx=v=>{const n=Number(v);return isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';};
 const sgn=v=>(v>0?'+':'')+v;
+const fmtSigned=v=>{const n=Number(v);return isFinite(n)?`${n>0?'+':''}${Math.round(n).toLocaleString('en-US')}`:'—';};
+const fmtLot=v=>{const n=Number(v);return isFinite(n)?`${Math.round(n).toLocaleString('en-US')} 張`:'—';};
 const dcls=v=>v>0?'up':(v<0?'down':'muted');
 
 /* ============ 導覽與路由 ============ */
@@ -1264,7 +1266,7 @@ function vStock(){
        <div style="display:flex;gap:18px;font-size:11.5px;color:var(--ink-2);margin-top:10px;flex-wrap:wrap">
          <span><b style="color:#F59E0B">━</b> 5MA</span><span><b style="color:#2563EB">━</b> 10MA</span>
          <span><b style="color:#7C3AED">━</b> 20MA</span><span><b style="color:#0F172A">━</b> 60MA</span>
-         <span style="margin-left:auto;color:var(--ink-3)">支撐 35.1 / 32.4　壓力 39.8 / 42.0</span>
+         <span style="margin-left:auto;color:var(--ink-3)">${s.levelText||'支撐 / 壓力：資料計算中'}</span>
        </div>
      </div>
    </div>
@@ -1272,9 +1274,9 @@ function vStock(){
    <div class="grid" style="grid-template-columns:1fr 1fr">
      <div class="card"><div class="card-h"><h3>技術指標</h3></div>
        <div class="card-pad" style="display:flex;flex-direction:column;gap:14px">
-         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">KD（9,3,3）<b class="up" style="float:right">K 82 · D 74 黃金交叉</b></div><canvas id="cKD" style="width:100%;height:80px;display:block"></canvas></div>
-         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">MACD <b class="up" style="float:right">柱狀翻紅</b></div><canvas id="cMD" style="width:100%;height:80px;display:block"></canvas></div>
-         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">RSI（14）<b class="up" style="float:right">64 偏強</b></div><canvas id="cRS" style="width:100%;height:80px;display:block"></canvas></div>
+         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">KD（9,3,3）<b class="${s.tech?.kdClass||''}" style="float:right">${s.tech?.kdText||'尚無足夠歷史資料'}</b></div><canvas id="cKD" style="width:100%;height:80px;display:block"></canvas></div>
+         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">MACD <b class="${s.tech?.macdClass||''}" style="float:right">${s.tech?.macdText||'尚無足夠歷史資料'}</b></div><canvas id="cMD" style="width:100%;height:80px;display:block"></canvas></div>
+         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">RSI（14）<b class="${s.tech?.rsiClass||''}" style="float:right">${s.tech?.rsiText||'尚無足夠歷史資料'}</b></div><canvas id="cRS" style="width:100%;height:80px;display:block"></canvas></div>
        </div>
      </div>
      <div class="card"><div class="card-h"><h3>籌碼分析</h3><span class="tag">三大法人 · 融資融券</span></div>
@@ -1284,7 +1286,7 @@ function vStock(){
           ['融資增減',s.margin.mc],['融券增減',s.margin.sc]].map(r=>
          `<tr><td class="muted">${r[0]}</td><td class="r num" style="font-weight:700;color:${(''+r[1]).includes('-')?'var(--down)':'var(--up)'}">${r[1]}</td></tr>`).join('')}
        </tbody></table></div>
-       <div class="card-pad" style="border-top:1px solid var(--border-soft);font-size:12.5px;color:var(--ink-2)">${s.inst3}</div>
+       <div class="card-pad" style="border-top:1px solid var(--border-soft);font-size:12.5px;color:var(--ink-2)">${s.inst3||'尚無近期籌碼資料'}</div>
      </div>
    </div>
 
@@ -1299,8 +1301,9 @@ function vStock(){
      </div>
      <div class="card"><div class="card-h"><h3>公告與新聞</h3></div>
        <div style="padding:4px 0">
-       ${s.ann.map(a=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft)">
-         <b class="code" style="color:var(--ink-3);flex-shrink:0">${a.d}</b><div style="font-size:13px;line-height:1.4">${a.t}</div></div>`).join('')}
+       ${(s.ann&&s.ann.length)?s.ann.map(a=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft)">
+         <b class="code" style="color:var(--ink-3);flex-shrink:0">${a.d}</b><div style="font-size:13px;line-height:1.4">${a.t}</div></div>`).join(''):
+         `<div class="muted" style="padding:18px 20px;font-size:13px">此股票目前沒有公開資訊觀測站公告資料。</div>`}
        </div>
      </div>
    </div>
@@ -1311,6 +1314,13 @@ function vStock(){
 /* 抓該股真實歷史，轉成 K 線格式存 DATA.stock.series */
 async function loadStockSeries(sym){
   try{
+    DATA.stock.c=sym;
+    DATA.stock.tech=null;
+    DATA.stock.ann=[];
+    DATA.stock.levelText='';
+    DATA.stock.inst={foreign:'—',trust:'—',dealer:'—',total:'—'};
+    DATA.stock.margin={mb:'—',sb:'—',mc:'—',sc:'—'};
+    DATA.stock.inst3='尚無近期籌碼資料';
     const rows = await sbGet(
       `daily_prices?select=date,open,high,low,close,volume&symbol=eq.${sym}`+
       `&order=date.asc`, 5000);
@@ -1332,9 +1342,39 @@ async function loadStockSeries(sym){
       }
       // 補股名
       try{
-        const nm=await sbGet(`stocks?select=name&symbol=eq.${sym}`,2);
-        if(nm&&nm[0]&&nm[0].name) DATA.stock.n=nm[0].name;
+        const nm=await sbGet(`stocks?select=name,market,industry,theme_tags&symbol=eq.${sym}`,2);
+        if(nm&&nm[0]){
+          if(nm[0].name) DATA.stock.n=nm[0].name;
+          DATA.stock.market=nm[0].market||'—';
+          DATA.stock.industry=nm[0].industry||'—';
+          const tags=Array.isArray(nm[0].theme_tags)?nm[0].theme_tags:[];
+          DATA.stock.theme=tags[0]||DATA.stock.industry||'—';
+          DATA.stock.role=tags.length?tags.join(' / '):(DATA.stock.industry||'—');
+        }
       }catch(_){}
+      const closes=DATA.stock.series.map(x=>x.c);
+      const highs=DATA.stock.series.map(x=>x.h);
+      const lows=DATA.stock.series.map(x=>x.l);
+      const kd=calcKDSeries(highs,lows,closes);
+      const rsi=calcRSISeries(closes);
+      const md=calcMACDSeries(closes);
+      const lk=lastNum(kd.k), ld=lastNum(kd.d), lr=lastNum(rsi), lh=lastNum(md.hist);
+      DATA.stock.tech={
+        kd:kd, rsi:rsi, macd:md,
+        kdText:lk==null||ld==null?'尚無足夠歷史資料':`K ${lk.toFixed(1)} · D ${ld.toFixed(1)} ${lk>=ld?'偏多':'偏弱'}`,
+        kdClass:lk!=null&&ld!=null?(lk>=ld?'up':'down'):'',
+        macdText:lh==null?'尚無足夠歷史資料':`${lh>=0?'柱狀為正':'柱狀為負'} ${lh.toFixed(3)}`,
+        macdClass:lh!=null?(lh>=0?'up':'down'):'',
+        rsiText:lr==null?'尚無足夠歷史資料':`${lr.toFixed(1)} ${lr>=70?'過熱':lr>=50?'偏強':lr<=30?'偏弱':'中性'}`,
+        rsiClass:lr!=null?(lr>=50?'up':'down'):''
+      };
+      const recent=DATA.stock.series.slice(-20);
+      if(recent.length){
+        const sup=Math.min(...recent.map(x=>x.l));
+        const res=Math.max(...recent.map(x=>x.h));
+        DATA.stock.levelText=`近20日支撐 ${fmtPx(sup)} / 壓力 ${fmtPx(res)}`;
+      }
+      await loadStockRealDetails(sym);
     }else{
       DATA.stock.series=null; // 無足夠真實資料 -> 由繪圖 fallback
     }
@@ -1344,19 +1384,107 @@ async function loadStockSeries(sym){
   }
 }
 
+async function loadStockRealDetails(sym){
+  try{
+    const sig=await sbGet(`daily_signals?select=technical_score,chip_score,theme_score,final_score,summary,signal_tags&symbol=eq.${sym}&order=date.desc&limit=1`,1);
+    if(sig&&sig[0]){
+      const tags=Array.isArray(sig[0].signal_tags)?sig[0].signal_tags.join('、'):'';
+      DATA.stock.tStat=`技術分 ${sig[0].technical_score??'—'}${tags?' · '+tags:''}`;
+      DATA.stock.cStat=`籌碼分 ${sig[0].chip_score??'—'}`;
+      DATA.stock.mStat=`題材分 ${sig[0].theme_score??'—'}`;
+      DATA.stock.trend=`綜合分 ${sig[0].final_score??'—'}`;
+      DATA.stock.op=sig[0].summary||'尚無系統摘要';
+    }
+  }catch(e){ console.warn('個股訊號載入略過:',e); }
+  try{
+    const inst=await sbGet(`institutional_trades?select=date,foreign_buy_sell,investment_trust_buy_sell,dealer_buy_sell,total_buy_sell&symbol=eq.${sym}&order=date.desc&limit=5`,5);
+    if(inst&&inst.length){
+      const latest=inst[0];
+      DATA.stock.inst={
+        foreign:fmtSigned(latest.foreign_buy_sell),
+        trust:fmtSigned(latest.investment_trust_buy_sell),
+        dealer:fmtSigned(latest.dealer_buy_sell),
+        total:fmtSigned(latest.total_buy_sell)
+      };
+      const sum=(k)=>inst.reduce((a,r)=>a+(Number(r[k])||0),0);
+      DATA.stock.inst3=`近${inst.length}筆合計：外資 ${fmtSigned(sum('foreign_buy_sell'))} · 投信 ${fmtSigned(sum('investment_trust_buy_sell'))} · 自營商 ${fmtSigned(sum('dealer_buy_sell'))}`;
+    }
+  }catch(e){ console.warn('法人籌碼載入略過:',e); }
+  try{
+    const mg=await sbGet(`margin_trades?select=date,margin_balance,short_balance,margin_change,short_change&symbol=eq.${sym}&order=date.desc&limit=1`,1);
+    if(mg&&mg[0]){
+      DATA.stock.margin={
+        mb:fmtLot(mg[0].margin_balance),
+        sb:fmtLot(mg[0].short_balance),
+        mc:fmtSigned(mg[0].margin_change),
+        sc:fmtSigned(mg[0].short_change)
+      };
+    }
+  }catch(e){ console.warn('融資券載入略過:',e); }
+  try{
+    const ann=await sbGet(`mops_announcements?select=date,title,category&symbol=eq.${sym}&order=date.desc&limit=8`,8);
+    DATA.stock.ann=(ann||[]).map(a=>({
+      d:String(a.date||'').slice(5).replace('-','/'),
+      t:[a.category,a.title].filter(Boolean).join(' · ')||'公告'
+    }));
+  }catch(e){ console.warn('公告載入略過:',e); DATA.stock.ann=[]; }
+}
+
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
   const c=Math.max(base*.6,o+ch);const h=Math.max(o,c)*(1+Math.random()*.012);const l=Math.min(o,c)*(1-Math.random()*.012);
   a.push({o,h,l,c,v:Math.round((6000+Math.random()*9000)*(1+Math.abs(ch)/vol))});p=c;}return a;}
 function ma(a,k,key='c'){return a.map((_,i)=>i<k-1?null:a.slice(i-k+1,i+1).reduce((s,x)=>s+x[key],0)/k);}
+function lastNum(arr){for(let i=(arr||[]).length-1;i>=0;i--){const n=Number(arr[i]);if(isFinite(n))return n;}return null;}
+function emaSeries(vals,n){
+  const out=Array(vals.length).fill(null);let ema=null,buf=[];const k=2/(n+1);
+  vals.forEach((v,i)=>{
+    v=Number(v); if(!isFinite(v)) return;
+    if(ema==null){
+      buf.push(v);
+      if(buf.length===n){ema=buf.reduce((a,b)=>a+b,0)/n;out[i]=ema;}
+    }else{ema=v*k+ema*(1-k);out[i]=ema;}
+  });
+  return out;
+}
+function calcKDSeries(highs,lows,closes,n=9){
+  const kArr=Array(closes.length).fill(null),dArr=Array(closes.length).fill(null);let k=50,d=50;
+  for(let i=n-1;i<closes.length;i++){
+    const hh=Math.max(...highs.slice(i-n+1,i+1)),ll=Math.min(...lows.slice(i-n+1,i+1));
+    if(!isFinite(hh)||!isFinite(ll)||hh===ll) continue;
+    const rsv=(closes[i]-ll)/(hh-ll)*100;
+    k=2/3*k+1/3*rsv; d=2/3*d+1/3*k;
+    kArr[i]=k; dArr[i]=d;
+  }
+  return {k:kArr,d:dArr};
+}
+function calcRSISeries(closes,n=14){
+  return closes.map((_,i)=>{
+    if(i<n) return null;
+    let gain=0,loss=0;
+    for(let j=i-n+1;j<=i;j++){const diff=closes[j]-closes[j-1];gain+=Math.max(diff,0);loss+=Math.max(-diff,0);}
+    if(loss===0) return 100;
+    const rs=(gain/n)/(loss/n);
+    return 100-100/(1+rs);
+  });
+}
+function calcMACDSeries(closes){
+  const e12=emaSeries(closes,12),e26=emaSeries(closes,26);
+  const dif=closes.map((_,i)=>e12[i]!=null&&e26[i]!=null?e12[i]-e26[i]:null);
+  const signal=emaSeries(dif.map(v=>v==null?NaN:v),9);
+  const hist=dif.map((v,i)=>v!=null&&signal[i]!=null?(v-signal[i])*2:null);
+  return {dif,signal,hist};
+}
 function setupCanvas(id){const c=document.getElementById(id);if(!c)return null;const r=devicePixelRatio||1;
   const w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;const x=c.getContext('2d');x.scale(r,r);return {x,w,h};}
 function drawStockCharts(){
   const D=(DATA.stock&&Array.isArray(DATA.stock.series)&&DATA.stock.series.length>=5)
             ? DATA.stock.series.slice(-60)
-            : genSeries(60,33,1.1);
+            : [];
   const m5=ma(D,5),m10=ma(D,10),m20=ma(D,20),m60v=D.map(d=>d.c);
+  const empty=(g,msg='尚無足夠真實資料')=>{if(!g)return;const{x,w,h}=g;x.fillStyle='#94A3B8';x.font='13px system-ui';x.textAlign='center';x.fillText(msg,w/2,h/2);};
   // K 線
   let g=setupCanvas('cK');if(g){const{x,w,h}=g;const pad=8;
+    if(!D.length){empty(g);return;}
     const all=D.flatMap(d=>[d.h,d.l]);const mx=Math.max(...all)*1.01,mn=Math.min(...all)*.99;
     const Y=v=>pad+(mx-v)/(mx-mn)*(h-pad*2);const bw=(w-20)/D.length;
     x.strokeStyle='#F1F5F9';for(let i=0;i<5;i++){const yy=pad+i*(h-pad*2)/4;x.beginPath();x.moveTo(0,yy);x.lineTo(w,yy);x.stroke();}
@@ -1371,20 +1499,20 @@ function drawStockCharts(){
     D.forEach((d,i)=>{const cx=10+i*bw,bh=d.v/mv*(h-6);x.fillStyle=d.c>=d.o?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';
       x.fillRect(cx,h-bh,bw*.62,bh);});}
   // KD
-  g=setupCanvas('cKD');if(g){const{x,w,h}=g;const K=D.map((_,i)=>50+Math.sin(i/3)*28+(Math.random()*8));
-    const Kd=K.map((_,i)=>i<2?K[i]:(K[i]+K[i-1]+K[i-2])/3);
-    [[K,'#DC2626'],[Kd,'#2563EB']].forEach(([s,c])=>{x.strokeStyle=c;x.lineWidth=1.5;x.beginPath();
-      s.forEach((v,i)=>{const cx=i/(s.length-1)*w,cy=h-v/100*h;i?x.lineTo(cx,cy):x.moveTo(cx,cy);});x.stroke();});}
+  g=setupCanvas('cKD');if(g){const{x,w,h}=g;const kd=DATA.stock.tech&&DATA.stock.tech.kd;
+    if(!kd){empty(g);}else [[kd.k,'#DC2626'],[kd.d,'#2563EB']].forEach(([s,c])=>{x.strokeStyle=c;x.lineWidth=1.5;x.beginPath();let started=false;
+      s.slice(-60).forEach((v,i,a)=>{if(v==null)return;const cx=i/Math.max(1,a.length-1)*w,cy=h-v/100*h;started?x.lineTo(cx,cy):x.moveTo(cx,cy);started=true;});if(started)x.stroke();});}
   // MACD
-  g=setupCanvas('cMD');if(g){const{x,w,h}=g;const bars=D.map((_,i)=>Math.sin(i/5)*1.2+(Math.random()-.5)*.4);
-    const bw=w/bars.length;bars.forEach((v,i)=>{x.fillStyle=v>=0?'rgba(220,38,38,.7)':'rgba(22,163,74,.7)';
-      const bh=Math.abs(v)/2*(h/2);x.fillRect(i*bw,h/2-(v>0?bh:0),bw*.7,bh);});
-    x.strokeStyle='#94A3B8';x.beginPath();x.moveTo(0,h/2);x.lineTo(w,h/2);x.stroke();}
+  g=setupCanvas('cMD');if(g){const{x,w,h}=g;const bars=(DATA.stock.tech&&DATA.stock.tech.macd?DATA.stock.tech.macd.hist:[]).slice(-60);
+    if(!bars.some(v=>v!=null)){empty(g);}else{const maxAbs=Math.max(...bars.map(v=>Math.abs(v||0)),.001);const bw=w/bars.length;bars.forEach((v,i)=>{if(v==null)return;x.fillStyle=v>=0?'rgba(220,38,38,.7)':'rgba(22,163,74,.7)';
+      const bh=Math.abs(v)/maxAbs*(h/2-4);x.fillRect(i*bw,h/2-(v>0?bh:0),bw*.7,bh);});
+    x.strokeStyle='#94A3B8';x.beginPath();x.moveTo(0,h/2);x.lineTo(w,h/2);x.stroke();}}
   // RSI
-  g=setupCanvas('cRS');if(g){const{x,w,h}=g;const R=D.map((_,i)=>50+Math.sin(i/3.5)*22+(Math.random()*6));
+  g=setupCanvas('cRS');if(g){const{x,w,h}=g;const R=(DATA.stock.tech&&DATA.stock.tech.rsi?DATA.stock.tech.rsi:[]).slice(-60);
+    if(!R.some(v=>v!=null)){empty(g);return;}
     x.strokeStyle='#E2E8F0';[30,70].forEach(l=>{const yy=h-l/100*h;x.beginPath();x.moveTo(0,yy);x.lineTo(w,yy);x.stroke();});
-    x.strokeStyle='#2563EB';x.lineWidth=1.6;x.beginPath();
-    R.forEach((v,i)=>{const cx=i/(R.length-1)*w,cy=h-v/100*h;i?x.lineTo(cx,cy):x.moveTo(cx,cy);});x.stroke();}
+    x.strokeStyle='#2563EB';x.lineWidth=1.6;x.beginPath();let started=false;
+    R.forEach((v,i)=>{if(v==null)return;const cx=i/Math.max(1,R.length-1)*w,cy=h-v/100*h;started?x.lineTo(cx,cy):x.moveTo(cx,cy);started=true;});if(started)x.stroke();}
 }
 
 /* ============ 5. 每日報告 ============ */
