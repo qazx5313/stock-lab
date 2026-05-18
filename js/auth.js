@@ -10,6 +10,12 @@ function authUser(){return readStore('stockLabAuth',null);}
 function setAuthUser(v){v?writeStore('stockLabAuth',v):localStorage.removeItem('stockLabAuth');}
 function authToken(){return localStorage.getItem('stockLabAccessToken')||'';}
 function setAuthToken(v){v?localStorage.setItem('stockLabAccessToken',v):localStorage.removeItem('stockLabAccessToken');}
+function authEmailFor(account){
+  const a=String(account||'').trim();
+  if(a.includes('@')) return a;
+  const safe=a.toLowerCase().replace(/[^a-z0-9._-]/g,'');
+  return `${safe || 'user'}@stocklab.local`;
+}
 function activationSettings(){return readStore('stockLabActivation',DATA.activation);}
 function setActivationSettings(v){writeStore('stockLabActivation',v);}
 function manageableActivationSettings(){return activationSettings().filter(a=>a.id!=='status');}
@@ -127,21 +133,29 @@ async function saveRemoteEntitlements(account, rows){
 }
 async function remoteRegister(account,password,nick){
   try{
-    const r=await fetch(`${SB_URL}/auth/v1/signup`,{
+    const r=await fetch(EDGE_ADMIN_WRITE_URL,{
       method:'POST',
       headers:{apikey:SB_ANON,'Content-Type':'application/json'},
-      body:JSON.stringify({email:account,password,data:{nick}})
+      body:JSON.stringify({
+        action:'public_register',
+        payload:{account,auth_email:authEmailFor(account),password,nick}
+      })
     });
-    if(!r.ok) throw new Error(await r.text());
-    return true;
-  }catch(e){ console.warn('Supabase Auth 註冊略過:',e); return false; }
+    const data=await r.json().catch(()=>({}));
+    if(!r.ok || data.ok===false) throw new Error(data.error || await r.text());
+    return {ok:true};
+  }catch(e){
+    console.warn('Supabase Auth 註冊失敗:',e);
+    return {ok:false,error:e&&e.message?e.message:String(e)};
+  }
 }
 async function remoteLogin(account,password){
   try{
+    const loginEmail=authEmailFor(account);
     const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=password`,{
       method:'POST',
       headers:{apikey:SB_ANON,'Content-Type':'application/json'},
-      body:JSON.stringify({email:account,password})
+      body:JSON.stringify({email:loginEmail,password})
     });
     if(!r.ok) throw new Error(await r.text());
     const session=await r.json();
@@ -151,8 +165,14 @@ async function remoteLogin(account,password){
       const rows=await sbGet(`app_users?select=account,nick,role,days_remaining&account=eq.${encodeURIComponent(account)}&limit=1`);
       profile=Array.isArray(rows)?rows[0]:null;
     }catch(_){}
+    if(!profile && loginEmail!==account){
+      try{
+        const rows=await sbGet(`app_users?select=account,nick,role,days_remaining&account=eq.${encodeURIComponent(loginEmail)}&limit=1`);
+        profile=Array.isArray(rows)?rows[0]:null;
+      }catch(_){}
+    }
     return {
-      account,
+      account:profile?.account || account,
       nick:profile?.nick || session.user?.user_metadata?.nick || account,
       role:profile?.role || session.user?.user_metadata?.role || 'user',
       daysRemaining:Number(profile?.days_remaining)||0
@@ -206,7 +226,7 @@ function vAccount(){
       <div class="card card-pad">
         <h3 style="font-size:18px;margin-bottom:12px">登入帳號</h3>
         <div class="form-grid">
-          <div class="field"><label>帳號</label><input id="loginAccount" autocomplete="username" placeholder="輸入帳號"></div>
+          <div class="field"><label>帳號</label><input id="loginAccount" autocomplete="username" placeholder="輸入帳號或 Email"></div>
           <div class="field"><label>密碼</label><input id="loginPassword" type="password" autocomplete="current-password" placeholder="輸入密碼"></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
             <button class="btn" id="loginBtn">登入</button>
@@ -217,7 +237,7 @@ function vAccount(){
       <div class="card card-pad">
         <h3 style="font-size:18px;margin-bottom:12px">申請帳號</h3>
         <div class="form-grid">
-          <div class="field"><label>帳號</label><input id="regAccount" autocomplete="username" placeholder="建立登入帳號"></div>
+          <div class="field"><label>帳號</label><input id="regAccount" autocomplete="username" placeholder="建立登入帳號，例如 Mao0620"></div>
           <div class="field"><label>密碼</label><input id="regPassword" type="password" autocomplete="new-password" placeholder="建立密碼"></div>
           <div class="field"><label>暱稱</label><input id="regNick" placeholder="顯示在系統內的名稱"></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">

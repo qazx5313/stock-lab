@@ -37,9 +37,9 @@ function bindPage(id){
       return;
     }
     if(msg){msg.textContent='送出中…';msg.style.color='var(--ink-2)';}
-    const ok=await remoteRegister(account,password,nick);
-    if(!ok){
-      if(msg){msg.textContent='前端直接註冊已停用，請改用 Edge Function / Supabase Auth 建立帳號';msg.style.color='#92400E';}
+    const result=await remoteRegister(account,password,nick);
+    if(!result.ok){
+      if(msg){msg.textContent='申請失敗：'+(result.error||'請稍後再試');msg.style.color='#92400E';}
       return;
     }
     const next=[...users(),{account,nick,role:'user',createdAt:new Date().toISOString()}];
