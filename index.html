@@ -86,6 +86,45 @@
   .card-h .more{margin-left:auto;font-size:12px;color:var(--primary);font-weight:700}
   .sec-title{font-size:13px;font-weight:800;color:var(--ink-2);letter-spacing:.4px;margin:4px 0 12px;text-transform:uppercase}
 
+  /* ===== Dashboard Home ===== */
+  .dash{display:flex;flex-direction:column;gap:18px}
+  .dash-head{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .dash-title{display:flex;align-items:center;gap:9px;font-size:19px;font-weight:900;letter-spacing:-.3px}
+  .dash-title .target{display:inline-flex;width:30px;height:30px;align-items:center;justify-content:center;border-radius:9px;background:#FEF2F2}
+  .dash-head .hint{font-size:13px;color:var(--ink-2);font-weight:600}
+  .pick-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+  .pick-card{padding:18px 18px 16px;border-radius:var(--r);border:1px solid var(--border);background:linear-gradient(145deg,#fff,#F8FAFC);box-shadow:var(--shadow);min-width:0}
+  .pick-card.best{background:linear-gradient(145deg,#FFFFFF,#F0FDF4);border-color:#BBF7D0}
+  .pick-card.watch{background:linear-gradient(145deg,#FFFFFF,#FFFBEB);border-color:#FDE68A}
+  .pick-top{display:flex;align-items:flex-start;gap:12px}
+  .pick-code{font-family:var(--mono);font-size:23px;font-weight:900;letter-spacing:-.4px;line-height:1}
+  .pick-name{font-size:14px;font-weight:800;margin-top:4px}
+  .score-ring{width:86px;height:86px;border-radius:50%;display:grid;place-items:center;background:conic-gradient(var(--up) calc(var(--score)*1%),#F1F5F9 0);padding:7px;flex-shrink:0}
+  .score-ring i{display:grid;place-items:center;width:100%;height:100%;border-radius:50%;background:#fff;font-style:normal}
+  .score-ring b{display:block;font-size:26px;font-family:var(--mono);line-height:1;color:var(--up)}
+  .score-ring span{display:block;text-align:center;font-size:11px;color:var(--ink-2);font-weight:700;margin-bottom:3px}
+  .pick-scores{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:16px 0 12px}
+  .mini-score{border-radius:9px;background:rgba(255,255,255,.72);border:1px solid var(--border-soft);padding:8px 9px}
+  .mini-score span{display:block;font-size:11px;color:var(--ink-2);font-weight:700}
+  .mini-score b{font-family:var(--mono);font-size:15px}
+  .pick-reason{font-size:12.5px;color:var(--ink-2);line-height:1.55;min-height:40px}
+  .pick-tags{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  .dash-metrics{display:grid;grid-template-columns:1.05fr 1.2fr 1fr .9fr;gap:16px}
+  .meter{height:106px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px}
+  .meter-arc{width:150px;height:78px;border-radius:150px 150px 0 0;background:conic-gradient(from 270deg,#86EFAC 0deg,#FACC15 78deg,#22C55E 140deg,#E5E7EB 141deg);position:relative;overflow:hidden}
+  .meter-arc:after{content:"";position:absolute;inset:18px 18px 0;background:#fff;border-radius:140px 140px 0 0}
+  .needle{position:absolute;width:54px;height:4px;background:var(--down);left:68px;bottom:10px;border-radius:99px;transform:rotate(-18deg);transform-origin:4px center;z-index:2}
+  .spark{height:82px;width:100%;margin-top:8px}
+  .barline{display:grid;grid-template-columns:var(--upw) var(--downw) 1fr;height:14px;border-radius:99px;overflow:hidden;background:#CBD5E1;margin-top:14px}
+  .barline i:nth-child(1){background:var(--up)}
+  .barline i:nth-child(2){background:var(--down)}
+  .barline i:nth-child(3){background:#CBD5E1}
+  .flow-list{display:flex;flex-direction:column;gap:9px;margin-top:6px}
+  .flow-row{display:flex;align-items:center;justify-content:space-between;font-size:13.5px;font-weight:800}
+  .dashboard-table-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
+  .compare-mini td,.compare-mini th{text-align:center}
+  .compare-mini td:first-child,.compare-mini th:first-child{text-align:left}
+
   .stat{display:flex;flex-direction:column;gap:5px}
   .stat .k{font-size:12px;color:var(--ink-2);font-weight:600}
   .stat .v{font-size:24px;font-weight:800;letter-spacing:-.5px;font-variant-numeric:tabular-nums}
@@ -186,6 +225,10 @@
     }
     .mob-nav a.active{color:var(--primary)}
     .mob-nav svg{width:21px;height:21px}
+    .pick-grid,.dash-metrics,.dashboard-table-grid{grid-template-columns:1fr}
+    .dash>.grid{grid-template-columns:1fr!important}
+    .dash-head{align-items:flex-start}
+    .pick-reason{min-height:0}
   }
   @media(min-width:981px){.mob-only{display:none!important}}
 </style>
@@ -747,62 +790,110 @@ function vHome(){
     ['加權指數',fmtPx(m.twse.v),m.twse.d,m.twse.dp],
     ['櫃買指數',fmtPx(m.tpex.v),m.tpex.d,m.tpex.dp],
   ];
-  return `<div class="fade stagger" style="display:flex;flex-direction:column;gap:18px">
-   <div class="card" style="overflow:hidden">
-     <div style="padding:18px 22px;display:flex;flex-wrap:wrap;gap:14px;align-items:center;border-bottom:1px solid var(--border-soft)">
-       <div><div style="font-size:12px;color:var(--ink-2);font-weight:600">今日市場狀態</div>
-       <div style="font-size:24px;font-weight:800;letter-spacing:-.5px;margin-top:2px">${m.status}
-       <span class="badge hot" style="vertical-align:middle;margin-left:8px">資金集中題材股</span></div></div>
-       <div class="spacer mob-only" style="flex-basis:100%;height:0"></div>
-       <div style="color:var(--ink-2);font-size:13px;max-width:480px;line-height:1.5">${m.statusNote}</div>
+  const picks=DATA.picks.slice(0,3);
+  const total=m.up+m.down+98;
+  const upw=Math.max(12,Math.round(m.up/total*100))+'%';
+  const downw=Math.max(12,Math.round(m.down/total*100))+'%';
+  return `<div class="dash fade stagger">
+   <div class="dash-head">
+     <div>
+       <div class="dash-title"><span class="target">◎</span>今日台股關注清單</div>
+       <div class="hint">盤後量化 AI 依題材、技術與籌碼整理，快速掃描隔日觀察重點。</div>
      </div>
-     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));padding:18px 22px;gap:22px">
-       ${ov.map(([k,v,d,dp])=>`<div class="stat"><span class="k">${k}</span><span class="v ${dcls(d)}">${v}</span>
-         <span class="d ${dcls(d)}">${sgn(d.toFixed(2))} (${sgn(dp.toFixed(2))}%)</span></div>`).join('')}
-       <div class="stat"><span class="k">上市 / 上櫃成交金額</span><span class="v">${m.amtTwse}</span><span class="d muted">櫃買 ${m.amtTpex}</span></div>
-       <div class="stat"><span class="k">漲跌家數</span><span class="v"><span class="up">${m.up}</span> <span style="color:var(--ink-3);font-size:16px">/</span> <span class="down">${m.down}</span></span><span class="d muted">漲停 ${m.limitUp} · 跌停 ${m.limitDown}</span></div>
+     <div class="spacer"></div>
+     <span class="badge hot">資料日 ${DATA.meta.date}</span>
+     <span class="badge obs">最後更新 ${DATA.meta.updated}</span>
+   </div>
+
+   <div class="pick-grid">
+     ${picks.map((s,i)=>`<div class="pick-card ${i<2?'best':'watch'}" data-stock="${s.c}">
+       <div class="pick-top">
+         <div style="min-width:0;flex:1">
+           <div class="pick-code">${s.c}</div>
+           <div class="pick-name">${s.n}</div>
+           <div style="margin-top:10px"><span class="badge ${i<2?'cool':'warm'}">${i<2?'強勢關注':'穩健關注'}</span></div>
+         </div>
+         <div class="score-ring" style="--score:${s.fs}"><i><span>總分</span><b>${s.fs}</b></i></div>
+       </div>
+       <div class="pick-scores">
+         <div class="mini-score"><span>基本面</span><b>${Math.max(35,Math.round((s.cs+s.ms)/2))}/50</b></div>
+         <div class="mini-score"><span>技術分</span><b>${Math.max(35,Math.round(s.ts/2))}/50</b></div>
+       </div>
+       <div class="pick-reason">${s.ai}</div>
+       <div class="pick-tags"><span class="badge">${s.t}</span><span class="badge obs">MACD 多方</span><span class="badge obs">RSI 健康</span></div>
+     </div>`).join('')}
+   </div>
+
+   <div class="dash-metrics">
+     <div class="card card-pad">
+       <div class="sec-title">市場環境</div>
+       <div class="meter"><div class="meter-arc"><div class="needle"></div></div></div>
+       <div style="display:flex;flex-direction:column;gap:4px">
+         <b style="font-size:20px">${m.status}</b>
+         <span class="muted" style="font-size:12.5px">${m.statusNote}</span>
+       </div>
+     </div>
+     <div class="card card-pad">
+       <div class="sec-title">大盤指數</div>
+       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+         ${ov.map(([k,v,d,dp])=>`<div class="stat"><span class="k">${k}</span><span class="v ${dcls(d)}">${v}</span><span class="d ${dcls(d)}">${sgn(d.toFixed(2))} (${sgn(dp.toFixed(2))}%)</span></div>`).join('')}
+       </div>
+       <svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
+         <polyline points="0,68 24,62 48,66 72,54 96,57 120,43 144,48 168,34 192,39 216,25 240,30 264,18 300,23" fill="none" stroke="#22C55E" stroke-width="3" stroke-linecap="round"/>
+         <polyline points="0,75 300,75" fill="none" stroke="#E2E8F0" stroke-width="1"/>
+       </svg>
+     </div>
+     <div class="card card-pad">
+       <div class="sec-title">漲跌分布</div>
+       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
+         <div><div class="num up" style="font-size:21px;font-weight:900">${m.up}</div><div class="muted" style="font-size:12px">上漲</div></div>
+         <div><div class="num down" style="font-size:21px;font-weight:900">${m.down}</div><div class="muted" style="font-size:12px">下跌</div></div>
+         <div><div class="num" style="font-size:21px;font-weight:900">98</div><div class="muted" style="font-size:12px">平盤</div></div>
+       </div>
+       <div class="barline" style="--upw:${upw};--downw:${downw}"><i></i><i></i><i></i></div>
+       <div class="muted" style="font-size:12px;margin-top:12px">漲停 ${m.limitUp} · 跌停 ${m.limitDown}</div>
+     </div>
+     <div class="card card-pad">
+       <div class="sec-title">資金動向</div>
+       <div class="flow-list">
+         <div class="flow-row"><span>上市</span><span class="up">${m.amtTwse}</span></div>
+         <div class="flow-row"><span>上櫃</span><span class="up">${m.amtTpex}</span></div>
+         <div class="flow-row"><span>題材熱度</span><span class="down">${DATA.themes[0].score}</span></div>
+       </div>
+       <div class="muted" style="font-size:12px;margin-top:12px">資金偏向 ${DATA.themes.slice(0,3).map(t=>t.name).join('、')}</div>
      </div>
    </div>
 
-   <div class="card">
-     <div class="card-h"><h3>今日強勢題材排行</h3><span class="tag">熱度分數 · 升溫 / 主流 / 降溫</span><span class="more" data-go="map">產業地圖 →</span></div>
-     <div class="tbl-wrap"><table><thead><tr>
-       <th>題材</th><th class="r">平均漲幅</th><th class="r">量能放大</th><th class="r">漲停</th><th class="r">創高</th><th>熱度</th><th>狀態</th></tr></thead><tbody>
-       ${DATA.themes.slice(0,6).map(t=>`<tr><td><b class="lnk" data-go="map">${t.name}</b><div style="font-size:11px;color:var(--ink-3);margin-top:2px">${t.chain}</div></td>
-         <td class="r up num">${t.gain}</td><td class="r num">${t.vol}</td><td class="r num">${t.limit}</td><td class="r num">${t.high}</td>
-         <td>${scoreCell(t.score)}</td><td>${thBadge(t.status)}</td></tr>`).join('')}
-     </tbody></table></div>
-   </div>
-
-   <div class="card">
-     <div class="card-h"><h3>今日精選觀察股</h3><span class="tag">系統綜合評分篩出</span><span class="more" data-go="screen">每日篩選 →</span></div>
-     <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">收盤</th><th class="r">漲跌</th>
-       <th class="r">成交量</th><th class="r">技術</th><th class="r">籌碼</th><th class="r">題材</th><th class="r">綜合</th><th>AI 簡評</th></tr></thead><tbody>
-       ${DATA.picks.map(s=>`<tr><td class="code lnk" data-stock="${s.c}">${s.c}</td><td><b>${s.n}</b></td>
-         <td><span class="badge">${s.t}</span></td><td class="r num">${fmtPx(s.px)}</td><td class="r num up">+${s.dp}%</td>
-         <td class="r num muted">${s.vol}</td><td class="r num">${s.ts}</td><td class="r num">${s.cs}</td><td class="r num">${s.ms}</td>
-         <td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td>
-         <td style="white-space:normal;min-width:240px;color:var(--ink-2);font-size:12.5px">${s.ai}</td></tr>`).join('')}
-     </tbody></table></div>
+   <div class="dashboard-table-grid">
+     <div class="card">
+       <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
+       <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
+         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num up">+${s.dp}%</td><td class="r"><svg width="70" height="24" viewBox="0 0 70 24"><polyline points="0,19 10,15 20,17 30,11 40,13 50,7 60,9 70,4" fill="none" stroke="#22C55E" stroke-width="2"/></svg></td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
+       </tbody></table></div>
+     </div>
+     <div class="card">
+       <div class="card-h"><h3>個股比較</h3><span class="tag">Stock Compare</span></div>
+       <div class="tbl-wrap"><table class="compare-mini"><thead><tr><th>股票</th>${picks.map(s=>`<th>${s.c}</th>`).join('')}</tr></thead><tbody>
+         <tr><td>總分</td>${picks.map(s=>`<td class="num ${s.fs>=84?'up':'warn'}"><b>${s.fs}</b></td>`).join('')}</tr>
+         <tr><td>基本分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round((s.cs+s.ms)/2))}</td>`).join('')}</tr>
+         <tr><td>技術分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round(s.ts/2))}</td>`).join('')}</tr>
+         <tr><td>漲跌幅</td>${picks.map(s=>`<td class="num up">+${s.dp}%</td>`).join('')}</tr>
+       </tbody></table></div>
+     </div>
    </div>
 
    <div class="grid" style="grid-template-columns:1fr 1fr">
      <div class="card">
-       <div class="card-h"><h3>今日重大公告 / 題材新聞</h3></div>
-       <div style="padding:6px 0">
-       ${DATA.news.map(x=>`<div style="display:flex;gap:12px;padding:13px 20px;border-bottom:1px solid var(--border-soft);align-items:flex-start">
-         <span class="badge ${x.k}">${x.k==='good'?'利多':x.k==='bad'?'利空':'中性'}</span>
-         <div style="flex:1"><div style="font-size:13.5px;font-weight:600;line-height:1.45">${x.title}</div>
-         <div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${x.c!=='-'?x.c+' '+x.n+' · ':''}${x.time}</div></div></div>`).join('')}
-       </div>
+       <div class="card-h"><h3>今日強勢題材排行</h3><span class="tag">熱度分數 · 升溫 / 主流 / 降溫</span><span class="more" data-go="map">產業地圖 →</span></div>
+       <div class="tbl-wrap"><table><thead><tr><th>題材</th><th class="r">平均漲幅</th><th>熱度</th><th>狀態</th></tr></thead><tbody>
+         ${DATA.themes.slice(0,6).map(t=>`<tr><td><b class="lnk" data-go="map">${t.name}</b><div style="font-size:11px;color:var(--ink-3);margin-top:2px">${t.chain}</div></td><td class="r up num">${t.gain}</td><td>${scoreCell(t.score)}</td><td>${thBadge(t.status)}</td></tr>`).join('')}
+       </tbody></table></div>
      </div>
      <div class="card">
-       <div class="card-h"><h3>今日風險提醒</h3><span class="tag">處置 / 注意 / 爆量 / 賣超</span></div>
+       <div class="card-h"><h3>今日重大公告 / 風險提醒</h3><span class="tag">News & Risk</span></div>
        <div style="padding:6px 0">
-       ${DATA.risks.map(x=>`<div style="display:flex;gap:12px;padding:13px 20px;border-bottom:1px solid var(--border-soft);align-items:center">
-         <span class="badge warm">${x.type}</span>
-         <div style="flex:1"><b class="code">${x.c}</b> <b>${x.n}</b>
-         <span style="color:var(--ink-3);font-size:12px;margin-left:8px">${x.note}</span></div></div>`).join('')}
+         ${DATA.news.slice(0,3).map(x=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft);align-items:flex-start"><span class="badge ${x.k}">${x.k==='good'?'利多':x.k==='bad'?'利空':'中性'}</span><div style="flex:1"><div style="font-size:13.5px;font-weight:700;line-height:1.45">${x.title}</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${x.c!=='-'?x.c+' '+x.n+' · ':''}${x.time}</div></div></div>`).join('')}
+         ${DATA.risks.slice(0,2).map(x=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft);align-items:center"><span class="badge warm">${x.type}</span><div style="flex:1"><b class="code">${x.c}</b> <b>${x.n}</b><span style="color:var(--ink-3);font-size:12px;margin-left:8px">${x.note}</span></div></div>`).join('')}
        </div>
      </div>
    </div>
