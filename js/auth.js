@@ -239,7 +239,7 @@ function vAccount(){
       <div class="card card-pad">
         <h3 style="font-size:18px;margin-bottom:12px">申請帳號</h3>
         <div class="form-grid">
-          <div class="field"><label>帳號</label><input id="regAccount" autocomplete="username" placeholder="建立登入帳號，例如 Mao0620"></div>
+          <div class="field"><label>帳號</label><input id="regAccount" autocomplete="username" placeholder="建立登入帳號"></div>
           <div class="field"><label>密碼</label><input id="regPassword" type="password" autocomplete="new-password" placeholder="建立密碼"></div>
           <div class="field"><label>暱稱</label><input id="regNick" placeholder="顯示在系統內的名稱"></div>
           <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
