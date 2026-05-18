@@ -356,7 +356,7 @@ def normalize_theme_stocks(latest, name_map, price_map):
 def market_quality(latest):
     prices = rest_get(
         "daily_prices",
-        f"select=symbol,close,change,change_percent,amount,market&date=eq.{latest}",
+        f"select=symbol,open,high,low,close,change,change_percent,volume,amount,market&date=eq.{latest}",
         page_size=1000,
     )
     up = down = flat = missing_close = missing_amount = 0
@@ -384,6 +384,26 @@ def market_quality(latest):
     indexes = rest_get("market_index", f"select=market,index_value,change,change_percent&date=eq.{latest}", page_size=20)
     inst = rest_get("institutional_trades", f"select=symbol,total_buy_sell,foreign_buy_sell,investment_trust_buy_sell,dealer_buy_sell&date=eq.{latest}", page_size=1000)
     total_inst = sum(int(r.get("total_buy_sell") or 0) for r in inst)
+    prev_date_row = rest_one("daily_prices", f"select=date&date=lt.{latest}&order=date.desc&limit=1")
+    stale_duplicate_bars = 0
+    if prev_date_row:
+        prev_date = str(prev_date_row.get("date"))[:10]
+        prev_rows = rest_get(
+            "daily_prices",
+            f"select=symbol,open,high,low,close,volume&date=eq.{prev_date}",
+            page_size=1000,
+        )
+        prev_map = {str(r.get("symbol") or ""): r for r in prev_rows}
+        for row in prices:
+            prev = prev_map.get(str(row.get("symbol") or ""))
+            if not prev:
+                continue
+            same = all(
+                to_float(row.get(k)) == to_float(prev.get(k))
+                for k in ["open", "high", "low", "close", "volume"]
+            )
+            if same:
+                stale_duplicate_bars += 1
     return {
         "price_rows": len(prices),
         "missing_close": missing_close,
@@ -396,6 +416,7 @@ def market_quality(latest):
         "tpex_amount_e": round(tpex_amount / 100000000, 2),
         "institutional_rows": len(inst),
         "institutional_total": total_inst,
+        "stale_duplicate_bars": stale_duplicate_bars,
     }
 
 
@@ -446,6 +467,7 @@ def main():
         f"price_rows={market['price_rows']}; "
         f"missing_close={market['missing_close']}; "
         f"missing_amount={market['missing_amount']}; "
+        f"stale_duplicate_bars={market['stale_duplicate_bars']}; "
         f"up={market['up']}; down={market['down']}; flat={market['flat']}; "
         f"index_rows={market['index_rows']}; "
         f"twse_amount_e={market['twse_amount_e']}; "
