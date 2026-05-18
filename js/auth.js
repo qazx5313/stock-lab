@@ -135,7 +135,7 @@ async function remoteRegister(account,password,nick){
   try{
     const r=await fetch(EDGE_ADMIN_WRITE_URL,{
       method:'POST',
-      headers:{apikey:SB_ANON,'Content-Type':'application/json'},
+      headers:{apikey:SB_ANON,Authorization:`Bearer ${SB_ANON}`,'Content-Type':'application/json'},
       body:JSON.stringify({
         action:'public_register',
         payload:{account,auth_email:authEmailFor(account),password,nick}
