@@ -63,4 +63,6 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
           FINMIND_MAX_CALLS: "8"
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_ai_lab.py
