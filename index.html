@@ -429,6 +429,15 @@ async function loadReal(){
       }
     }catch(e){ console.warn('AI 實驗室載入略過:',e); }
 
+    // ---- 系統設定（後台篩選參數現值）----
+    try{
+      const st = await sbGet('app_settings?select=key,value', 100);
+      if(Array.isArray(st)){
+        DATA.appSettings = DATA.appSettings || {};
+        st.forEach(x=>DATA.appSettings[x.key]=x.value);
+      }
+    }catch(e){ console.warn('app_settings 載入略過:',e); }
+
     SRC_STATUS = '✅ 已連線真實資料 · 交易日 '+DATA.meta.date+
                  ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down+
                  ' · 題材 '+DATA.themes.length+' · 候選 '+DATA.screen.length+
@@ -904,7 +913,7 @@ function vStock(){
      </div>
      <div style="display:flex;gap:8px;margin-top:14px">
        <input id="stkInput" placeholder="輸入股票代號（示範：1815）" style="flex:1;max-width:260px;padding:9px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--mono);font-size:14px;outline:none">
-       <button class="btn sm">查詢</button>
+       <button class="btn sm" id="stkSearchBtn">查詢</button>
      </div>
    </div>
 
@@ -1212,6 +1221,12 @@ function vAIDetail(id){
 /* ============ 7. 後台管理 ============ */
 function vAdmin(){
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+   <div class="card card-pad" style="background:var(--accent-soft);border-color:var(--accent)">
+     <b style="font-size:13.5px">📌 說明</b>
+     <div style="font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.6">
+       股票、題材、AI 資料皆由系統每日盤後自動抓取與計算維護，此處為檢視。
+       「篩選參數」可調整並儲存，會影響每日計算邏輯（下次盤後生效）。</div>
+   </div>
    <div class="seg" style="flex-wrap:wrap" id="admSeg">
      ${['股票資料','題材分類','篩選參數','每日報告','AI 機器人'].map((t,i)=>`<button class="${i===0?'on':''}" data-tab="${i}">${t}</button>`).join('')}
    </div>
@@ -1230,13 +1245,49 @@ function admBody(i){
     <div class="tbl-wrap"><table><thead><tr><th>題材名稱</th><th>說明</th><th>產業鏈位置</th><th>相關股票數</th><th>操作</th></tr></thead><tbody>
     ${DATA.themes.map(t=>`<tr><td><b>${t.name}</b></td><td class="muted" style="white-space:normal;min-width:260px">${t.desc}</td>
       <td>${t.chain}</td><td class="num">8</td><td><button class="btn line sm">編輯產業鏈</button></td></tr>`).join('')}</tbody></table></div></div>`;}
-  else if(i===2){b.innerHTML=`<div class="card card-pad"><h3 style="margin-bottom:16px">篩選參數管理</h3>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px">
-    ${[['成交量門檻（張）','3000'],['股價門檻','20'],['MA 天數','5 / 10 / 20 / 60'],['RSI 門檻','50'],
-       ['KD 參數','9, 3, 3'],['MACD 參數','12, 26, 9'],['法人買超天數','3'],['題材熱度權重','技術35 籌碼30 題材35']].map(r=>
-      `<div><label style="font-size:12px;color:var(--ink-2);font-weight:600">${r[0]}</label>
-      <input value="${r[1]}" style="width:100%;margin-top:6px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--mono);font-size:13px;outline:none"></div>`).join('')}
-    </div><button class="btn" style="margin-top:18px">儲存設定</button></div>`;}
+  else if(i===2){
+    const P=DATA.appSettings||{};
+    const fields=[
+      ['成交量門檻（張）','vol_threshold',P.vol_threshold||'3000'],
+      ['股價門檻','price_threshold',P.price_threshold||'20'],
+      ['RSI 門檻','rsi_threshold',P.rsi_threshold||'50'],
+      ['法人買超天數','inst_buy_days',P.inst_buy_days||'3'],
+      ['題材熱度權重','heat_weight',P.heat_weight||'技術35 籌碼30 題材35']];
+    b.innerHTML=`<div class="card card-pad"><h3 style="margin-bottom:16px">篩選參數管理</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:18px">
+      ${fields.map(r=>`<div><label style="font-size:12px;color:var(--ink-2);font-weight:600">${r[0]}</label>
+        <input id="set_${r[1]}" value="${r[2]}" style="width:100%;margin-top:6px;padding:9px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--mono);font-size:13px;outline:none"></div>`).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:18px">
+        <button class="btn" id="saveSetBtn">儲存設定</button>
+        <span id="saveSetMsg" style="font-size:13px;color:var(--ink-2)"></span>
+      </div>
+      <div style="font-size:12px;color:var(--ink-3);margin-top:10px">儲存後於下次盤後計算生效。MA/KD/MACD 為標準參數，固定不開放調整。</div>
+    </div>`;
+    const keys=fields.map(f=>f[1]);
+    const btn=document.getElementById('saveSetBtn');
+    if(btn)btn.onclick=async()=>{
+      btn.disabled=true;btn.textContent='儲存中…';
+      const msg=document.getElementById('saveSetMsg');
+      try{
+        const rows=keys.map(k=>({key:k,value:(document.getElementById('set_'+k)||{}).value||'',updated_at:new Date().toISOString()}));
+        const r=await fetch(`${SB_URL}/rest/v1/app_settings?on_conflict=key`,{
+          method:'POST',
+          headers:{apikey:SB_ANON,Authorization:`Bearer ${SB_ANON}`,'Content-Type':'application/json',Prefer:'resolution=merge-duplicates,return=minimal'},
+          body:JSON.stringify(rows)});
+        if(r.ok){
+          DATA.appSettings=DATA.appSettings||{};rows.forEach(x=>DATA.appSettings[x.key]=x.value);
+          if(msg){msg.textContent='✅ 已儲存（下次盤後計算生效）';msg.style.color='var(--up)';}
+        }else{
+          const t=await r.text().catch(()=> '');
+          if(msg){msg.textContent='⚠️ 儲存失敗 '+r.status+'（請先在 Supabase 建 app_settings 表）';msg.style.color='#92400E';}
+        }
+      }catch(e){
+        if(msg){msg.textContent='⚠️ 儲存失敗：'+(e&&e.message||e);msg.style.color='#92400E';}
+      }
+      btn.disabled=false;btn.textContent='儲存設定';
+    };
+  }
   else if(i===3){b.innerHTML=`<div class="card card-pad"><h3 style="margin-bottom:14px">每日報告管理</h3>
     <div style="display:flex;flex-direction:column;gap:11px">
     ${[['自動產出報告','已啟用 · 每日 16:40'],['發布狀態','已發布'],['管理員手動修改','可編輯內容、加入個股評論'],['風險提醒','可附加自訂風險清單']].map(r=>
@@ -1301,6 +1352,27 @@ function bindPage(id){
   if(id==='ai'){
     document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=()=>{AI_VIEW=el.dataset.ai;go('ai');});
     const bk=document.querySelector('[data-aiback]');if(bk)bk.onclick=()=>{AI_VIEW=null;go('ai');};
+  }
+  if(id==='stock'){
+    const inp=document.getElementById('stkInput');
+    const btn=document.getElementById('stkSearchBtn');
+    const doSearch=async()=>{
+      const v=(inp&&inp.value||'').trim();
+      if(!/^[1-9]\d{3}$/.test(v)){
+        alert('請輸入 4 位數字股票代號（例：1815）');return;
+      }
+      if(btn){btn.textContent='查詢中…';btn.disabled=true;}
+      DATA.stock.c=v;
+      await loadStockSeries(v);
+      if(!DATA.stock.series){
+        if(btn){btn.textContent='查詢';btn.disabled=false;}
+        alert('查無「'+v+'」的歷史資料（可能非上市櫃普通股，或資料庫尚未收錄）');
+        return;
+      }
+      go('stock');
+    };
+    if(btn)btn.onclick=doSearch;
+    if(inp)inp.onkeydown=(e)=>{ if(e.key==='Enter')doSearch(); };
   }
   if(id==='admin'){
     admBody(0);
