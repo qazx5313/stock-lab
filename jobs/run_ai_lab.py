@@ -78,6 +78,77 @@ def finmind(dataset, data_id, start):
         return {"_error": str(e)}
 
 
+# ============ 多 AI 互評（OpenAI / Gemini，選用）============
+# 沒設 key 就回空字串，完全不影響主流程。
+OPENAI_KEY = os.environ.get("OPENAI_API_KEY", "").strip()
+GEMINI_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
+AI_REVIEW_MAX = int(os.environ.get("AI_REVIEW_MAX", "3"))  # 每次最多幾個 agent 呼叫
+_ai_review_calls = 0
+
+
+def _ai_prompt(agent_name, stats):
+    return (
+        f"你是嚴謹的量化交易評審。以下是台股模擬交易機器人「{agent_name}」"
+        f"今日的運作數據：{stats}。請用繁體中文，3 句話內，"
+        f"客觀點評其選股與風險控制，並給一個具體改進建議。不要客套話。"
+    )
+
+
+def openai_review(agent_name, stats):
+    global _ai_review_calls
+    if not OPENAI_KEY or _ai_review_calls >= AI_REVIEW_MAX:
+        return ""
+    try:
+        _ai_review_calls += 1
+        r = requests.post(
+            "https://api.openai.com/v1/chat/completions",
+            headers={
+                "Authorization": f"Bearer {OPENAI_KEY}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                "messages": [
+                    {"role": "user", "content": _ai_prompt(agent_name, stats)}
+                ],
+                "max_tokens": 220,
+                "temperature": 0.5,
+            },
+            timeout=40,
+        )
+        if r.status_code == 200:
+            return r.json()["choices"][0]["message"]["content"].strip()
+        return f"(OpenAI {r.status_code})"
+    except Exception as e:  # noqa
+        return f"(OpenAI 失敗: {e})"
+
+
+def gemini_review(agent_name, stats):
+    if not GEMINI_KEY:
+        return ""
+    try:
+        model = os.environ.get("GEMINI_MODEL", "gemini-1.5-flash")
+        r = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/"
+            f"{model}:generateContent?key={GEMINI_KEY}",
+            headers={"Content-Type": "application/json"},
+            json={
+                "contents": [
+                    {"parts": [{"text": _ai_prompt(agent_name, stats)}]}
+                ]
+            },
+            timeout=40,
+        )
+        if r.status_code == 200:
+            j = r.json()
+            return (
+                j["candidates"][0]["content"]["parts"][0]["text"].strip()
+            )
+        return f"(Gemini {r.status_code})"
+    except Exception as e:  # noqa
+        return f"(Gemini 失敗: {e})"
+
+
 # ============ 三個 AI 的選股策略 ============
 def strategy_pick(agent_type, sig):
     """回傳 (是否選中, 理由)。sig 為該股 daily_signals 一列 + 衍生欄位。"""
@@ -344,7 +415,7 @@ def main():
         spent = sum(t["amount"] for t in trades)
         log(f"  模擬交易：買進 {len(trades)} 檔，動用資金 {spent:,}")
 
-        # 6) 自我檢討（規則模板；多 AI 互評欄位先就緒）
+        # 6) 自我檢討（規則模板）+ 多 AI 互評（OpenAI/Gemini，選用）
         review = (
             f"本日從 {len(picks)} 檔候選選出 {len(chosen)} 檔，"
             f"回測通過 {len(passed_syms)} 檔，實際買進 {len(trades)} 檔。"
@@ -355,6 +426,21 @@ def main():
             improvement = "有通過回測但綜合分偏低未進場，可檢視評分權重。"
         else:
             improvement = "策略運作正常，持續觀察持股後續表現再決定加減碼。"
+
+        stats_str = (
+            f"候選{len(picks)}/選股{len(chosen)}/回測通過{len(passed_syms)}"
+            f"/買進{len(trades)}/動用資金{spent}"
+        )
+        cg = openai_review(ag.get("name", ""), stats_str)
+        gm = gemini_review(ag.get("name", ""), stats_str)
+        if cg or gm:
+            log(f"  多 AI 互評：OpenAI={'有' if cg else '無'} Gemini={'有' if gm else '無'}")
+        final_rv = review
+        if cg:
+            final_rv += f"\n[ChatGPT] {cg}"
+        if gm:
+            final_rv += f"\n[Gemini] {gm}"
+
         sb_upsert(
             "ai_reviews",
             [
@@ -363,9 +449,9 @@ def main():
                     "trade_id": None,
                     "review_date": latest,
                     "self_review": review,
-                    "chatgpt_review": "",  # 預留：未來接 OpenAI
-                    "gemini_review": "",   # 預留：未來接 Gemini
-                    "final_review": review,
+                    "chatgpt_review": cg,
+                    "gemini_review": gm,
+                    "final_review": final_rv,
                     "improvement_suggestion": improvement,
                     "applied_to_strategy": False,
                 }
