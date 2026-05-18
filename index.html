@@ -867,12 +867,30 @@ function authUser(){return readStore('stockLabAuth',null);}
 function setAuthUser(v){v?writeStore('stockLabAuth',v):localStorage.removeItem('stockLabAuth');}
 function activationSettings(){return readStore('stockLabActivation',DATA.activation);}
 function setActivationSettings(v){writeStore('stockLabActivation',v);}
+function entitlements(){return readStore('stockLabEntitlements',{});}
+function setEntitlements(v){writeStore('stockLabEntitlements',v);}
+function memberEntitlements(account){
+  const all=entitlements();
+  const rows=all[account]||{};
+  return activationSettings().map(a=>({
+    id:a.id,
+    name:a.name,
+    enabled:!!(rows[a.id]&&rows[a.id].enabled),
+    days:rows[a.id]?Number(rows[a.id].days)||0:0
+  }));
+}
+function setMemberEntitlements(account, rows){
+  const all=entitlements();
+  all[account]={};
+  rows.forEach(r=>{all[account][r.id]={enabled:!!r.enabled,days:Number(r.days)||0};});
+  setEntitlements(all);
+}
 function isAdmin(){const u=authUser();return u&&u.role==='admin';}
 function hasAccess(id){
   if(isAdmin()) return true;
   const u=authUser();
   if(!u) return false;
-  const item=activationSettings().find(a=>a.id===id);
+  const item=memberEntitlements(u.account).find(a=>a.id===id);
   return !!(item&&item.enabled&&Number(item.days)>0);
 }
 function isPageAllowed(id){
@@ -886,7 +904,7 @@ function remainingDays(){
   if(isAdmin()) return '無限制';
   const u=authUser();
   if(!u) return '0 天';
-  const enabled=activationSettings().filter(a=>a.enabled).map(a=>Number(a.days)||0);
+  const enabled=memberEntitlements(u.account).filter(a=>a.enabled).map(a=>Number(a.days)||0);
   const days=Math.max(Number(u.daysRemaining)||0, ...enabled, 0);
   return days+' 天';
 }
@@ -916,6 +934,37 @@ async function saveRemoteActivation(acts){
     return true;
   }catch(e){ console.warn('app_activation_settings 儲存略過:',e); return false; }
 }
+async function loadRemoteUsers(){
+  try{
+    const rows=await sbGet('app_users?select=account,nick,role,days_remaining&order=created_at.desc',500);
+    if(Array.isArray(rows)&&rows.length){
+      const local=users();
+      const merged=[...local];
+      rows.forEach(r=>{
+        if(!merged.some(u=>u.account===r.account)){
+          merged.push({account:r.account,password:'',nick:r.nick,role:r.role||'user',daysRemaining:Number(r.days_remaining)||0});
+        }
+      });
+      setUsers(merged);
+    }
+  }catch(e){ console.warn('app_users 清單載入略過:',e); }
+}
+async function loadRemoteEntitlements(account){
+  if(!account) return;
+  try{
+    const rows=await sbGet(`app_user_entitlements?select=account,page_id,name,enabled,days&account=eq.${encodeURIComponent(account)}`,500);
+    if(Array.isArray(rows)&&rows.length){
+      setMemberEntitlements(account, rows.map(r=>({id:r.page_id,name:r.name||r.page_id,enabled:!!r.enabled,days:Number(r.days)||0})));
+    }
+  }catch(e){ console.warn('app_user_entitlements 載入略過:',e); }
+}
+async function saveRemoteEntitlements(account, rows){
+  try{
+    await sbWrite('app_user_entitlements?on_conflict=account,page_id',
+      rows.map(r=>({account,page_id:r.id,name:r.name,enabled:!!r.enabled,days:Number(r.days)||0,updated_at:new Date().toISOString()})));
+    return true;
+  }catch(e){ console.warn('app_user_entitlements 儲存略過:',e); return false; }
+}
 async function remoteRegister(account,password,nick){
   try{
     await sbWrite('app_users',{account,password,nick,role:'user',days_remaining:0,created_at:new Date().toISOString()});
@@ -935,7 +984,7 @@ async function remoteLogin(account,password){
 
 function vAccount(){
   const u=authUser();
-  const acts=activationSettings();
+  const acts=u?memberEntitlements(u.account):activationSettings().map(a=>({...a,enabled:false,days:0}));
   return `<div class="fade account-grid">
     <div class="card card-pad auth-panel">
       <h3 style="font-size:18px;margin-bottom:12px">帳號狀態</h3>
@@ -947,11 +996,11 @@ function vAccount(){
         如沒帳號可先申請；管理員帳號不受開通限制。Supabase 表尚未建立時，系統會暫存於本機瀏覽器。
       </div>
       <div class="card" style="margin-top:16px">
-        <div class="card-h"><h3>目前板塊開通</h3><span class="tag">依後台設定顯示</span></div>
+        <div class="card-h"><h3>目前板塊開通</h3><span class="tag">依會員權限顯示</span></div>
         <div class="card-pad activation-grid">
           ${acts.map(a=>`<div class="activation-card">
             <div class="toggle-row"><b>${a.name}</b><span class="badge ${a.enabled?'cool':'obs'}">${a.enabled?'已開通':'未開通'}</span></div>
-            <div class="muted" style="font-size:12.5px;margin-top:8px">使用天數 ${a.days} 天</div>
+            <div class="muted" style="font-size:12.5px;margin-top:8px">剩餘 ${a.enabled?a.days:0} 天</div>
           </div>`).join('')}
         </div>
       </div>
@@ -1607,9 +1656,22 @@ function admBody(i){
       <b style="font-size:13.5px;width:160px">${r[0]}</b><span class="muted" style="flex:1">${r[1]}</span>
       <button class="btn line sm">設定</button></div>`).join('')}</div></div>`;}
   else if(i===4){
-    const acts=activationSettings();
+    const members=users().filter(u=>u.role!=='admin');
+    const selected=(localStorage.getItem('stockLabAdminMember')||members[0]?.account||'');
+    const acts=selected?memberEntitlements(selected):activationSettings().map(a=>({...a,enabled:false,days:0}));
     b.innerHTML=`<div class="card">
-      <div class="card-h"><h3>板塊開通設定</h3><span class="tag">設定會員可用板塊與使用天數</span></div>
+      <div class="card-h"><h3>會員開通設定</h3><span class="tag">可開通全部板塊或單獨板塊天數</span></div>
+      <div class="card-pad" style="border-bottom:1px solid var(--border-soft)">
+        <div class="grid" style="grid-template-columns:minmax(220px,1fr) 160px auto;align-items:end">
+          <div class="field"><label>選擇會員</label>
+            <select id="memberSelect">
+              ${members.length?members.map(u=>`<option value="${u.account}" ${u.account===selected?'selected':''}>${u.nick}（${u.account}）</option>`).join(''):'<option value="">尚無會員</option>'}
+            </select>
+          </div>
+          <div class="field"><label>全部板塊天數</label><input id="allDaysInput" type="number" min="1" max="3650" value="30"></div>
+          <button class="btn" id="openAllBtn" ${selected?'':'disabled'}>全部開通</button>
+        </div>
+      </div>
       <div class="card-pad activation-grid">
         ${acts.map(a=>`<div class="activation-card" data-act="${a.id}">
           <div class="toggle-row">
@@ -1623,7 +1685,7 @@ function admBody(i){
         </div>`).join('')}
       </div>
       <div class="card-pad" style="border-top:1px solid var(--border-soft);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-        <button class="btn" id="saveActivationBtn">儲存開通設定</button>
+        <button class="btn" id="saveActivationBtn" ${selected?'':'disabled'}>儲存此會員設定</button>
         <span id="activationMsg" class="muted" style="font-size:13px"></span>
       </div>
     </div>`;}
@@ -1684,6 +1746,7 @@ function bindPage(id){
       return;
     }
     setAuthUser({account:found.account,nick:found.nick,role:found.role||'user',daysRemaining:found.daysRemaining||0});
+    await loadRemoteEntitlements(found.account);
     buildNav();
     go(id==='admin'?'admin':'home');
   };
@@ -1750,21 +1813,42 @@ function bindPage(id){
   if(id==='admin'){
     admBody(0);
     const bindActivation=()=>{
+      const memberSelect=document.getElementById('memberSelect');
+      if(memberSelect)memberSelect.onchange=async()=>{
+        localStorage.setItem('stockLabAdminMember',memberSelect.value);
+        await loadRemoteEntitlements(memberSelect.value);
+        admBody(4);bindActivation();
+      };
+      const openAll=document.getElementById('openAllBtn');
+      if(openAll)openAll.onclick=()=>{
+        const account=(document.getElementById('memberSelect')||{}).value||'';
+        if(!account) return;
+        const days=Math.max(1,parseInt((document.getElementById('allDaysInput')||{}).value,10)||1);
+        const rows=activationSettings().map(a=>({...a,enabled:true,days}));
+        setMemberEntitlements(account,rows);
+        admBody(4);bindActivation();
+        const msg=document.getElementById('activationMsg');
+        if(msg){msg.textContent='已套用全部板塊 '+days+' 天，請儲存';msg.style.color='var(--up)';}
+      };
       document.querySelectorAll('[data-act-toggle]').forEach(btn=>btn.onclick=()=>{
-        const acts=activationSettings();
+        const account=(document.getElementById('memberSelect')||{}).value||'';
+        if(!account) return;
+        const acts=memberEntitlements(account);
         const item=acts.find(a=>a.id===btn.dataset.actToggle);
-        if(item){item.enabled=!item.enabled;setActivationSettings(acts);admBody(4);bindActivation();}
+        if(item){item.enabled=!item.enabled;setMemberEntitlements(account,acts);admBody(4);bindActivation();}
       });
       const saveAct=document.getElementById('saveActivationBtn');
       if(saveAct)saveAct.onclick=async()=>{
-        const acts=activationSettings().map(a=>({
+        const account=(document.getElementById('memberSelect')||{}).value||'';
+        if(!account) return;
+        const acts=memberEntitlements(account).map(a=>({
           ...a,
           days:Math.max(1,parseInt((document.getElementById('act_days_'+a.id)||{}).value,10)||1)
         }));
-        setActivationSettings(acts);
-        await saveRemoteActivation(acts);
+        setMemberEntitlements(account,acts);
+        await saveRemoteEntitlements(account,acts);
         const msg=document.getElementById('activationMsg');
-        if(msg){msg.textContent='已儲存板塊開通與使用天數設定';msg.style.color='var(--up)';}
+        if(msg){msg.textContent='已儲存 '+account+' 的板塊開通與天數';msg.style.color='var(--up)';}
       };
     };
     document.querySelectorAll('#admSeg button').forEach(btn=>btn.onclick=()=>{
@@ -1779,6 +1863,7 @@ window.addEventListener('resize',()=>{if(CUR==='stock')drawStockCharts();});
 buildNav();
 go('home');
 loadRemoteActivation().then(()=>{ buildNav(); if(CUR!=='account') go(CUR||'home'); });
+loadRemoteUsers().then(()=>{ if(isAdmin()&&CUR==='admin') go('admin'); });
 /* 背景嘗試載入真實資料，成功後重繪當前頁（連不上就維持範例畫面） */
 loadReal().then(()=>{ go(CUR||'home'); });
 </script>
