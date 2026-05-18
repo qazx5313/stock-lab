@@ -64,30 +64,50 @@ def fetch_taiex():
 
 
 def fetch_tpex_index():
-    """櫃買指數。TPEX OpenAPI。"""
-    for url in (
-        "https://www.tpex.org.tw/openapi/v1/tpex_otc_indices",
-        "https://www.tpex.org.tw/openapi/v1/tpex_otc_index",
-    ):
-        data = http_json(url)
-        if isinstance(data, list) and data:
-            for row in data:
-                # 找櫃買(OTC)指數那筆
-                nm = str(row.get("指數名稱") or row.get("IndexName") or "")
-                if "櫃買" in nm or "OTC" in nm or len(data) == 1:
-                    return {
-                        "value": num(
-                            row.get("收盤指數")
-                            or row.get("ClosingIndex")
-                            or row.get("Close")
-                        ),
-                        "change": num(
-                            row.get("漲跌") or row.get("Change")
-                        ),
-                        "change_percent": num(
-                            row.get("漲跌百分比") or row.get("ChangePercent")
-                        ),
-                    }
+    """櫃買指數 — 改用 FinMind TaiwanStockTotalReturnIndex (data_id=TPEx)。
+    回最近一筆指數值，並用前一筆算漲跌。"""
+    import os
+
+    token = os.environ.get("FINMIND_TOKEN", "").strip()
+    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    start = (dt.date.today() - dt.timedelta(days=14)).isoformat()
+    for attempt in range(1, 4):
+        try:
+            r = requests.get(
+                "https://api.finmindtrade.com/api/v4/data",
+                params={
+                    "dataset": "TaiwanStockTotalReturnIndex",
+                    "data_id": "TPEx",
+                    "start_date": start,
+                },
+                headers=headers,
+                timeout=TIMEOUT,
+            )
+            time.sleep(2)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if j.get("status") != 200:
+                log(f"  FinMind 櫃買 status={j.get('status')} {j.get('msg')}")
+                continue
+            arr = sorted(
+                j.get("data", []), key=lambda x: x.get("date", "")
+            )
+            if not arr:
+                return None
+            last = arr[-1]
+            prev = arr[-2] if len(arr) >= 2 else None
+            v = num(last.get("price") or last.get("TotalReturnIndex"))
+            chg, cp = None, None
+            if prev:
+                pv = num(prev.get("price") or prev.get("TotalReturnIndex"))
+                if v is not None and pv:
+                    chg = round(v - pv, 2)
+                    cp = round((v - pv) / pv * 100, 2)
+            return {"value": v, "change": chg, "change_percent": cp}
+        except Exception as e:  # noqa
+            log(f"  櫃買指數重試 {attempt}: {e}")
+            time.sleep(2 * attempt)
     return None
 
 
