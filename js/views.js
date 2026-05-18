@@ -603,33 +603,62 @@ async function loadAIDetailData(agentKey){
   if(!a || !a._id) return;
   const aid=a._id;
   try{
-    const cs=await sbGet(
-      `ai_candidates?select=symbol,agent_reason,accepted_by_agent&agent_id=eq.${aid}&order=id.desc`,200);
+    const [cs,bk,ps,tb,dp]=await Promise.all([
+      sbGet(
+        `ai_candidates?select=symbol,agent_reason,accepted_by_agent&agent_id=eq.${aid}&order=id.desc`,200
+      ),
+      sbGet(
+        `ai_backtests?select=symbol,matched_conditions,sample_count,win_rate,avg_return_5d,avg_return_3d,avg_return_10d,max_drawdown,profit_factor,passed&agent_id=eq.${aid}&order=id.desc`,200
+      ),
+      sbGet(
+        `ai_positions?select=symbol,name,buy_price,current_price,quantity,buy_reason,status&agent_id=eq.${aid}&status=eq.持有`,200
+      ),
+      sbGet(
+        `ai_trades?select=trade_date,symbol,price,quantity,reason,trade_type&agent_id=eq.${aid}&order=id.desc`,200
+      ),
+      sbGet(
+        `ai_deep_analysis?select=symbol,technical_summary,chip_summary,fundamental_summary,risk_summary,final_score,decision,decision_reason&agent_id=eq.${aid}&order=id.desc`,80
+      )
+    ]);
+    const syms=[...new Set([
+      ...(Array.isArray(cs)?cs.map(x=>x.symbol):[]),
+      ...(Array.isArray(bk)?bk.map(x=>x.symbol):[]),
+      ...(Array.isArray(ps)?ps.map(x=>x.symbol):[]),
+      ...(Array.isArray(tb)?tb.map(x=>x.symbol):[]),
+      ...(Array.isArray(dp)?dp.map(x=>x.symbol):[])
+    ].map(x=>String(x||'').trim()).filter(Boolean))];
+    const dateHint=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-');
+    const nm=await loadNameMap(syms,dateHint);
+    const nameOf=(sym, fallback='')=>{
+      const s=String(sym||'').trim();
+      const n=String(((nm[s]||{}).name)||fallback||'').trim();
+      return n && n!==s && n!=='尚無名稱' ? n : s;
+    };
     DATA.aiCand=(Array.isArray(cs)?cs:[]).filter(c=>c.accepted_by_agent).slice(0,20).map(c=>({
-      c:c.symbol, n:c.symbol, src:'候選池', reason:c.agent_reason||'—', score:'—'}));
-    const bk=await sbGet(
-      `ai_backtests?select=symbol,matched_conditions,sample_count,win_rate,avg_return_5d,avg_return_3d,avg_return_10d,max_drawdown,profit_factor,passed&agent_id=eq.${aid}&order=id.desc`,200);
+      c:c.symbol, n:nameOf(c.symbol), src:'候選池', reason:c.agent_reason||'—', score:'—'}));
     DATA.aiBack=(Array.isArray(bk)?bk:[]).slice(0,30).map(b=>({
-      c:b.symbol, n:b.symbol, cond:b.matched_conditions||'—',
+      c:b.symbol, n:nameOf(b.symbol), cond:b.matched_conditions||'—',
       s:b.sample_count, wr:b.win_rate+'%', ar:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
       r3:(b.avg_return_3d>0?'+':'')+b.avg_return_3d+'%',
       r5:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
       r10:(b.avg_return_10d>0?'+':'')+b.avg_return_10d+'%',
       mdd:b.max_drawdown+'%', pf:String(b.profit_factor),
       res:b.passed?'通過':'不通過'}));
-    const ps=await sbGet(
-      `ai_positions?select=symbol,name,buy_price,current_price,quantity,buy_reason,status&agent_id=eq.${aid}&status=eq.持有`,200);
     DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>({
-      c:p.symbol, n:p.name||p.symbol, bp:p.buy_price, cp:p.current_price,
+      c:p.symbol, n:nameOf(p.symbol,p.name), bp:p.buy_price, cp:p.current_price,
       q:p.quantity, reason:p.buy_reason||'—'}));
-    const tb=await sbGet(
-      `ai_trades?select=trade_date,symbol,price,quantity,reason,trade_type&agent_id=eq.${aid}&order=id.desc`,200);
     DATA.aiBuy=(Array.isArray(tb)?tb:[]).filter(t=>t.trade_type==='買進').slice(0,20).map(t=>({
-      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:t.symbol,
+      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:nameOf(t.symbol),
       p:t.price, q:t.quantity, s:'—', reason:t.reason||'—'}));
     DATA.aiSell=(Array.isArray(tb)?tb:[]).filter(t=>t.trade_type==='賣出').slice(0,20).map(t=>({
-      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:t.symbol,
+      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:nameOf(t.symbol),
       p:t.price, pnl:'—', ret:'—', reason:t.reason||'—', early:'—', late:'—'}));
+    DATA.aiDeep=(Array.isArray(dp)?dp:[]).slice(0,8).map(d=>({
+      c:d.symbol, n:nameOf(d.symbol), score:d.final_score||'—', decision:d.decision||'—',
+      tech:d.technical_summary||'—', chip:d.chip_summary||'—',
+      fund:d.fundamental_summary||'—', risk:d.risk_summary||'—',
+      reason:d.decision_reason||'—'
+    }));
     const rv=await sbGet(
       `ai_reviews?select=review_date,self_review,improvement_suggestion&agent_id=eq.${aid}&order=id.desc`,20);
     DATA.aiReview=(Array.isArray(rv)?rv:[]).slice(0,8).map(r=>({
@@ -647,6 +676,29 @@ function vAIDetail(id){
   const a=DATA.agents.find(x=>x.id===id);
   const blk=(title,sub,body)=>`<div class="card"><div class="card-h"><h3>${title}</h3>${sub?`<span class="tag">${sub}</span>`:''}</div>${body}</div>`;
   const tbl=(head,rows)=>`<div class="tbl-wrap"><table><thead><tr>${head.map(h=>`<th class="${h[1]||''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
+  const deepRows=(DATA.aiDeep&&DATA.aiDeep.length)?DATA.aiDeep:[];
+  const deepBody=deepRows.length
+    ? `<div class="card-pad" style="display:flex;flex-direction:column;gap:14px">
+        ${deepRows.map(d=>`<div style="border:1px solid var(--border-soft);border-radius:10px;padding:14px 16px">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;flex-wrap:wrap">
+            <b class="code">${d.c}</b><b>${d.n}</b>
+            <span class="badge ${d.decision==='買進'?'good':'obs'}">${d.decision}</span>
+            <span class="badge hot">AI 最終評分 ${d.score}</span>
+          </div>
+          <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px">
+            ${[
+              ['技術摘要',d.tech],
+              ['籌碼摘要',d.chip],
+              ['基本面摘要',d.fund],
+              ['風險摘要',d.risk],
+              ['決策原因',d.reason]
+            ].map(r=>`<div style="background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:10px;padding:12px 14px">
+              <div style="font-size:11px;color:var(--primary);font-weight:700">${r[0]}</div>
+              <div style="font-size:13px;font-weight:600;margin-top:4px;line-height:1.45">${r[1]}</div></div>`).join('')}
+          </div>
+        </div>`).join('')}
+      </div>`
+    : `<div class="card-pad muted">目前沒有 AI 詳細分析資料；請先跑 GitHub Actions 的 AI 實驗室排程。</div>`;
   return `<div class="fade" style="display:flex;flex-direction:column;gap:16px">
    <button class="btn line sm" data-aiback style="align-self:flex-start">‹ 返回 AI 列表</button>
 
@@ -671,18 +723,7 @@ function vAIDetail(id){
        <td class="r num ${b.r10.includes('-')?'down':'up'}">${b.r10}</td><td class="r num down">${b.mdd}</td><td class="r num">${b.pf}</td>
        <td><span class="badge ${b.res==='通過'?'good':b.res==='不通過'?'bad':'obs'}">${b.res}</span></td></tr>`).join('')))}
 
-   ${blk('4 · FinMind 詳細分析區','僅回測通過股票進入此區（節省 API 額度）',`<div class="card-pad">
-     <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px"><b class="code">1815</b><b>富喬</b>
-       <span class="badge good">回測通過</span><span class="badge hot">AI 最終評分 90</span></div>
-     <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px">
-       ${[['近 60 日技術','多頭排列、站上所有均線'],['近 20 日法人','合計買超 +39,100 張'],
-          ['近 20 日資券','資減券增，籌碼健康'],['近 12 月營收','YoY +24%，連 3 月成長'],
-          ['最近 4 季 EPS','0.62 / 0.71 / 0.85 / 0.93'],['本益比 / 股價淨值比','24.1 倍 / 3.2 倍'],
-          ['除權息','現金股利 1.2 元'],['風險摘要','單日漲幅大，留意追高']].map(r=>
-         `<div style="background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:10px;padding:12px 14px">
-         <div style="font-size:11px;color:var(--primary);font-weight:700">${r[0]}</div>
-         <div style="font-size:13px;font-weight:600;margin-top:4px">${r[1]}</div></div>`).join('')}
-     </div></div>`)}
+   ${blk('4 · AI 詳細分析區','僅回測通過股票進入此區',deepBody)}
 
    ${blk('5 · 目前持有股票','',tbl(
      [['代號'],['名稱'],['買進價','r'],['現價','r'],['張數','r'],['持股市值','r'],['未實現損益','r'],['報酬率','r'],['買進原因']],
