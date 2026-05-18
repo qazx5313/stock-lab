@@ -44,6 +44,8 @@ function hasAccess(id){
 function isPageAllowed(id){
   const p=PAGES.find(x=>x.id===id);
   if(!p || p.topOnly) return id==='account';
+  if(id==='home' || id==='map') return true;
+  if(!authUser()) return false;
   if(id==='status') return isAdmin();
   if(isAdmin()) return true;
   if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(id);
@@ -67,6 +69,16 @@ function renderTopAuth(){
   document.querySelectorAll('#topAuth [data-go]').forEach(el=>el.onclick=()=>go(el.dataset.go));
   const out=document.getElementById('topLogoutBtn');
   if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');buildNav();go('home');};
+}
+function renderDataFreshness(){
+  const el=document.getElementById('dataFreshness');
+  if(!el) return;
+  const latest=(DATA.dataStatus||[])
+    .map(d=>d.t)
+    .filter(t=>t&&t!=='—')
+    .sort()
+    .slice(-1)[0];
+  el.innerHTML=`<span class="dot"></span>${DATA_REAL_READY?'盤後資料':'資料狀態'} · ${latest||DATA.meta.updated||'—'} 更新`;
 }
 async function loadRemoteActivation(){
   try{

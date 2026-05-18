@@ -26,6 +26,8 @@ const MOB=[['home','總覽'],['screen','篩選'],['account','帳號'],['ai','AI'
 function visiblePages(){
   return PAGES.filter(p=>{
     if(p.topOnly) return false;
+    if(p.id==='home' || p.id==='map') return true;
+    if(!authUser()) return false;
     if(p.id==='status') return isAdmin();
     if(isAdmin()) return true;
     if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(p.id);
@@ -52,6 +54,7 @@ function buildNav(){
   }).join('');
   document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{go(el.dataset.go);toggleNav(false);});
   renderTopAuth();
+  renderDataFreshness();
 }
 function toggleNav(open){
   document.getElementById('sidebar').classList.toggle('open',open);
@@ -87,6 +90,7 @@ function go(id){
   v.scrollTo&&window.scrollTo(0,0);
   document.querySelectorAll('[data-go]').forEach(el=>el.onclick=()=>{go(el.dataset.go);toggleNav(false);});
   renderTopAuth();
+  renderDataFreshness();
   if(id==='stock')drawStockCharts();
   bindPage(id);
 }

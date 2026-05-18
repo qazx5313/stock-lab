@@ -204,6 +204,41 @@ function bindPage(id){
         await loadRemoteEntitlements(memberSelect.value);
         admBody(4);bindAdminControls();
       };
+      const createUser=document.getElementById('createUserBtn');
+      if(createUser)createUser.onclick=async()=>{
+        const msg=document.getElementById('userManageMsg');
+        const account=(document.getElementById('newUserAccount')||{}).value?.trim()||'';
+        const password=(document.getElementById('newUserPassword')||{}).value||'';
+        const nick=(document.getElementById('newUserNick')||{}).value?.trim()||account;
+        const role=(document.getElementById('newUserRole')||{}).value||'user';
+        if(!account||!password){if(msg){msg.textContent='請填 Email 與密碼';msg.style.color='#92400E';}return;}
+        createUser.disabled=true;createUser.textContent='新增中…';
+        try{
+          await adminWrite('create_user',{account,password,nick,role,days_remaining:0});
+          const next=users().filter(u=>u.account!==account);
+          next.unshift({account,nick,role,daysRemaining:0});
+          setUsers(next);
+          localStorage.setItem('stockLabAdminMember',account);
+          admBody(4);bindAdminControls();
+        }catch(e){if(msg){msg.textContent='新增失敗：'+(e.message||e);msg.style.color='#92400E';}}
+        createUser.disabled=false;createUser.textContent='新增帳號';
+      };
+      const deleteUser=document.getElementById('deleteUserBtn');
+      if(deleteUser)deleteUser.onclick=async()=>{
+        const account=(document.getElementById('memberSelect')||{}).value||'';
+        const msg=document.getElementById('userManageMsg');
+        if(!account) return;
+        if(!confirm('確定刪除帳號 '+account+'？此動作會刪除登入帳號與開通資料。')) return;
+        deleteUser.disabled=true;deleteUser.textContent='刪除中…';
+        try{
+          await adminWrite('delete_user',{account});
+          setUsers(users().filter(u=>u.account!==account));
+          const all=entitlements(); delete all[account]; setEntitlements(all);
+          localStorage.removeItem('stockLabAdminMember');
+          admBody(4);bindAdminControls();
+        }catch(e){if(msg){msg.textContent='刪除失敗：'+(e.message||e);msg.style.color='#92400E';}}
+        deleteUser.disabled=false;deleteUser.textContent='刪除目前選定帳號';
+      };
       const openAll=document.getElementById('openAllBtn');
       if(openAll)openAll.onclick=()=>{
         const account=(document.getElementById('memberSelect')||{}).value||'';
