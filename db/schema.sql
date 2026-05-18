@@ -221,6 +221,8 @@ create table if not exists ai_trades(
   reason text,
   strategy_version text
 );
+create index if not exists idx_ai_trades_agent_date on ai_trades(agent_id,trade_date);
+create index if not exists idx_ai_trades_agent_symbol on ai_trades(agent_id,symbol);
 
 create table if not exists ai_reviews(
   id serial primary key,
@@ -245,6 +247,7 @@ create table if not exists ai_strategy_versions(
   reason text,
   created_at timestamptz default now()
 );
+create index if not exists idx_ai_strategy_versions_agent on ai_strategy_versions(agent_id,created_at desc);
 
 -- ---------- 系統 ----------
 create table if not exists data_status(
