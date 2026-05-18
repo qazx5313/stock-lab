@@ -1,0 +1,347 @@
+﻿let SRC_STATUS = '載入中…';
+const STATUS_LABELS={
+  fetch_twse_prices:'TWSE 每日收盤資料',
+  fetch_tpex_prices:'TPEX 每日收盤資料',
+  fetch_twse_inst:'TWSE 法人買賣超',
+  fetch_twse_margin:'TWSE 融資融券',
+  fetch_mops_announcements:'MOPS 重大訊息',
+  fetch_monthly_revenue:'MOPS 月營收',
+  fetch_company_info:'公司基本資料',
+  fetch_index:'市場指數',
+  compute_signals:'每日訊號計算',
+  run_ai_lab:'AI 實驗室'
+};
+function fmtDoneTime(v){
+  if(!v) return '—';
+  const d=new Date(v);
+  if(Number.isNaN(d.getTime())) return String(v).slice(0,16);
+  return d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+}
+function fmtTwAmount(v){
+  const n=Number(v);
+  if(!isFinite(n)) return '—';
+  if(Math.abs(n)>=1e8) return `${(n/1e8).toLocaleString('en-US',{maximumFractionDigits:0})} 億`;
+  if(Math.abs(n)>=1e4) return `${(n/1e4).toLocaleString('en-US',{maximumFractionDigits:0})} 萬`;
+  return Math.round(n).toLocaleString('en-US');
+}
+function chunks(arr,size){
+  const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out;
+}
+async function loadNameMap(symbols, dateHint){
+  const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
+  const map={};
+  if(!wanted.length) return map;
+  try{
+    const rows=await sbGet('stocks?select=symbol,name,industry',20000);
+    (rows||[]).forEach(r=>{
+      const sym=String(r.symbol||'').trim();
+      if(sym && wanted.includes(sym)) map[sym]={name:r.name,industry:r.industry};
+    });
+  }catch(_){}
+  try{
+    const q=dateHint
+      ? `candidate_pool?select=symbol,name&date=eq.${dateHint}&order=id.desc`
+      : 'candidate_pool?select=symbol,name&order=date.desc';
+    const rows=await sbGet(q,20000);
+    (rows||[]).forEach(r=>{
+      const sym=String(r.symbol||'').trim();
+      if(sym && wanted.includes(sym) && r.name && r.name!==sym && (!map[sym]||!map[sym].name||map[sym].name===sym)){
+        map[sym]={...(map[sym]||{}),name:r.name};
+      }
+    });
+  }catch(_){}
+  return map;
+}
+async function loadLatestPriceMap(symbols, dateHint){
+  const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
+  const map={};
+  if(!wanted.length) return map;
+  try{
+    const rows=await sbGet(
+      `daily_prices?select=symbol,close,change_percent,volume&date=eq.${dateHint}`,20000);
+    (rows||[]).forEach(r=>{const sym=String(r.symbol||'').trim(); if(wanted.includes(sym)) map[sym]=r;});
+  }catch(_){}
+  const missing=wanted.filter(s=>!map[s]);
+  for(const part of chunks(missing,40)){
+    try{
+      const rows=await sbGet(
+        `daily_prices?select=symbol,date,close,change_percent,volume&symbol=in.(${part.join(',')})&order=date.desc&limit=2000`,2000);
+      (rows||[]).forEach(r=>{
+        const sym=String(r.symbol||'').trim();
+        if(sym && !map[sym]) map[sym]=r;
+      });
+    }catch(_){}
+  }
+  return map;
+}
+
+/* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞。
+   來源狀態只顯示在「資料更新狀態」頁，避免干擾主畫面。 */
+async function loadReal(){
+  try{
+    // 直接問資料庫「最大的交易日」（排序取 1 筆，最穩，不受筆數上限影響）
+    const newest = await sbGet('daily_prices?select=date&order=date.desc&limit=1');
+    if(!Array.isArray(newest) || newest.length===0){
+      throw new Error('資料庫尚無 daily_prices 資料');
+    }
+    const todayStr = new Date().toISOString().slice(0,10);
+    let d = String(newest[0].date).slice(0,10);
+    // 萬一最大日落在未來（資料異常），退而取 <= 今天的最大日
+    if(d > todayStr){
+      const safe = await sbGet(
+        `daily_prices?select=date&date=lte.${todayStr}&order=date.desc&limit=1`);
+      if(Array.isArray(safe) && safe.length) d = String(safe[0].date).slice(0,10);
+    }
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){
+      throw new Error('找不到有效交易日');
+    }
+    console.log('[stock-lab] 採用最近交易日:', d);
+
+    // 用 Prefer:count 拿總筆數，比抓全部 symbol 再 .length 穩又省流量
+    async function cnt(q){
+      const r = await fetch(`${SB_URL}/rest/v1/${q}`,{
+        headers:{ apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`,
+                  Prefer:'count=exact', Range:'0-0' }});
+      const cr = r.headers.get('content-range') || '';
+      const m = cr.match(/\/(\d+)$/);
+      return m ? parseInt(m[1],10) : 0;
+    }
+    DATA.meta.date = d.replace(/-/g,'/');
+
+    // 今日漲跌家數 / 成交金額 / 漲跌停，全部由 daily_prices 最新交易日彙總
+    try{
+      const dayRows = await sbGet(
+        `daily_prices?select=symbol,change,change_percent,amount,market&date=eq.${d}`, 20000);
+      if(Array.isArray(dayRows) && dayRows.length){
+        let up=0,down=0,flat=0,limitUp=0,limitDown=0,amtTwse=0,amtTpex=0;
+        dayRows.forEach(r=>{
+          const ch=Number(r.change), cp=Number(r.change_percent), amt=Number(r.amount)||0;
+          if(ch>0) up++; else if(ch<0) down++; else flat++;
+          if(cp>=9.5) limitUp++;
+          if(cp<=-9.5) limitDown++;
+          const mk=String(r.market||'').toUpperCase();
+          if(mk==='TPEX' || mk==='OTC') amtTpex+=amt;
+          else amtTwse+=amt;
+        });
+        DATA.market.up=up; DATA.market.down=down; DATA.market.flat=flat;
+        DATA.market.limitUp=limitUp; DATA.market.limitDown=limitDown;
+        DATA.market.amtTwse=fmtTwAmount(amtTwse);
+        DATA.market.amtTpex=fmtTwAmount(amtTpex);
+        const breadth=up+down?up/(up+down):0.5;
+        DATA.market.status=breadth>=0.58?'偏多格局':(breadth<=0.42?'偏空格局':'多空拉鋸');
+        DATA.market.statusNote=`上漲 ${up} 家、下跌 ${down} 家、平盤 ${flat} 家，漲停 ${limitUp}、跌停 ${limitDown}。`;
+      }
+    }catch(e){ console.warn('市場分布彙總略過:',e); }
+
+    // 大盤指數（真實，取最新一日）
+    try{
+      const idx = await sbGet(
+        `market_index?select=market,index_value,change,change_percent&date=eq.${d}`, 10);
+      (idx||[]).forEach(r=>{
+        const o={ name:(r.market==='TWSE'?'加權指數':'櫃買指數'),
+          v:Number(r.index_value),
+          d:r.change!=null?Number(r.change):0,
+          dp:r.change_percent!=null?Number(r.change_percent):0 };
+        if(r.market==='TWSE') DATA.market.twse=o;
+        else if(r.market==='TPEX') DATA.market.tpex=o;
+      });
+    }catch(e){ console.warn('指數載入略過:',e); }
+
+    // 精選股：以 daily_signals 綜合分前 8（符合「系統綜合評分篩出」）
+    const sigTop = await sbGet(
+      `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score,summary`+
+      `&date=eq.${d}&order=final_score.desc&limit=8`);
+    if(Array.isArray(sigTop) && sigTop.length){
+      const names = await sbGet('stocks?select=symbol,name,industry', 20000);
+      const nameMap = {}; (names||[]).forEach(s=>nameMap[s.symbol]=s);
+      // 補當日價格/漲跌/量
+      const pr = await sbGet(
+        `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
+      const pm = {}; (pr||[]).forEach(x=>pm[x.symbol]=x);
+      DATA.picks = sigTop.map(sg=>{
+        const p = pm[sg.symbol] || {};
+        const cp = parseFloat(p.change_percent);
+        const px = parseFloat(p.close);
+        const vol = parseInt(p.volume);
+        return {
+          c:sg.symbol,
+          n:(nameMap[sg.symbol]||{}).name||sg.symbol,
+          t:(nameMap[sg.symbol]||{}).industry||'—',
+          px:isFinite(px)?px:0,
+          dp:isFinite(cp)?cp:0,
+          vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
+          ts:sg.technical_score!=null?sg.technical_score:'—',
+          cs:sg.chip_score!=null?sg.chip_score:'—',
+          ms:sg.theme_score!=null?sg.theme_score:'—',
+          fs:sg.final_score!=null?sg.final_score:'—',
+          ai:sg.summary||'—'
+        };
+      });
+    }
+
+    // ---- 題材熱度：讀 themes（有真實就覆蓋範例）----
+    try{
+      const th = await sbGet(
+        'themes?select=id,theme_name,heat_score,trend_status,description'+
+        '&order=heat_score.desc', 200);
+      if(Array.isArray(th) && th.length){
+        DATA.themes = th.map((t,i)=>{
+          const mg = String(t.description||'').match(/平均漲幅\s*(-?[\d.]+)%/);
+          return {
+            id:'t'+i, themeId:t.id, name:t.theme_name, score:t.heat_score,
+            gain:(mg?(parseFloat(mg[1])>0?'+':'')+mg[1]+'%':'—'),
+            vol:'—', limit:0, high:0,
+            status:t.trend_status||'—',
+            desc:t.description||'', chain:'—'
+          };
+        });
+        DATA.themeList = DATA.themes.map(t=>t.name);
+        const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 20000);
+        const symbols = [...new Set((ts||[]).map(x=>String(x.symbol||'').trim()).filter(Boolean))];
+        const stockMap=await loadNameMap(symbols,d);
+        const priceMap=await loadLatestPriceMap(symbols,d);
+        const byTheme={};
+        (ts||[]).forEach(r=>{
+          const sym=String(r.symbol||'').trim();
+          const sm=stockMap[sym]||{};
+          const px=priceMap[sym]||{};
+          const fallbackName=(DATA.stock&&DATA.stock.c===sym&&DATA.stock.n&&DATA.stock.n!==sym)?DATA.stock.n:'尚無名稱';
+          const key=String(r.theme_id);
+          (byTheme[key]=byTheme[key]||[]).push({
+            c:sym,n:(sm.name&&sm.name!==sym)?sm.name:fallbackName,role:r.role||'成分',
+            level:r.supply_chain_level||sm.industry||'未分類',
+            score:r.relevance_score||0,note:r.note||'',
+            px:Number(px.close),dp:Number(px.change_percent),vol:Number(px.volume)
+          });
+        });
+        DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
+      }
+    }catch(e){ console.warn('themes 載入略過:',e); }
+
+    // ---- 重大公告：讀公開資訊觀測站公告 ----
+    try{
+      const anns = await sbGet(
+        'mops_announcements?select=date,symbol,company_name,title,category'+
+        '&order=date.desc&limit=20', 20);
+      if(Array.isArray(anns) && anns.length){
+        DATA.news = anns.map(a=>({
+          c:a.symbol||'-',
+          n:a.company_name||'',
+          title:[a.category,a.title].filter(Boolean).join(' · ')||'公告',
+          time:String(a.date||'').slice(5).replace('-','/'),
+          k:'neu'
+        }));
+        DATA.realNewsLoaded = true;
+      }else{
+        DATA.realNewsLoaded = false;
+      }
+    }catch(e){ DATA.realNewsLoaded = false; console.warn('公告載入略過:',e); }
+
+    // ---- 每日篩選：讀 candidate_pool（綜合分排序）----
+    try{
+      const cp = await sbGet(
+        `candidate_pool?select=symbol,name,score,reason&date=eq.${d}`+
+        `&order=score.desc&limit=40`, 100);
+      if(Array.isArray(cp) && cp.length){
+        const cpSymbols=[...new Set(cp.map(r=>String(r.symbol||'').trim()).filter(Boolean))];
+        const pm = await loadLatestPriceMap(cpSymbols,d);
+        const sg2 = await sbGet(
+          `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score&date=eq.${d}`, 20000);
+        const sm = {}; (sg2||[]).forEach(x=>sm[x.symbol]=x);
+        const nmap = await loadNameMap(cpSymbols,d);
+        DATA.screen = cp.map(r=>{
+          const p = pm[r.symbol]||{}; const s = sm[r.symbol]||{};
+          const cpv = parseFloat(p.change_percent);
+          const px = parseFloat(p.close);
+          const vol = parseInt(p.volume);
+          return {
+            c:r.symbol, n:(nmap[r.symbol]&&nmap[r.symbol].name)||r.name||'尚無名稱',
+            t:(r.reason||'').slice(0,10)||'—',
+            px:isFinite(px)?px:'—',
+            dp:isFinite(cpv)?cpv:0,
+            vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
+            ts:s.technical_score!=null?s.technical_score:'—',
+            cs:s.chip_score!=null?s.chip_score:'—',
+            ms:s.theme_score!=null?s.theme_score:'—',
+            total:s.final_score!=null?s.final_score:r.score
+          };
+        });
+      }
+    }catch(e){ console.warn('candidate_pool 載入略過:',e); }
+
+    // ---- AI 量化實驗室：讀真實 ai_* 資料 ----
+    try{
+      const ags = await sbGet('ai_agents?select=*&order=id.asc', 50);
+      if(Array.isArray(ags) && ags.length){
+        // 取每個 agent 最新檢討、回測通過數、買進數
+        const revs = await sbGet(
+          'ai_reviews?select=agent_id,review_date,self_review,improvement_suggestion'+
+          '&order=review_date.desc', 200);
+        const bts = await sbGet(
+          'ai_backtests?select=agent_id,passed', 2000);
+        const trs = await sbGet(
+          'ai_trades?select=agent_id,trade_type', 2000);
+        const passCnt={}, buyCnt={}, lastRev={};
+        (bts||[]).forEach(b=>{ if(b.passed){passCnt[b.agent_id]=(passCnt[b.agent_id]||0)+1;} });
+        (trs||[]).forEach(t=>{ if(t.trade_type==='買進'){buyCnt[t.agent_id]=(buyCnt[t.agent_id]||0)+1;} });
+        (revs||[]).forEach(r=>{ if(!lastRev[r.agent_id]) lastRev[r.agent_id]=r; });
+
+        DATA.agents = ags.map(a=>{
+          const init=a.initial_cash||1000000, cash=a.current_cash!=null?a.current_cash:init;
+          const hold=a.current_asset_value||0;
+          return {
+            id:'ai'+a.id, _id:a.id, name:a.name, type:a.strategy_type||'—',
+            pre:0, passed:passCnt[a.id]||0, buy:buyCnt[a.id]||0,
+            wr:'—', pos:buyCnt[a.id]||0,
+            cum:(((cash+hold-init)/init*100).toFixed(1))+'%',
+            mon:'—', win:'—', mdd:'—',
+            ver:a.strategy_version||'v1.0', status:a.status||'運行中',
+            init:init, cash:cash, hold:hold,
+            desc:a.description||''
+          };
+        });
+        await loadAIDetailData(DATA.agents[0].id);
+      }
+    }catch(e){ console.warn('AI 實驗室載入略過:',e); }
+
+    // ---- 系統設定（後台篩選參數現值）----
+    try{
+      const st = await sbGet('app_settings?select=key,value', 100);
+      if(Array.isArray(st)){
+        DATA.appSettings = DATA.appSettings || {};
+        st.forEach(x=>DATA.appSettings[x.key]=x.value);
+        if(DATA.appSettings.daily_report_note) setReportNote(DATA.appSettings.daily_report_note);
+      }
+    }catch(e){ console.warn('app_settings 載入略過:',e); }
+
+    // ---- 資料來源狀態：讀每個 job 最新一筆完成紀錄 ----
+    try{
+      const ds = await sbGet('data_status?select=source,ok,finished_at,error,run_date&order=finished_at.desc&limit=200',200);
+      const latestBySource={};
+      (ds||[]).forEach(r=>{ if(r.source && !latestBySource[r.source]) latestBySource[r.source]=r; });
+      const rows=Object.entries(latestBySource).map(([source,r])=>({
+        k:STATUS_LABELS[source]||source,
+        ok:!!r.ok,
+        t:fmtDoneTime(r.finished_at),
+        err:r.error||'',
+        runDate:r.run_date||''
+      }));
+      if(rows.length) DATA.dataStatus=rows.sort((a,b)=>a.k.localeCompare(b.k,'zh-Hant'));
+    }catch(e){ console.warn('data_status 載入略過:',e); }
+
+    SRC_STATUS = '✅ 已連線真實資料 · 交易日 '+DATA.meta.date+
+                 ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down+
+                 ' · 題材 '+DATA.themes.length+' · 候選 '+DATA.screen.length+
+                 ' · AI '+(DATA.agents?DATA.agents.length:0);
+    DATA_REAL_READY = true;
+    DATA_LOAD_ERROR = '';
+  }catch(e){
+    console.warn('Supabase 載入失敗：', e);
+    DATA_REAL_READY = false;
+    DATA_LOAD_ERROR = (e&&e.message)||String(e);
+    SRC_STATUS = '⚠️ 連線失敗，未顯示 MOCK 股票資料：'+DATA_LOAD_ERROR;
+  }
+}
+
+function flagSource(txt){ /* 舊介面保留相容，不再使用 */ }
+
