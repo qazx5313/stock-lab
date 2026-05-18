@@ -289,6 +289,7 @@
 const SB_URL  = 'https://wgyumblfupaspzywiwzc.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXVtYmxmdXBhc3B6eXdpd3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDg5NjksImV4cCI6MjA5NDU4NDk2OX0.pUur9c40B76uOsI4LphE2cwtE_oqBWUMOwIT-L8qu9g';
 const EDGE_RUN_DAILY_URL = `${SB_URL}/functions/v1/trigger-github-action`;
+const EDGE_ADMIN_WRITE_URL = `${SB_URL}/functions/v1/admin-write`;
 const ALLOW_DIRECT_BROWSER_WRITES = false;
 let DATA_REAL_READY = false;
 let DATA_LOAD_ERROR = '';
@@ -1042,6 +1043,8 @@ function users(){return readStore('stockLabUsers',[]);}
 function setUsers(v){writeStore('stockLabUsers',v);}
 function authUser(){return readStore('stockLabAuth',null);}
 function setAuthUser(v){v?writeStore('stockLabAuth',v):localStorage.removeItem('stockLabAuth');}
+function authToken(){return localStorage.getItem('stockLabAccessToken')||'';}
+function setAuthToken(v){v?localStorage.setItem('stockLabAccessToken',v):localStorage.removeItem('stockLabAccessToken');}
 function activationSettings(){return readStore('stockLabActivation',DATA.activation);}
 function setActivationSettings(v){writeStore('stockLabActivation',v);}
 function manageableActivationSettings(){return activationSettings().filter(a=>a.id!=='status');}
@@ -1098,7 +1101,7 @@ function renderTopAuth(){
     : `<button class="btn sm" data-go="account">登入 / 申請</button>`;
   document.querySelectorAll('#topAuth [data-go]').forEach(el=>el.onclick=()=>go(el.dataset.go));
   const out=document.getElementById('topLogoutBtn');
-  if(out)out.onclick=()=>{setAuthUser(null);buildNav();go('home');};
+  if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');buildNav();go('home');};
 }
 async function loadRemoteActivation(){
   try{
@@ -1110,8 +1113,7 @@ async function loadRemoteActivation(){
 }
 async function saveRemoteActivation(acts){
   try{
-    await sbWrite('app_activation_settings?on_conflict=page_id',
-      acts.map(a=>({page_id:a.id,name:a.name,enabled:a.enabled,days:a.days,updated_at:new Date().toISOString()})));
+    await adminWrite('save_activation_settings',acts);
     return true;
   }catch(e){ console.warn('app_activation_settings 儲存略過:',e); return false; }
 }
@@ -1141,26 +1143,62 @@ async function loadRemoteEntitlements(account){
 }
 async function saveRemoteEntitlements(account, rows){
   try{
-    await sbWrite('app_user_entitlements?on_conflict=account,page_id',
-      rows.map(r=>({account,page_id:r.id,name:r.name,enabled:!!r.enabled,days:Number(r.days)||0,updated_at:new Date().toISOString()})));
+    await adminWrite('save_entitlements',{account,rows});
     return true;
   }catch(e){ console.warn('app_user_entitlements 儲存略過:',e); return false; }
 }
 async function remoteRegister(account,password,nick){
   try{
-    await sbWrite('app_users',{account,password,nick,role:'user',days_remaining:0,created_at:new Date().toISOString()});
+    const r=await fetch(`${SB_URL}/auth/v1/signup`,{
+      method:'POST',
+      headers:{apikey:SB_ANON,'Content-Type':'application/json'},
+      body:JSON.stringify({email:account,password,data:{nick}})
+    });
+    if(!r.ok) throw new Error(await r.text());
     return true;
-  }catch(e){ console.warn('app_users 註冊略過:',e); return false; }
+  }catch(e){ console.warn('Supabase Auth 註冊略過:',e); return false; }
 }
 async function remoteLogin(account,password){
   try{
-    const rows=await sbGet(`app_users?select=account,nick,role,days_remaining&account=eq.${encodeURIComponent(account)}&password=eq.${encodeURIComponent(password)}&limit=1`);
-    if(Array.isArray(rows)&&rows.length){
-      const u=rows[0];
-      return {account:u.account,nick:u.nick,role:u.role||'user',daysRemaining:Number(u.days_remaining)||0};
-    }
-  }catch(e){ console.warn('app_users 登入略過:',e); }
+    const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=password`,{
+      method:'POST',
+      headers:{apikey:SB_ANON,'Content-Type':'application/json'},
+      body:JSON.stringify({email:account,password})
+    });
+    if(!r.ok) throw new Error(await r.text());
+    const session=await r.json();
+    setAuthToken(session.access_token||'');
+    let profile=null;
+    try{
+      const rows=await sbGet(`app_users?select=account,nick,role,days_remaining&account=eq.${encodeURIComponent(account)}&limit=1`);
+      profile=Array.isArray(rows)?rows[0]:null;
+    }catch(_){}
+    return {
+      account,
+      nick:profile?.nick || session.user?.user_metadata?.nick || account,
+      role:profile?.role || session.user?.user_metadata?.role || 'user',
+      daysRemaining:Number(profile?.days_remaining)||0
+    };
+  }catch(e){ console.warn('Supabase Auth 登入略過:',e); }
   return null;
+}
+async function adminWrite(action,payload){
+  const token=authToken();
+  if(!token) throw new Error('尚未取得 Supabase Auth token，請重新登入');
+  const r=await fetch(EDGE_ADMIN_WRITE_URL,{
+    method:'POST',
+    headers:{
+      apikey:SB_ANON,
+      Authorization:`Bearer ${token}`,
+      'Content-Type':'application/json'
+    },
+    body:JSON.stringify({action,payload})
+  });
+  const txt=await r.text().catch(()=> '');
+  let data={};
+  try{data=txt?JSON.parse(txt):{};}catch(_){data={error:txt};}
+  if(!r.ok || data.ok===false) throw new Error(data.error||`HTTP ${r.status}`);
+  return data.data;
 }
 
 function vAccount(){
@@ -2199,7 +2237,7 @@ function bindPage(id){
     if(msg){msg.textContent='申請完成，可直接登入';msg.style.color='var(--up)';}
   };
   const logoutBtn=document.getElementById('logoutBtn');
-  if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);buildNav();go('home');};
+  if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);setAuthToken('');buildNav();go('home');};
   if(id==='screen'){
     const upd=()=>{document.getElementById('selCnt').textContent=SEL.size;
       document.querySelectorAll('[data-f]').forEach(c=>c.classList.toggle('on',SEL.has(c.dataset.f)));};
@@ -2288,10 +2326,10 @@ function bindPage(id){
         if(!/^[0-9A-Za-z.-]+$/.test(row.c)||!row.n){if(msg){msg.textContent='請填股票代號與名稱';msg.style.color='#92400E';}return;}
         saveStock.disabled=true;saveStock.textContent='儲存中…';
         try{
-          await sbWrite('stocks?on_conflict=symbol',{
+          await adminWrite('save_stock',{
             symbol:row.c,name:row.n,market:row.m,industry:row.ind,
             theme_tags:row.th?row.th.split(/[、,]/).map(x=>x.trim()).filter(Boolean):[],
-            is_leader:row.lead,is_active:true,updated_at:new Date().toISOString()
+            is_leader:row.lead
           });
           const i=DATA.adminStocks.findIndex(x=>x.c===row.c);
           if(i>=0) DATA.adminStocks[i]=row; else DATA.adminStocks.unshift(row);
@@ -2319,17 +2357,14 @@ function bindPage(id){
         saveTheme.disabled=true;saveTheme.textContent='儲存中…';
         try{
           const body={theme_name:name,heat_score:score,trend_status:status,description:desc,updated_at:new Date().toISOString()};
-          if(dbId){await sbPatch(`themes?id=eq.${encodeURIComponent(dbId)}`,body);}
-          else{
-            const rows=await sbWrite('themes',body);
-            dbId=rows&&rows[0]&&rows[0].id;
-          }
+          const saved=await adminWrite('save_theme',{id:dbId,theme_name:name,heat_score:score,trend_status:status,description:desc});
+          dbId=dbId || (Array.isArray(saved)?saved[0]?.id:saved?.id);
           const lines=((document.getElementById('admThemeStocks')||{}).value||'').split('\n').map(x=>x.trim()).filter(Boolean);
           const stocks=lines.map(line=>{
             const [symbol,role,level,relevance]=line.split(',').map(x=>x.trim());
             return {theme_id:Number(dbId),symbol,role:role||'成分',supply_chain_level:level||chain,relevance_score:parseInt(relevance,10)||80,note:''};
           }).filter(x=>x.theme_id&&x.symbol);
-          if(stocks.length) await sbWrite('theme_stocks?on_conflict=theme_id,symbol',stocks);
+          if(stocks.length) await adminWrite('save_theme_stocks',stocks);
           const next={id:localId||('t'+Date.now()),themeId:dbId,name,score,gain:'—',vol:'—',limit:0,high:0,status,desc,chain,
             stocks:stocks.map(x=>({c:x.symbol,n:x.symbol,role:x.role,level:x.supply_chain_level,score:x.relevance_score}))};
           const i=DATA.themes.findIndex(x=>x.id===localId);
@@ -2345,7 +2380,7 @@ function bindPage(id){
         const note=(document.getElementById('reportNoteInput')||{}).value||'';
         setReportNote(note);
         try{
-          await sbWrite('app_settings?on_conflict=key',{key:'daily_report_note',value:note,updated_at:new Date().toISOString()});
+          await adminWrite('save_report_note',{note});
           if(msg){msg.textContent='已儲存報告備註';msg.style.color='var(--up)';}
         }catch(e){
           if(msg){msg.textContent='已先儲存在本機；Supabase 儲存失敗：'+(e.message||e);msg.style.color='#92400E';}
