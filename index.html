@@ -318,7 +318,7 @@ async function sbWrite(path, body, method='POST'){
 let SRC_STATUS = '載入中…';
 
 /* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞。
-   全程把狀態寫進畫面頂端橫幅，方便你一眼看出連上沒、卡哪。 */
+   來源狀態只顯示在「資料更新狀態」頁，避免干擾主畫面。 */
 async function loadReal(){
   try{
     // 直接問資料庫「最大的交易日」（排序取 1 筆，最穩，不受筆數上限影響）
@@ -504,31 +504,9 @@ async function loadReal(){
   }catch(e){
     console.warn('Supabase 載入失敗：', e);
     SRC_STATUS = '⚠️ 連線失敗顯示範例：'+(e&&e.message||e);
-  }finally{
-    renderSrcBanner();
   }
 }
 
-/* 在頁面最上方顯示一條資料來源橫幅（成功綠 / 失敗橘） */
-function renderSrcBanner(){
-  let bar = document.getElementById('srcBanner');
-  if(!bar){
-    bar = document.createElement('div');
-    bar.id = 'srcBanner';
-    bar.style.cssText =
-      'position:fixed;top:0;left:0;right:0;z-index:9999;font-size:12px;'+
-      'padding:6px 14px;text-align:center;font-weight:700;letter-spacing:.3px;'+
-      'box-shadow:0 1px 4px rgba(0,0,0,.08)';
-    document.body.appendChild(bar);
-    // 把整頁往下推，避免橫幅蓋住內容
-    document.body.style.paddingTop =
-      (parseInt(getComputedStyle(document.body).paddingTop)||0)+30+'px';
-  }
-  const ok = SRC_STATUS.indexOf('✅')===0;
-  bar.style.background = ok ? 'var(--up-soft,#FEE2E2)' : '#FEF3C7';
-  bar.style.color = ok ? 'var(--up,#DC2626)' : '#92400E';
-  bar.textContent = SRC_STATUS;
-}
 function flagSource(txt){ /* 舊介面保留相容，不再使用 */ }
 
 /* ============ 模擬資料層 (MOCK / 離線後備) ============
@@ -1720,7 +1698,14 @@ function admBody(i){
 /* ============ 8. 資料更新狀態 ============ */
 function vStatus(){
   const ok=DATA.dataStatus.filter(d=>d.ok).length;
+  const srcOk=SRC_STATUS.indexOf('✅')===0;
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+   <div class="card card-pad" style="background:${srcOk?'#FEF2F2':'#FEF3C7'};border-color:${srcOk?'#FECACA':'#FDE68A'}">
+     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+       <span class="badge ${srcOk?'good':'warm'}">${srcOk?'真實資料連線':'資料來源提醒'}</span>
+       <b style="font-size:14px;color:${srcOk?'var(--up)':'#92400E'}">${SRC_STATUS}</b>
+     </div>
+   </div>
    <div class="card card-pad" style="display:flex;align-items:center;gap:16px;flex-wrap:wrap">
      <div class="stat"><span class="k">今日抓取進度</span><span class="v"><span class="up">${ok}</span><span style="color:var(--ink-3);font-size:18px"> / ${DATA.dataStatus.length}</span></span></div>
      <div style="flex:1;min-width:200px"><div class="progress"><i style="width:${ok/DATA.dataStatus.length*100}%"></i></div>
