@@ -271,7 +271,7 @@ async function loadReal(){
       const idx = await sbGet(
         `market_index?select=market,index_value,change,change_percent&date=eq.${d}`, 10);
       (idx||[]).forEach(r=>{
-        const o={ name:(r.market==='TWSE'?'加權指數':'櫃買指數'),
+        const o={ name:(r.market==='TWSE'?'加權指數':'櫃買報酬指數'),
           v:Number(r.index_value),
           d:r.change!=null?Number(r.change):0,
           dp:r.change_percent!=null?Number(r.change_percent):0 };
