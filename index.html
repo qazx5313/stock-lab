@@ -332,15 +332,20 @@ async function sbPatch(path, body){
 }
 
 async function triggerDailyWorkflow(){
-  const r = await fetch(EDGE_RUN_DAILY_URL, {
-    method:'POST',
-    headers:{
-      apikey:SB_ANON,
-      Authorization:`Bearer ${SB_ANON}`,
-      'Content-Type':'application/json'
-    },
-    body:JSON.stringify({workflow:'daily.yml', ref:'main'})
-  });
+  let r;
+  try{
+    r = await fetch(EDGE_RUN_DAILY_URL, {
+      method:'POST',
+      headers:{
+        apikey:SB_ANON,
+        Authorization:`Bearer ${SB_ANON}`,
+        'Content-Type':'application/json'
+      },
+      body:JSON.stringify({workflow:'daily.yml', ref:'main'})
+    });
+  }catch(e){
+    throw new Error('連不到 Edge Function，通常是 Supabase Function CORS 沒開，或 Function 尚未部署');
+  }
   const txt = await r.text().catch(()=> '');
   let data = {};
   try{ data = txt ? JSON.parse(txt) : {}; }catch(_){ data = {error:txt}; }
@@ -351,6 +356,24 @@ async function triggerDailyWorkflow(){
 }
 
 let SRC_STATUS = '載入中…';
+const STATUS_LABELS={
+  fetch_twse_prices:'TWSE 每日收盤資料',
+  fetch_tpex_prices:'TPEX 每日收盤資料',
+  fetch_twse_inst:'TWSE 法人買賣超',
+  fetch_twse_margin:'TWSE 融資融券',
+  fetch_mops_announcements:'MOPS 重大訊息',
+  fetch_monthly_revenue:'MOPS 月營收',
+  fetch_company_info:'公司基本資料',
+  fetch_index:'市場指數',
+  compute_signals:'每日訊號計算',
+  run_ai_lab:'AI 實驗室'
+};
+function fmtDoneTime(v){
+  if(!v) return '—';
+  const d=new Date(v);
+  if(Number.isNaN(d.getTime())) return String(v).slice(0,16);
+  return d.toLocaleString('zh-TW',{timeZone:'Asia/Taipei',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',hour12:false});
+}
 
 /* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞。
    來源狀態只顯示在「資料更新狀態」頁，避免干擾主畫面。 */
@@ -452,20 +475,26 @@ async function loadReal(){
         });
         DATA.themeList = DATA.themes.map(t=>t.name);
         const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 20000);
-        const symbols = [...new Set((ts||[]).map(x=>x.symbol).filter(Boolean))];
+        const symbols = [...new Set((ts||[]).map(x=>String(x.symbol||'').trim()).filter(Boolean))];
         let stockMap={};
         if(symbols.length){
           const stRows = await sbGet('stocks?select=symbol,name,industry', 20000);
-          (stRows||[]).forEach(s=>stockMap[s.symbol]=s);
+          (stRows||[]).forEach(s=>stockMap[String(s.symbol||'').trim()]=s);
         }
+        const dayPrices = await sbGet(
+          `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
+        const priceMap={}; (dayPrices||[]).forEach(p=>priceMap[String(p.symbol||'').trim()]=p);
         const byTheme={};
         (ts||[]).forEach(r=>{
-          const sm=stockMap[r.symbol]||{};
+          const sym=String(r.symbol||'').trim();
+          const sm=stockMap[sym]||{};
+          const px=priceMap[sym]||{};
           const key=String(r.theme_id);
           (byTheme[key]=byTheme[key]||[]).push({
-            c:r.symbol,n:sm.name||r.symbol,role:r.role||'成分',
+            c:sym,n:sm.name||'尚無名稱',role:r.role||'成分',
             level:r.supply_chain_level||sm.industry||'未分類',
-            score:r.relevance_score||0,note:r.note||''
+            score:r.relevance_score||0,note:r.note||'',
+            px:Number(px.close),dp:Number(px.change_percent),vol:Number(px.volume)
           });
         });
         DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
@@ -569,6 +598,21 @@ async function loadReal(){
         if(DATA.appSettings.daily_report_note) setReportNote(DATA.appSettings.daily_report_note);
       }
     }catch(e){ console.warn('app_settings 載入略過:',e); }
+
+    // ---- 資料來源狀態：讀每個 job 最新一筆完成紀錄 ----
+    try{
+      const ds = await sbGet('data_status?select=source,ok,finished_at,error,run_date&order=finished_at.desc&limit=200',200);
+      const latestBySource={};
+      (ds||[]).forEach(r=>{ if(r.source && !latestBySource[r.source]) latestBySource[r.source]=r; });
+      const rows=Object.entries(latestBySource).map(([source,r])=>({
+        k:STATUS_LABELS[source]||source,
+        ok:!!r.ok,
+        t:fmtDoneTime(r.finished_at),
+        err:r.error||'',
+        runDate:r.run_date||''
+      }));
+      if(rows.length) DATA.dataStatus=rows.sort((a,b)=>a.k.localeCompare(b.k,'zh-Hant'));
+    }catch(e){ console.warn('data_status 載入略過:',e); }
 
     SRC_STATUS = '✅ 已連線真實資料 · 交易日 '+DATA.meta.date+
                  ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down+
@@ -1187,12 +1231,6 @@ let MAP_SEL='glassfiber';
 function vMap(){
   const t=DATA.themes.find(x=>x.id===MAP_SEL)||DATA.themes[0];
   const stocks=(t&&Array.isArray(t.stocks))?t.stocks:[];
-  const levels=stocks.reduce((acc,s)=>{
-    const k=s.level||'未分類';
-    (acc[k]=acc[k]||[]).push(s);
-    return acc;
-  },{});
-  const levelNames=Object.keys(levels);
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div style="display:flex;gap:9px;flex-wrap:wrap">
      ${DATA.themeList.map(n=>{const th=DATA.themes.find(x=>x.name===n);
@@ -1213,27 +1251,29 @@ function vMap(){
          <div class="stat"><span class="k">資金狀態</span><span class="v" style="font-size:18px">${t.vol} 量增</span></div>
        </div>
      </div>
+   </div>
+   <div class="card">
+     <div class="card-h"><h3>相關個股資料</h3><span class="tag">${stocks.length} 檔 · 點卡片可進個股分析</span></div>
      <div class="card-pad">
-       <div class="sec-title">產業鏈位置 · ${t.name}</div>
-       ${stocks.length?`<div style="display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px">
-       ${levelNames.map((lv,i)=>`<div style="min-width:178px;flex:1;background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:12px;padding:14px">
-         <div style="font-size:11px;font-weight:800;color:var(--primary);letter-spacing:.4px;margin-bottom:9px">${lv}</div>
-         ${levels[lv].slice(0,8).map(s=>`<div data-stock="${s.c}" class="lnk" style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-top:1px dashed #C7D9F5">
-           <span><b class="code">${s.c}</b> ${s.n}</span><span style="color:var(--ink-3)">›</span></div>`).join('')}
-       </div>${i<levelNames.length-1?'<div style="display:flex;align-items:center;color:var(--ink-3);font-weight:800">→</div>':''}`).join('')}
+       ${stocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
+       ${stocks.slice(0,60).map(s=>`<div class="activation-card lnk" data-stock="${s.c}" style="min-height:142px">
+         <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
+           <div><div class="code" style="font-size:13px;color:var(--ink-3)">${s.c}</div>
+           <b style="font-size:18px">${s.n}</b></div>
+           <span class="badge">${s.role||'成分'}</span>
+         </div>
+         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+           <span class="tag">${s.level||'未分類'}</span>
+           <span class="tag">關聯 ${s.score||0}</span>
+         </div>
+         <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:14px">
+           <div><div class="muted" style="font-size:11px">收盤</div><div class="num" style="font-weight:800;font-size:18px">${isFinite(s.px)?fmtPx(s.px):'—'}</div></div>
+           <div class="num ${dcls(s.dp)}" style="font-weight:800">${isFinite(s.dp)?sgn(s.dp.toFixed(2))+'%':'—'}</div>
+         </div>
+         <div class="muted" style="font-size:12px;margin-top:8px">${s.note||'尚無補充說明'}</div>
+       </div>`).join('')}
        </div>`:`<div class="muted" style="font-size:13px">此題材尚未有 Supabase 成分股資料。</div>`}
      </div>
-   </div>
-
-   <div class="card">
-     <div class="card-h"><h3>相關股票清單</h3><span class="tag">龍頭 / 補漲 / 材料 / 設備 / 觀察</span></div>
-     <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>角色</th><th>產業鏈位置</th><th class="r">收盤</th><th class="r">漲跌</th><th class="r">關聯分</th></tr></thead><tbody>
-     ${stocks.length?stocks.slice(0,30).map(s=>
-       `<tr><td class="code lnk" data-stock="${s.c}">${s.c}</td><td><b>${s.n}</b></td>
-       <td><span class="badge">${s.role}</span></td><td class="muted">${s.level}</td>
-       <td class="r muted">—</td><td class="r muted">—</td><td class="r">${scoreCell(s.score||0)}</td></tr>`).join(''):
-       `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">此題材尚未有相關股票資料</td></tr>`}
-     </tbody></table></div>
    </div>
   </div>`;
 }
