@@ -3,10 +3,9 @@
 """
 run_ai_lab.py - AI 量化模擬實驗室
 
-保留原 HMA/STDEV 策略，並新增 3 個獨立策略：
-  1. 關鍵券商追蹤 AI
-  2. 創新高隔日沖 AI
-  3. 布林通道突破R1 AI
+保留原 HMA/STDEV 策略，並新增布林通道突破R1策略：
+  1. HMA/STDEV 量化 AI
+  2. 布林通道突破R1 AI
 
 共同設計：
   - 每個策略是一個 ai_agents 機器人。
@@ -14,7 +13,6 @@ run_ai_lab.py - AI 量化模擬實驗室
   - 回測如果發現歷史進場後到最新 K 棒仍未出場，會補進持股，不必只挑今天剛出訊號的股票。
 
 注意：
-  - 目前資料庫尚無「券商分點買賣」欄位，關鍵券商追蹤先用三大法人買賣超做代理版。
   - 目前資料庫尚無股本、毛利率、股價淨值比、研發比，布林R1的基本面條件先用月營收 YoY 做可用欄位驗證。
 """
 import datetime as dt
@@ -41,24 +39,6 @@ AGENT_DEFS = [
         "signal": "hma",
         "friday_exit": True,
         "risk": "SL=進場-STDEV*2；TP=進場+STDEV*3 並逐日上調。",
-    },
-    {
-        "type": "broker_follow_v1",
-        "name": "關鍵券商追蹤 AI",
-        "desc": "代理版：用法人買賣超模擬關鍵券商短期大量買單；成交量需超過1000張。",
-        "signal": "broker",
-        "sl_pct": 0.20,
-        "tp_pct": 0.50,
-        "risk": "停損20%；停利50%；目前以法人買賣超做代理，待補分點券商資料後可升級。",
-    },
-    {
-        "type": "new_high_intraday_v1",
-        "name": "創新高隔日沖 AI",
-        "desc": "收盤價50元以下、強漲、收在高點、放量並創120日新高；成交量需超過1000張。",
-        "signal": "new_high",
-        "sl_pct": 0.08,
-        "tp_pct": 0.20,
-        "risk": "停損8%；停利20%；日K版用收盤近高點近似盤中13點後強勢整理。",
     },
     {
         "type": "bollinger_r1_v1",
@@ -248,54 +228,6 @@ def signal_hma(sym, rows, i, ctx):
     }
 
 
-def signal_broker(sym, rows, i, ctx):
-    if i + 1 >= len(rows) or not liquidity_ok(rows, i):
-        return None
-    cur = rows[i]
-    vol_lots = max(1, volume_lots(cur))
-    today_buy = inst_lots(ctx["inst_by_sym"], sym, cur["date"])
-    five_buy = inst_sum_lots(ctx["inst_by_sym"], sym, rows, i, 5)
-    if today_buy < vol_lots * 0.30 or five_buy <= 500:
-        return None
-    entry = rows[i + 1]["open"]
-    return {
-        "entry": entry,
-        "sl": entry * 0.80,
-        "tp": entry * 1.50,
-        "key_date": cur["date"],
-        "entry_date": rows[i + 1]["date"],
-        "reason": f"法人代理買超 {today_buy:.0f} 張，占成交量 {today_buy / vol_lots * 100:.1f}%；近5日買超 {five_buy:.0f} 張",
-        "state": {"proxy": "institutional_trades", "buy_lots_1d": round(today_buy, 2), "buy_lots_5d": round(five_buy, 2)},
-    }
-
-
-def signal_new_high(sym, rows, i, ctx):
-    if i < 120 or i + 1 >= len(rows) or not liquidity_ok(rows, i):
-        return None
-    cur = rows[i]
-    av5 = avg_volume(rows, i, 5)
-    if cur["close"] > 50:
-        return None
-    if cur["change_percent"] < 8:
-        return None
-    if cur["close"] < cur["high"] * 0.995:
-        return None
-    if av5 and cur["volume"] < av5 * 1.5:
-        return None
-    if cur["close"] < cur["high120"]:
-        return None
-    entry = rows[i + 1]["open"]
-    return {
-        "entry": entry,
-        "sl": entry * 0.92,
-        "tp": entry * 1.20,
-        "key_date": cur["date"],
-        "entry_date": rows[i + 1]["date"],
-        "reason": f"收盤 <=50、漲幅 {cur['change_percent']:.2f}%、收在高點、量增 {cur['volume'] / av5:.2f}x、創120日新高",
-        "state": {"change_percent": round(cur["change_percent"], 2), "volume_lots": volume_lots(cur)},
-    }
-
-
 def signal_bollinger(sym, rows, i, ctx):
     if i <= 0 or i + 1 >= len(rows) or not liquidity_ok(rows, i):
         return None
@@ -322,8 +254,6 @@ def signal_bollinger(sym, rows, i, ctx):
 
 SIGNAL_FN = {
     "hma": signal_hma,
-    "broker": signal_broker,
-    "new_high": signal_new_high,
     "bollinger": signal_bollinger,
 }
 
@@ -434,6 +364,21 @@ def load_name_map():
 def sync_agents():
     existing = sb_select("ai_agents", "select=*&order=id.asc")
     by_type = {a.get("strategy_type"): a for a in existing}
+    active_types = {s["type"] for s in AGENT_DEFS}
+    for old in existing:
+        if old.get("strategy_type") not in active_types:
+            log(f"移除停用 AI 策略：{old.get('name') or old.get('strategy_type')}")
+            for table in [
+                "ai_candidates",
+                "ai_backtests",
+                "ai_deep_analysis",
+                "ai_positions",
+                "ai_trades",
+                "ai_reviews",
+                "ai_strategy_versions",
+            ]:
+                sb_delete(table, f"agent_id=eq.{old['id']}")
+            sb_delete("ai_agents", f"id=eq.{old['id']}")
     for spec in AGENT_DEFS:
         row = by_type.get(spec["type"])
         payload = {
@@ -599,7 +544,7 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
                     ensure_ascii=False,
                 ),
                 "technical_summary": reason,
-                "chip_summary": "關鍵券商追蹤目前使用法人買賣超做代理。" if strategy["signal"] == "broker" else "本策略以日K與成交量為主。",
+                "chip_summary": "本策略以日K與成交量為主。",
                 "fundamental_summary": "布林R1目前只驗證月營收YoY；股本/毛利率/PB/研發比待補欄位。" if strategy["signal"] == "bollinger" else "本策略不使用基本面或目前無對應欄位。",
                 "risk_summary": strategy["risk"],
                 "final_score": min(100, 60 + stats["sample_count"] * 2 + int(stats["win_rate"] / 5)),
