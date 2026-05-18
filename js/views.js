@@ -294,14 +294,14 @@ async function loadStockSeries(sym){
       `daily_prices?select=date,open,high,low,close,volume&symbol=eq.${sym}`+
       `&order=date.asc`, 5000);
     if(Array.isArray(rows) && rows.length>=5){
-      DATA.stock.series = rows.map(r=>({
+      DATA.stock.series = normalizeStockSeries(rows.map(r=>({
         o:Number(r.open)||Number(r.close)||0,
         h:Number(r.high)||Number(r.close)||0,
         l:Number(r.low)||Number(r.close)||0,
         c:Number(r.close)||0,
         v:Number(r.volume)||0,
         d:String(r.date).slice(0,10)
-      })).filter(x=>x.c>0);
+      })).filter(x=>x.c>0));
       // 帶入最新報價到標頭
       const last=DATA.stock.series[DATA.stock.series.length-1];
       const prev=DATA.stock.series[DATA.stock.series.length-2];
@@ -408,6 +408,23 @@ async function loadStockRealDetails(sym){
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
   const c=Math.max(base*.6,o+ch);const h=Math.max(o,c)*(1+Math.random()*.012);const l=Math.min(o,c)*(1-Math.random()*.012);
   a.push({o,h,l,c,v:Math.round((6000+Math.random()*9000)*(1+Math.abs(ch)/vol))});p=c;}return a;}
+function normalizeStockSeries(rows){
+  const byDate=new Map();
+  (rows||[]).forEach(r=>{
+    const d=String(r.d||'').slice(0,10);
+    if(!d || !isFinite(r.c) || r.c<=0) return;
+    const prev=byDate.get(d);
+    if(!prev || Number(r.v||0)>=Number(prev.v||0)) byDate.set(d,{...r,d});
+  });
+  const sorted=[...byDate.values()].sort((a,b)=>String(a.d).localeCompare(String(b.d)));
+  const out=[];
+  sorted.forEach(r=>{
+    const p=out[out.length-1];
+    const sameBar=p&&['o','h','l','c','v'].every(k=>Number(p[k]||0)===Number(r[k]||0));
+    if(!sameBar) out.push(r);
+  });
+  return out;
+}
 function ma(a,k,key='c'){return a.map((_,i)=>i<k-1?null:a.slice(i-k+1,i+1).reduce((s,x)=>s+x[key],0)/k);}
 function lastNum(arr){for(let i=(arr||[]).length-1;i>=0;i--){const n=Number(arr[i]);if(isFinite(n))return n;}return null;}
 function emaSeries(vals,n){
