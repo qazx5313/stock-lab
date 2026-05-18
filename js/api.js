@@ -30,12 +30,16 @@ function chunks(arr,size){
 async function loadNameMap(symbols, dateHint){
   const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
   const map={};
+  const validName=(name,sym)=>{
+    const n=String(name||'').trim();
+    return n && n!==sym && n!=='尚無名稱' && n!=='—' && n!=='-';
+  };
   if(!wanted.length) return map;
   try{
     const rows=await sbGet('stocks?select=symbol,name,industry',20000);
     (rows||[]).forEach(r=>{
       const sym=String(r.symbol||'').trim();
-      if(sym && wanted.includes(sym)) map[sym]={name:r.name,industry:r.industry};
+      if(sym && wanted.includes(sym)) map[sym]={name:validName(r.name,sym)?String(r.name).trim():'',industry:r.industry};
     });
   }catch(_){}
   try{
@@ -45,11 +49,24 @@ async function loadNameMap(symbols, dateHint){
     const rows=await sbGet(q,20000);
     (rows||[]).forEach(r=>{
       const sym=String(r.symbol||'').trim();
-      if(sym && wanted.includes(sym) && r.name && r.name!==sym && (!map[sym]||!map[sym].name||map[sym].name===sym)){
-        map[sym]={...(map[sym]||{}),name:r.name};
+      if(sym && wanted.includes(sym) && validName(r.name,sym) && (!map[sym]||!validName(map[sym].name,sym))){
+        map[sym]={...(map[sym]||{}),name:String(r.name).trim()};
       }
     });
   }catch(_){}
+  const missing=wanted.filter(sym=>!map[sym]||!validName(map[sym].name,sym));
+  for(const part of chunks(missing,40)){
+    try{
+      const rows=await sbGet(
+        `candidate_pool?select=symbol,name&symbol=in.(${part.join(',')})&order=date.desc&limit=2000`,2000);
+      (rows||[]).forEach(r=>{
+        const sym=String(r.symbol||'').trim();
+        if(sym && wanted.includes(sym) && validName(r.name,sym) && (!map[sym]||!validName(map[sym].name,sym))){
+          map[sym]={...(map[sym]||{}),name:String(r.name).trim()};
+        }
+      });
+    }catch(_){}
+  }
   return map;
 }
 async function loadLatestPriceMap(symbols, dateHint){
@@ -95,6 +112,14 @@ async function loadReal(){
     if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){
       throw new Error('找不到有效交易日');
     }
+    try{
+      const dates=await sbGet('daily_prices?select=date&order=date.desc&limit=8',500);
+      const uniq=[...new Set((dates||[]).map(r=>String(r.date).slice(0,10)).filter(x=>/^\d{4}-\d{2}-\d{2}$/.test(x)))];
+      for(const cand of uniq){
+        const n=await cnt(`daily_prices?select=symbol&date=eq.${cand}`);
+        if(n>=1000){ d=cand; break; }
+      }
+    }catch(e){ console.warn('完整交易日檢查略過:',e); }
     console.log('[stock-lab] 採用最近交易日:', d);
 
     // 用 Prefer:count 拿總筆數，比抓全部 symbol 再 .length 穩又省流量
@@ -116,7 +141,8 @@ async function loadReal(){
         let up=0,down=0,flat=0,limitUp=0,limitDown=0,amtTwse=0,amtTpex=0;
         dayRows.forEach(r=>{
           const ch=Number(r.change), cp=Number(r.change_percent), amt=Number(r.amount)||0;
-          if(ch>0) up++; else if(ch<0) down++; else flat++;
+          const mv=isFinite(ch)&&ch!==0?ch:(isFinite(cp)?cp:0);
+          if(mv>0) up++; else if(mv<0) down++; else flat++;
           if(cp>=9.5) limitUp++;
           if(cp<=-9.5) limitDown++;
           const mk=String(r.market||'').toUpperCase();
