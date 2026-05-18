@@ -1,39 +1,41 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="zh-Hant">
 <head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>台股盤後題材操盤系統 · AI 量化模擬操盤實驗室</title>
-<link rel="stylesheet" href="styles.css?v=20260520-live-txf">
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <title>台股盤後題材操盤系統 · AI 量化模擬操盤實驗室</title>
+  <link rel="stylesheet" href="styles.css?v=20260521-chart-rsi">
 </head>
 <body>
-<div class="app">
-  <aside class="sidebar" id="sidebar"></aside>
-  <div class="scrim" id="scrim" onclick="toggleNav(false)"></div>
-  <div class="main">
-    <header class="topbar">
-      <button class="menu-btn mob-only" onclick="toggleNav(true)" aria-label="選單">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
-      </button>
-      <div>
-        <h1 id="pgTitle">今日市場總覽</h1>
-        <div class="sub" id="pgSub"></div>
-      </div>
-      <div class="spacer"></div>
-      <span class="pill" id="dataFreshness" style="display:none"><span class="dot"></span>資料載入中</span>
-      <div class="top-auth" id="topAuth"></div>
-    </header>
-    <main class="content" id="view"></main>
+  <div class="app">
+    <aside class="sidebar" id="sidebar"></aside>
+    <div class="scrim" id="scrim" onclick="toggleNav(false)"></div>
+    <div class="main">
+      <header class="topbar">
+        <button class="menu-btn mob-only" onclick="toggleNav(true)" aria-label="選單">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4">
+            <path d="M3 6h18M3 12h18M3 18h18"/>
+          </svg>
+        </button>
+        <div>
+          <h1 id="pgTitle">今日市場總覽</h1>
+          <div class="sub" id="pgSub"></div>
+        </div>
+        <div class="spacer"></div>
+        <span class="pill" id="dataFreshness" style="display:none"><span class="dot"></span>資料載入中</span>
+        <div class="top-auth" id="topAuth"></div>
+      </header>
+      <main class="content" id="view"></main>
+    </div>
   </div>
-</div>
-<nav class="mob-nav" id="mobNav"></nav>
-<script src="js/config.js?v=20260520-live-edge" defer></script>
-<script src="js/api.js?v=20260521-screen-volume" defer></script>
-<script src="js/data.js?v=20260520-realtime-maint" defer></script>
-<script src="js/router.js?v=20260520-realtime-maint" defer></script>
-<script src="js/auth.js?v=20260520-realtime-maint" defer></script>
-<script src="js/views.js?v=20260521-chart-panel-values" defer></script>
-<script src="js/events.js?v=20260520-live-edge" defer></script>
+  <nav class="mob-nav" id="mobNav"></nav>
+
+  <script src="js/config.js?v=20260520-live-edge" defer></script>
+  <script src="js/api.js?v=20260521-screen-volume" defer></script>
+  <script src="js/data.js?v=20260520-realtime-maint" defer></script>
+  <script src="js/router.js?v=20260520-realtime-maint" defer></script>
+  <script src="js/auth.js?v=20260520-realtime-maint" defer></script>
+  <script src="js/views.js?v=20260521-chart-rsi" defer></script>
+  <script src="js/events.js?v=20260520-live-edge" defer></script>
 </body>
 </html>
-
