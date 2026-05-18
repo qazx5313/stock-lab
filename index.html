@@ -272,7 +272,7 @@
       </button>
       <div>
         <h1 id="pgTitle">今日市場總覽</h1>
-        <div class="sub" id="pgSub">2025/05/16（五）盤後 · 資料已更新</div>
+        <div class="sub" id="pgSub">資料載入中 · 正在連線 Supabase</div>
       </div>
       <div class="spacer"></div>
       <span class="pill"><span class="dot"></span>盤後資料 · 16:42 更新</span>
@@ -289,6 +289,9 @@
 const SB_URL  = 'https://wgyumblfupaspzywiwzc.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXVtYmxmdXBhc3B6eXdpd3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDg5NjksImV4cCI6MjA5NDU4NDk2OX0.pUur9c40B76uOsI4LphE2cwtE_oqBWUMOwIT-L8qu9g';
 const EDGE_RUN_DAILY_URL = `${SB_URL}/functions/v1/trigger-github-action`;
+const ALLOW_DIRECT_BROWSER_WRITES = false;
+let DATA_REAL_READY = false;
+let DATA_LOAD_ERROR = '';
 
 async function sbGet(path, hi){
   const headers = { apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` };
@@ -301,6 +304,9 @@ async function sbGet(path, hi){
   return r.json();
 }
 async function sbWrite(path, body, method='POST'){
+  if(!ALLOW_DIRECT_BROWSER_WRITES){
+    throw new Error('基於安全性，前端直接寫入 Supabase 已停用；請改用 Edge Function 寫入。');
+  }
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method,
     headers:{
@@ -316,6 +322,9 @@ async function sbWrite(path, body, method='POST'){
   return r.json();
 }
 async function sbPatch(path, body){
+  if(!ALLOW_DIRECT_BROWSER_WRITES){
+    throw new Error('基於安全性，前端直接寫入 Supabase 已停用；請改用 Edge Function 寫入。');
+  }
   const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
     method:'PATCH',
     headers:{
@@ -439,7 +448,7 @@ async function loadReal(){
     // 直接問資料庫「最大的交易日」（排序取 1 筆，最穩，不受筆數上限影響）
     const newest = await sbGet('daily_prices?select=date&order=date.desc&limit=1');
     if(!Array.isArray(newest) || newest.length===0){
-      SRC_STATUS = '⚠️ 資料庫尚無 daily_prices 資料，顯示範例'; return;
+      throw new Error('資料庫尚無 daily_prices 資料');
     }
     const todayStr = new Date().toISOString().slice(0,10);
     let d = String(newest[0].date).slice(0,10);
@@ -450,7 +459,7 @@ async function loadReal(){
       if(Array.isArray(safe) && safe.length) d = String(safe[0].date).slice(0,10);
     }
     if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){
-      SRC_STATUS = '⚠️ 找不到有效交易日，顯示範例'; return;
+      throw new Error('找不到有效交易日');
     }
     console.log('[stock-lab] 採用最近交易日:', d);
 
@@ -690,18 +699,22 @@ async function loadReal(){
                  ' · 上漲 '+DATA.market.up+' / 下跌 '+DATA.market.down+
                  ' · 題材 '+DATA.themes.length+' · 候選 '+DATA.screen.length+
                  ' · AI '+(DATA.agents?DATA.agents.length:0);
+    DATA_REAL_READY = true;
+    DATA_LOAD_ERROR = '';
   }catch(e){
     console.warn('Supabase 載入失敗：', e);
-    SRC_STATUS = '⚠️ 連線失敗顯示範例：'+(e&&e.message||e);
+    DATA_REAL_READY = false;
+    DATA_LOAD_ERROR = (e&&e.message)||String(e);
+    SRC_STATUS = '⚠️ 連線失敗，未顯示 MOCK 股票資料：'+DATA_LOAD_ERROR;
   }
 }
 
 function flagSource(txt){ /* 舊介面保留相容，不再使用 */ }
 
-/* ============ 模擬資料層 (MOCK / 離線後備) ============
-   連得上 Supabase 時會被真實資料覆蓋；連不上則維持此假資料，畫面不壞。 */
+/* ============ 初始資料容器 ============
+   注意：正式畫面會等 Supabase 載入成功才顯示資料頁；載入失敗時不渲染下列舊占位資料。 */
 const DATA = {
-  meta:{date:'2025/05/16',weekday:'五',updated:'16:42'},
+  meta:{date:'載入中',weekday:'',updated:'—'},
 
   market:{
     twse:{name:'加權指數',v:21684.32,d:+182.45,dp:+0.85},
@@ -975,12 +988,18 @@ function go(id){
   }
   CUR=id;const p=PAGES.find(x=>x.id===id);
   document.getElementById('pgTitle').textContent=p.t;
-  document.getElementById('pgSub').textContent=`${DATA.meta.date}（${DATA.meta.weekday}）盤後 · ${p.s}`;
+  document.getElementById('pgSub').textContent=DATA_REAL_READY
+    ? `${DATA.meta.date}（${DATA.meta.weekday}）盤後 · ${p.s}`
+    : `等待真實資料 · ${p.s}`;
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   document.querySelectorAll('.mob-nav a').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   const v=document.getElementById('view');
   try{
-    v.innerHTML=({home:vHome,map:vMap,screen:vScreen,stock:vStock,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
+    if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
+      v.innerHTML=vDataUnavailable();
+    }else{
+      v.innerHTML=({home:vHome,map:vMap,screen:vScreen,stock:vStock,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
+    }
   }catch(err){
     console.error('頁面渲染錯誤 ['+id+']:', err);
     v.innerHTML='<div class="card" style="margin:16px"><b>此頁載入時發生問題</b>'+
@@ -993,13 +1012,27 @@ function go(id){
   if(id==='stock')drawStockCharts();
   bindPage(id);
 }
+function vLoading(){
+  return `<div class="card card-pad" style="max-width:720px;margin:24px auto">
+    <h3 style="font-size:18px;margin-bottom:8px">正在載入真實盤後資料</h3>
+    <div class="muted" style="font-size:13.5px;line-height:1.7">系統正在連線 Supabase。載入完成前不顯示任何 MOCK 股票、題材或報告內容。</div>
+  </div>`;
+}
+function vDataUnavailable(){
+  return `<div class="card card-pad" style="max-width:760px;margin:24px auto;border-color:#FDE68A;background:#FFFBEB">
+    <h3 style="font-size:18px;margin-bottom:8px;color:#92400E">真實資料尚未載入</h3>
+    <div style="font-size:13.5px;line-height:1.75;color:#92400E">
+      為避免 MOCK 範例被誤認為真實盤後資料，目前不顯示股票分析內容。<br>
+      ${DATA_LOAD_ERROR?`錯誤：${esc(DATA_LOAD_ERROR)}`:'請稍候或到資料更新狀態確認排程。'}
+    </div>
+  </div>`;
+}
 
 /* ---------- 共用元件 ---------- */
 function scoreCell(s){return `<div style="display:flex;align-items:center;gap:7px"><div class="scorebar"><i style="width:${s}%"></i></div><b class="num" style="font-size:12px">${s}</b></div>`;}
 function thBadge(st){const m={'主流':'hot','強勢延伸':'hot','低位階補漲':'warm','長線主流':'warm','輪動題材':'warm','觀察':'obs','降溫':'cool'};return `<span class="badge ${m[st]||'obs'}">${st}</span>`;}
 
-/* ---------- 帳號與開通狀態（前端展示版） ---------- */
-const AUTH_ADMIN={account:'admin',password:'admin123',nick:'系統管理員',role:'admin'};
+/* ---------- 帳號與開通狀態（MVP：登入來源改走 Supabase app_users） ---------- */
 function readStore(k,fallback){
   try{return JSON.parse(localStorage.getItem(k))||fallback;}catch(e){return fallback;}
 }
@@ -1139,7 +1172,7 @@ function vAccount(){
         <div style="flex:1"><b>${u.nick}</b><div class="muted" style="font-size:12.5px">${u.account} · ${u.role==='admin'?'管理員':'一般會員'} · 剩餘 ${remainingDays()}</div></div>
         <button class="btn line sm" id="logoutBtn">登出</button></div>
       <div style="margin-top:14px;font-size:12.5px;color:var(--ink-2);line-height:1.7">
-        如沒帳號可先申請；管理員帳號不受開通限制。Supabase 表尚未建立時，系統會暫存於本機瀏覽器。
+        帳號資料以 Supabase 為準；管理員必須在 app_users 表中設定 role=admin。前端不再提供硬寫管理員密碼。
       </div>
       <div class="card" style="margin-top:16px">
         <div class="card-h"><h3>目前板塊開通</h3><span class="tag">依會員權限顯示</span></div>
@@ -1900,7 +1933,7 @@ function vAdmin(){
       <div class="card card-pad auth-panel">
         <h3 style="font-size:18px;margin-bottom:10px">需要管理員登入</h3>
         <div class="muted" style="font-size:13.5px;line-height:1.7">後台管理、板塊開通設定與使用天數設定只開放管理員帳號操作。</div>
-        <div style="margin-top:14px"><span class="badge warm">管理員帳號 admin / admin123</span></div>
+        <div style="margin-top:14px"><span class="badge warm">請使用 Supabase app_users 內 role=admin 的帳號</span></div>
       </div>
       <div class="card card-pad">
         <h3 style="font-size:18px;margin-bottom:12px">管理員登入</h3>
@@ -2131,10 +2164,7 @@ function bindPage(id){
     const password=(document.getElementById('loginPassword')||{}).value||'';
     const msg=document.getElementById('loginMsg');
     if(msg){msg.textContent='登入中…';msg.style.color='var(--ink-2)';}
-    const remote=account===AUTH_ADMIN.account?null:await remoteLogin(account,password);
-    const found=(account===AUTH_ADMIN.account&&password===AUTH_ADMIN.password)
-      ? AUTH_ADMIN
-      : (remote || users().find(u=>u.account===account&&u.password===password));
+    const found=await remoteLogin(account,password);
     if(!found){
       if(msg){msg.textContent='帳號或密碼錯誤';msg.style.color='#92400E';}
       return;
@@ -2154,13 +2184,17 @@ function bindPage(id){
       if(msg){msg.textContent='請填寫帳號、密碼與暱稱';msg.style.color='#92400E';}
       return;
     }
-    if(account===AUTH_ADMIN.account||users().some(u=>u.account===account)){
+    if(users().some(u=>u.account===account)){
       if(msg){msg.textContent='此帳號已存在';msg.style.color='#92400E';}
       return;
     }
     if(msg){msg.textContent='送出中…';msg.style.color='var(--ink-2)';}
-    await remoteRegister(account,password,nick);
-    const next=[...users(),{account,password,nick,role:'user',createdAt:new Date().toISOString()}];
+    const ok=await remoteRegister(account,password,nick);
+    if(!ok){
+      if(msg){msg.textContent='前端直接註冊已停用，請改用 Edge Function / Supabase Auth 建立帳號';msg.style.color='#92400E';}
+      return;
+    }
+    const next=[...users(),{account,nick,role:'user',createdAt:new Date().toISOString()}];
     setUsers(next);
     if(msg){msg.textContent='申請完成，可直接登入';msg.style.color='var(--up)';}
   };
@@ -2367,10 +2401,10 @@ window.addEventListener('resize',()=>{if(CUR==='stock')drawStockCharts();});
 
 /* ============ 初始化 ============ */
 buildNav();
-go('home');
-loadRemoteActivation().then(()=>{ buildNav(); if(CUR!=='account') go(CUR||'home'); });
+document.getElementById('view').innerHTML=vLoading();
+loadRemoteActivation().then(()=>{ buildNav(); });
 loadRemoteUsers().then(()=>{ if(isAdmin()&&CUR==='admin') go('admin'); });
-/* 背景嘗試載入真實資料，成功後重繪當前頁（連不上就維持範例畫面） */
+/* 背景嘗試載入真實資料，成功後重繪當前頁；失敗時顯示錯誤，不顯示 MOCK 股票資料 */
 loadReal().then(()=>{ go(CUR||'home'); });
 </script>
 </body>
