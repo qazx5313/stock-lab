@@ -480,6 +480,16 @@ async function loadReal(){
         if(symbols.length){
           const stRows = await sbGet('stocks?select=symbol,name,industry', 20000);
           (stRows||[]).forEach(s=>stockMap[String(s.symbol||'').trim()]=s);
+          try{
+            const cpNames = await sbGet(
+              `candidate_pool?select=symbol,name&date=eq.${d}`, 20000);
+            (cpNames||[]).forEach(s=>{
+              const sym=String(s.symbol||'').trim();
+              if(sym && s.name && (!stockMap[sym] || !stockMap[sym].name)){
+                stockMap[sym]={...(stockMap[sym]||{}),symbol:sym,name:s.name};
+              }
+            });
+          }catch(_){}
         }
         const dayPrices = await sbGet(
           `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
@@ -489,9 +499,10 @@ async function loadReal(){
           const sym=String(r.symbol||'').trim();
           const sm=stockMap[sym]||{};
           const px=priceMap[sym]||{};
+          const fallbackName=(DATA.stock&&DATA.stock.c===sym&&DATA.stock.n&&DATA.stock.n!==sym)?DATA.stock.n:'尚無名稱';
           const key=String(r.theme_id);
           (byTheme[key]=byTheme[key]||[]).push({
-            c:sym,n:sm.name||'尚無名稱',role:r.role||'成分',
+            c:sym,n:(sm.name&&sm.name!==sym)?sm.name:fallbackName,role:r.role||'成分',
             level:r.supply_chain_level||sm.industry||'未分類',
             score:r.relevance_score||0,note:r.note||'',
             px:Number(px.close),dp:Number(px.change_percent),vol:Number(px.volume)
@@ -1431,6 +1442,12 @@ async function loadStockSeries(sym){
           DATA.stock.role=tags.length?tags.join(' / '):(DATA.stock.industry||'—');
         }
       }catch(_){}
+      if(!DATA.stock.n || DATA.stock.n===sym){
+        try{
+          const cn=await sbGet(`candidate_pool?select=name&symbol=eq.${sym}&order=date.desc&limit=1`,1);
+          if(cn&&cn[0]&&cn[0].name) DATA.stock.n=cn[0].name;
+        }catch(_){}
+      }
       const closes=DATA.stock.series.map(x=>x.c);
       const highs=DATA.stock.series.map(x=>x.h);
       const lows=DATA.stock.series.map(x=>x.l);
