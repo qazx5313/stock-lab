@@ -48,6 +48,7 @@ function isPageAllowed(id){
   if(!authUser()) return false;
   if(id==='status') return isAdmin();
   if(isAdmin()) return true;
+  if(['screen','stock','report'].includes(id)) return true;
   if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(id);
   return true;
 }

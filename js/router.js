@@ -26,7 +26,7 @@ const MOB=[['home','總覽'],['screen','篩選'],['account','帳號'],['ai','AI'
 function visiblePages(){
   return PAGES.filter(p=>{
     if(p.topOnly) return false;
-    if(p.id==='home' || p.id==='map') return true;
+    if(['home','map','screen','stock','report'].includes(p.id)) return true;
     if(!authUser()) return false;
     if(p.id==='status') return isAdmin();
     if(isAdmin()) return true;
@@ -63,10 +63,6 @@ function toggleNav(open){
 let CUR='home';
 function go(id){
   if(!PAGES.some(x=>x.id===id)) id='home';
-  if(id!=='account' && !isPageAllowed(id)){
-    CUR='account';
-    id='account';
-  }
   CUR=id;const p=PAGES.find(x=>x.id===id);
   document.getElementById('pgTitle').textContent=p.t;
   document.getElementById('pgSub').textContent=DATA_REAL_READY
@@ -76,7 +72,9 @@ function go(id){
   document.querySelectorAll('.mob-nav a').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   const v=document.getElementById('view');
   try{
-    if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
+    if(!isPageAllowed(id)){
+      v.innerHTML=vLoginRequired(id);
+    }else if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
       v.innerHTML=vDataUnavailable();
     }else{
       v.innerHTML=({home:vHome,map:vMap,screen:vScreen,stock:vStock,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
@@ -107,6 +105,16 @@ function vDataUnavailable(){
       為避免 MOCK 範例被誤認為真實盤後資料，目前不顯示股票分析內容。<br>
       ${DATA_LOAD_ERROR?`錯誤：${esc(DATA_LOAD_ERROR)}`:'請稍候或到資料更新狀態確認排程。'}
     </div>
+  </div>`;
+}
+function vLoginRequired(id){
+  const p=PAGES.find(x=>x.id===id)||{};
+  return `<div class="card card-pad" style="max-width:760px;margin:24px auto">
+    <h3 style="font-size:18px;margin-bottom:8px">${p.t||'此功能'}需登入後使用</h3>
+    <div class="muted" style="font-size:13.5px;line-height:1.75">
+      這個板塊可以預覽入口，但內容需要登入帳號並完成開通後才會顯示。
+    </div>
+    <div style="margin-top:14px"><button class="btn" data-go="account">登入 / 申請帳號</button></div>
   </div>`;
 }
 
