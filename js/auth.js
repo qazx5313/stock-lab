@@ -141,8 +141,10 @@ async function remoteRegister(account,password,nick){
         payload:{account,auth_email:authEmailFor(account),password,nick}
       })
     });
-    const data=await r.json().catch(()=>({}));
-    if(!r.ok || data.ok===false) throw new Error(data.error || await r.text());
+    const raw=await r.text();
+    let data={};
+    try{data=raw?JSON.parse(raw):{};}catch(_){data={error:raw};}
+    if(!r.ok || data.ok===false) throw new Error(data.error || raw || `HTTP ${r.status}`);
     return {ok:true};
   }catch(e){
     console.warn('Supabase Auth 註冊失敗:',e);
