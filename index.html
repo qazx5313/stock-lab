@@ -408,7 +408,7 @@ async function loadReal(){
         DATA.themes = th.map((t,i)=>{
           const mg = String(t.description||'').match(/平均漲幅\s*(-?[\d.]+)%/);
           return {
-            id:'t'+i, name:t.theme_name, score:t.heat_score,
+            id:'t'+i, themeId:t.id, name:t.theme_name, score:t.heat_score,
             gain:(mg?(parseFloat(mg[1])>0?'+':'')+mg[1]+'%':'—'),
             vol:'—', limit:0, high:0,
             status:t.trend_status||'—',
@@ -416,6 +416,23 @@ async function loadReal(){
           };
         });
         DATA.themeList = DATA.themes.map(t=>t.name);
+        const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 20000);
+        const symbols = [...new Set((ts||[]).map(x=>x.symbol).filter(Boolean))];
+        let stockMap={};
+        if(symbols.length){
+          const stRows = await sbGet('stocks?select=symbol,name,industry', 20000);
+          (stRows||[]).forEach(s=>stockMap[s.symbol]=s);
+        }
+        const byTheme={};
+        (ts||[]).forEach(r=>{
+          const sm=stockMap[r.symbol]||{};
+          (byTheme[r.theme_id]=byTheme[r.theme_id]||[]).push({
+            c:r.symbol,n:sm.name||r.symbol,role:r.role||'成分',
+            level:r.supply_chain_level||sm.industry||'未分類',
+            score:r.relevance_score||0,note:r.note||''
+          });
+        });
+        DATA.themes.forEach(t=>{t.stocks=(byTheme[t.themeId]||[]).sort((a,b)=>b.score-a.score);});
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
 
@@ -1107,6 +1124,13 @@ function vHome(){
 let MAP_SEL='glassfiber';
 function vMap(){
   const t=DATA.themes.find(x=>x.id===MAP_SEL)||DATA.themes[0];
+  const stocks=(t&&Array.isArray(t.stocks))?t.stocks:[];
+  const levels=stocks.reduce((acc,s)=>{
+    const k=s.level||'未分類';
+    (acc[k]=acc[k]||[]).push(s);
+    return acc;
+  },{});
+  const levelNames=Object.keys(levels);
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div style="display:flex;gap:9px;flex-wrap:wrap">
      ${DATA.themeList.map(n=>{const th=DATA.themes.find(x=>x.name===n);
@@ -1128,26 +1152,25 @@ function vMap(){
        </div>
      </div>
      <div class="card-pad">
-       <div class="sec-title">產業鏈位置 · ${DATA.chain.title}</div>
-       <div style="display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px">
-       ${DATA.chain.levels.map((lv,i)=>`<div style="min-width:178px;flex:1;background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:12px;padding:14px">
-         <div style="font-size:11px;font-weight:800;color:var(--primary);letter-spacing:.4px;margin-bottom:9px">${lv.label}</div>
-         ${lv.stocks.map(s=>`<div data-stock="${s.c}" class="lnk" style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-top:1px dashed #C7D9F5">
+       <div class="sec-title">產業鏈位置 · ${t.name}</div>
+       ${stocks.length?`<div style="display:flex;gap:10px;overflow-x:auto;padding:4px 0 8px">
+       ${levelNames.map((lv,i)=>`<div style="min-width:178px;flex:1;background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:12px;padding:14px">
+         <div style="font-size:11px;font-weight:800;color:var(--primary);letter-spacing:.4px;margin-bottom:9px">${lv}</div>
+         ${levels[lv].slice(0,8).map(s=>`<div data-stock="${s.c}" class="lnk" style="display:flex;justify-content:space-between;padding:6px 0;font-size:13px;border-top:1px dashed #C7D9F5">
            <span><b class="code">${s.c}</b> ${s.n}</span><span style="color:var(--ink-3)">›</span></div>`).join('')}
-       </div>${i<DATA.chain.levels.length-1?'<div style="display:flex;align-items:center;color:var(--ink-3);font-weight:800">→</div>':''}`).join('')}
-       </div>
+       </div>${i<levelNames.length-1?'<div style="display:flex;align-items:center;color:var(--ink-3);font-weight:800">→</div>':''}`).join('')}
+       </div>`:`<div class="muted" style="font-size:13px">此題材尚未有 Supabase 成分股資料。</div>`}
      </div>
    </div>
 
    <div class="card">
      <div class="card-h"><h3>相關股票清單</h3><span class="tag">龍頭 / 補漲 / 材料 / 設備 / 觀察</span></div>
      <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>角色</th><th>產業鏈位置</th><th class="r">收盤</th><th class="r">漲跌</th><th class="r">關聯分</th></tr></thead><tbody>
-     ${[['1815','富喬','龍頭 · 補漲','中游玻纖布',38.65,9.92,95],['5340','建榮','補漲股','中游玻纖布',46.20,7.45,88],
-        ['1802','台玻','材料股','上游玻纖紗',32.10,3.20,72],['6274','台燿','設備延伸','CCL 基板',285.0,6.34,80],
-        ['2368','金像電','觀察股','PCB 製造',312.5,5.21,76]].map(r=>
-       `<tr><td class="code lnk" data-stock="${r[0]}">${r[0]}</td><td><b>${r[1]}</b></td>
-       <td><span class="badge">${r[2]}</span></td><td class="muted">${r[3]}</td>
-       <td class="r num">${fmtPx(r[4])}</td><td class="r num up">+${r[5]}%</td><td class="r">${scoreCell(r[6])}</td></tr>`).join('')}
+     ${stocks.length?stocks.slice(0,30).map(s=>
+       `<tr><td class="code lnk" data-stock="${s.c}">${s.c}</td><td><b>${s.n}</b></td>
+       <td><span class="badge">${s.role}</span></td><td class="muted">${s.level}</td>
+       <td class="r muted">—</td><td class="r muted">—</td><td class="r">${scoreCell(s.score||0)}</td></tr>`).join(''):
+       `<tr><td colspan="7" class="muted" style="text-align:center;padding:22px">此題材尚未有相關股票資料</td></tr>`}
      </tbody></table></div>
    </div>
   </div>`;
