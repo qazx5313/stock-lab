@@ -205,6 +205,14 @@ function rowsScreen(list){
 /* ============ 4. 個股分析 ============ */
 function vStock(){
   const s=DATA.stock;
+  const fc=s.foreignCost||{};
+  const fcRows=[
+    ['外資推估成本',fc.cost,''],
+    ['站穩起飛價 ×1.04',fc.launch,'cool'],
+    ['獲利1 ×1.20',fc.tp1,'good'],
+    ['獲利2 ×1.40',fc.tp2,'warm'],
+    ['獲利3 ×1.70',fc.tp3,'hot']
+  ];
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div class="card card-pad">
      <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start">
@@ -259,6 +267,20 @@ function vStock(){
      </div>
    </div>
 
+   <div class="card"><div class="card-h"><h3>外資推估成本</h3><span class="tag">外資買超加權均價 · 推估值</span></div>
+     ${fc.ready?`<div class="card-pad">
+       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+       ${fcRows.map(r=>`<div style="background:${r[2]==='hot'?'#FFF7ED':'var(--blue-tint)'};border:1px solid ${r[2]==='hot'?'#FED7AA':'var(--blue-soft)'};border-radius:10px;padding:12px 14px">
+         <div style="font-size:11px;color:var(--ink-2);font-weight:700">${r[0]}</div>
+         <div class="num ${r[2]||''}" style="font-size:20px;font-weight:850;margin-top:5px">${fmtPx(r[1])}</div>
+       </div>`).join('')}
+       </div>
+       <div style="margin-top:12px;font-size:12.5px;color:var(--ink-2);line-height:1.55">
+         ${fc.note}；現價相對成本 <b class="${Number(fc.gap)>=0?'up':'down'}">${Number(fc.gap)>=0?'+':''}${fc.gap}%</b>。
+       </div>
+     </div>`:`<div class="card-pad muted" style="font-size:13px">目前外資買超資料不足，無法推估成本。${fc.note||''}</div>`}
+   </div>
+
    <div class="grid" style="grid-template-columns:1.2fr 1fr">
      <div class="card"><div class="card-h"><h3>AI 操盤判斷</h3></div>
        <div class="card-pad" style="display:flex;flex-direction:column;gap:11px">
@@ -290,8 +312,9 @@ async function loadStockSeries(sym){
     DATA.stock.inst={foreign:'—',trust:'—',dealer:'—',total:'—'};
     DATA.stock.margin={mb:'—',sb:'—',mc:'—',sc:'—'};
     DATA.stock.inst3='尚無近期籌碼資料';
+    DATA.stock.foreignCost={ready:false,note:''};
     const rows = await sbGet(
-      `daily_prices?select=date,open,high,low,close,volume&symbol=eq.${sym}`+
+      `daily_prices?select=date,open,high,low,close,volume,amount&symbol=eq.${sym}`+
       `&order=date.asc`, 5000);
     if(Array.isArray(rows) && rows.length>=5){
       DATA.stock.series = normalizeStockSeries(rows.map(r=>({
@@ -300,6 +323,7 @@ async function loadStockSeries(sym){
         l:Number(r.low)||Number(r.close)||0,
         c:Number(r.close)||0,
         v:Number(r.volume)||0,
+        a:Number(r.amount)||0,
         d:String(r.date).slice(0,10)
       })).filter(x=>x.c>0));
       // 帶入最新報價到標頭
@@ -372,7 +396,7 @@ async function loadStockRealDetails(sym){
     }
   }catch(e){ console.warn('個股訊號載入略過:',e); }
   try{
-    const inst=await sbGet(`institutional_trades?select=date,foreign_buy_sell,investment_trust_buy_sell,dealer_buy_sell,total_buy_sell&symbol=eq.${sym}&order=date.desc&limit=5`,5);
+    const inst=await sbGet(`institutional_trades?select=date,foreign_buy_sell,investment_trust_buy_sell,dealer_buy_sell,total_buy_sell&symbol=eq.${sym}&order=date.desc&limit=160`,160);
     if(inst&&inst.length){
       const latest=inst[0];
       DATA.stock.inst={
@@ -381,8 +405,10 @@ async function loadStockRealDetails(sym){
         dealer:fmtInst(latest.dealer_buy_sell),
         total:fmtInst(latest.total_buy_sell)
       };
-      const sum=(k)=>inst.reduce((a,r)=>a+(Number(r[k])||0),0);
-      DATA.stock.inst3=`近${inst.length}筆合計：外資 ${fmtInst(sum('foreign_buy_sell'))} · 投信 ${fmtInst(sum('investment_trust_buy_sell'))} · 自營商 ${fmtInst(sum('dealer_buy_sell'))}（單位：張）`;
+      const recent=inst.slice(0,5);
+      const sum=(arr,k)=>arr.reduce((a,r)=>a+(Number(r[k])||0),0);
+      DATA.stock.inst3=`近${recent.length}筆合計：外資 ${fmtInst(sum(recent,'foreign_buy_sell'))} · 投信 ${fmtInst(sum(recent,'investment_trust_buy_sell'))} · 自營商 ${fmtInst(sum(recent,'dealer_buy_sell'))}（單位：張）`;
+      DATA.stock.foreignCost=calcForeignCost(DATA.stock.series,inst);
     }
   }catch(e){ console.warn('法人籌碼載入略過:',e); }
   try{
@@ -424,6 +450,41 @@ function normalizeStockSeries(rows){
     if(!sameBar) out.push(r);
   });
   return out;
+}
+function calcForeignCost(series, instRows){
+  const pxMap={};
+  (series||[]).forEach(r=>{
+    const v=Number(r.v)||0, amt=Number(r.a)||0;
+    const avg=(amt>0&&v>0)?amt/v:((Number(r.o)+Number(r.h)+Number(r.l)+Number(r.c))/4);
+    if(r.d&&isFinite(avg)&&avg>0) pxMap[String(r.d).slice(0,10)]={avg,close:Number(r.c)||avg};
+  });
+  let shares=0,costAmt=0,days=0,lastBuyDate='';
+  (instRows||[]).slice().reverse().forEach(r=>{
+    const d=String(r.date||'').slice(0,10);
+    const buy=Number(r.foreign_buy_sell)||0;
+    const px=pxMap[d];
+    if(buy>0&&px){
+      shares+=buy;
+      costAmt+=buy*px.avg;
+      days+=1;
+      lastBuyDate=d;
+    }
+  });
+  if(!shares||!costAmt){
+    return {ready:false,note:'近160筆法人資料沒有可配對的外資買超日'};
+  }
+  const cost=costAmt/shares;
+  const latest=(series||[]).length?Number(series[series.length-1].c):0;
+  return {
+    ready:true,
+    cost:cost,
+    launch:cost*1.04,
+    tp1:cost*1.20,
+    tp2:cost*1.40,
+    tp3:cost*1.70,
+    gap:latest&&cost?(((latest-cost)/cost)*100).toFixed(2):'0.00',
+    note:`用近160筆資料中的 ${days} 個外資買超日推估，累計買超 ${Math.round(shares/1000).toLocaleString('en-US')} 張，最後買超日 ${lastBuyDate||'—'}`
+  };
 }
 function ma(a,k,key='c'){return a.map((_,i)=>i<k-1?null:a.slice(i-k+1,i+1).reduce((s,x)=>s+x[key],0)/k);}
 function lastNum(arr){for(let i=(arr||[]).length-1;i>=0;i--){const n=Number(arr[i]);if(isFinite(n))return n;}return null;}
