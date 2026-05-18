@@ -3,6 +3,7 @@ const STATUS_LABELS={
   fetch_twse_prices:'TWSE 每日收盤資料',
   fetch_tpex_prices:'TPEX 每日收盤資料',
   fetch_twse_inst:'TWSE 法人買賣超',
+  tpex_inst:'TPEX 法人買賣超',
   fetch_twse_margin:'TWSE 融資融券',
   fetch_mops_announcements:'MOPS 重大訊息',
   fetch_monthly_revenue:'MOPS 月營收',
