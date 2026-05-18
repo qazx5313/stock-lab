@@ -42,6 +42,9 @@ PASS_SAMPLE = int(os.environ.get("PASS_SAMPLE", "8"))
 PASS_PROFIT_FACTOR = float(os.environ.get("PASS_PROFIT_FACTOR", "1.2"))
 
 INIT_CASH = 1_000_000    # 每個 AI 初始資金
+STOP_LOSS_PCT = float(os.environ.get("AI_STOP_LOSS_PCT", "-8"))
+TAKE_PROFIT_PCT = float(os.environ.get("AI_TAKE_PROFIT_PCT", "15"))
+MAX_BUY_PER_RUN = int(os.environ.get("AI_MAX_BUY_PER_RUN", "3"))
 
 
 # ============ FinMind ============
@@ -214,6 +217,83 @@ def backtest(symbol, prices_by_sym, latest):
     }
 
 
+def latest_price(symbol, prices_by_sym):
+    rows = sorted(prices_by_sym.get(symbol, []), key=lambda r: r["date"])
+    if not rows:
+        return None
+    try:
+        return float(rows[-1]["close"])
+    except Exception:
+        return None
+
+
+def already_traded_today(agent_id, symbol, trade_type, latest):
+    q = (
+        f"select=id&agent_id=eq.{agent_id}&symbol=eq.{symbol}"
+        f"&trade_type=eq.{trade_type}&trade_date=eq.{latest}&limit=1"
+    )
+    return bool(sb_select("ai_trades", q))
+
+
+def update_open_positions(agent_id, latest, prices_by_sym):
+    """延續既有持倉，更新現價/損益；達停利停損才賣出。"""
+    open_pos = sb_select(
+        "ai_positions",
+        f"select=*&agent_id=eq.{agent_id}&status=eq.持有",
+    )
+    updates, sell_trades = [], []
+    for p in open_pos:
+        px = latest_price(p["symbol"], prices_by_sym)
+        if not px:
+            continue
+        bp = float(p.get("buy_price") or 0)
+        qty = int(p.get("quantity") or 0)
+        market_value = int(px * qty * 1000)
+        pnl = int((px - bp) * qty * 1000)
+        ret = round(((px - bp) / bp * 100), 2) if bp else 0
+        status = "持有"
+        sell_reason = ""
+        if ret <= STOP_LOSS_PCT:
+            status = "已賣出"
+            sell_reason = f"停損觸發 {ret}%"
+        elif ret >= TAKE_PROFIT_PCT:
+            status = "已賣出"
+            sell_reason = f"停利觸發 {ret}%"
+
+        updates.append({
+            "id": p["id"],
+            "agent_id": agent_id,
+            "symbol": p["symbol"],
+            "name": p.get("name"),
+            "buy_date": p.get("buy_date"),
+            "buy_price": bp,
+            "quantity": qty,
+            "current_price": px,
+            "market_value": market_value,
+            "unrealized_pnl": pnl,
+            "unrealized_return": ret,
+            "buy_reason": p.get("buy_reason"),
+            "status": status,
+        })
+        if status == "已賣出" and not already_traded_today(
+            agent_id, p["symbol"], "賣出", latest
+        ):
+            sell_trades.append({
+                "agent_id": agent_id,
+                "symbol": p["symbol"],
+                "trade_date": latest,
+                "trade_type": "賣出",
+                "price": px,
+                "quantity": qty,
+                "amount": market_value,
+                "reason": sell_reason,
+                "strategy_version": "",
+            })
+    sb_upsert("ai_positions", updates, on_conflict="id")
+    sb_upsert("ai_trades", sell_trades)
+    return updates, sell_trades
+
+
 def main():
     today = dt.date.today()
     log("=== run_ai_lab 開始 ===")
@@ -258,10 +338,23 @@ def main():
         ver = ag.get("strategy_version") or "v1.0"
         log(f"\n--- AI #{aid} {ag.get('name')}（{atype}）---")
 
-        # 重算前清掉這個 agent 的舊紀錄，避免每次跑都疊加重複
-        for _t in ("ai_candidates", "ai_backtests", "ai_deep_analysis",
-                   "ai_positions", "ai_trades"):
+        # 候選與深度分析是「當日重算資料」，只清同一天；交易與持倉必須保留。
+        sb_delete("ai_candidates", f"agent_id=eq.{aid}&date=eq.{latest}")
+        for _t in ("ai_backtests", "ai_deep_analysis"):
             sb_delete(_t, f"agent_id=eq.{aid}")
+
+        updated_positions, sell_trades = update_open_positions(
+            aid, latest, prices_by_sym
+        )
+        held_symbols = {
+            p["symbol"] for p in updated_positions if p.get("status") == "持有"
+        }
+        current_asset_value = sum(
+            int(p.get("market_value") or 0)
+            for p in updated_positions
+            if p.get("status") == "持有"
+        )
+        log(f"  既有持倉：{len(held_symbols)} 檔，賣出 {len(sell_trades)} 檔")
 
         picks, backtests, deep_rows = [], [], []
         passed_syms = []
@@ -364,21 +457,25 @@ def main():
         sb_upsert("ai_deep_analysis", deep_rows)
         log(f"  FinMind 深入查證：{len(deep_rows)} 檔（本次 FinMind 呼叫 {_finmind_calls} 次）")
 
-        # 5) 模擬交易：對 decision=買進 的，平均分配資金買進
-        buys = [d for d in deep_rows if d["decision"] == "買進"]
+        # 5) 模擬交易：只買新標的；已持有不重複買，交易紀錄永久保留。
+        buys = [
+            d for d in deep_rows
+            if d["decision"] == "買進" and d["symbol"] not in held_symbols
+        ][:MAX_BUY_PER_RUN]
         positions, trades = [], []
+        cash_before = ag.get("current_cash")
+        cash_available = int(cash_before if cash_before is not None else INIT_CASH)
         if buys:
-            per = INIT_CASH // len(buys)
+            per = max(0, cash_available // len(buys))
             for d in buys:
                 sym = d["symbol"]
-                rows = sorted(
-                    prices_by_sym.get(sym, []), key=lambda r: r["date"]
-                )
-                px = float(rows[-1]["close"]) if rows else None
+                px = latest_price(sym, prices_by_sym)
                 if not px or px <= 0:
                     continue
                 qty = int(per // (px * 1000))  # 張（1張=1000股）
                 if qty < 1:
+                    continue
+                if already_traded_today(aid, sym, "買進", latest):
                     continue
                 amount = int(px * qty * 1000)
                 positions.append(
@@ -413,12 +510,16 @@ def main():
         sb_upsert("ai_positions", positions)
         sb_upsert("ai_trades", trades)
         spent = sum(t["amount"] for t in trades)
-        log(f"  模擬交易：買進 {len(trades)} 檔，動用資金 {spent:,}")
+        sold_cash = sum(t["amount"] for t in sell_trades)
+        cash_after = cash_available + sold_cash - spent
+        asset_after = current_asset_value + sum(p["market_value"] for p in positions)
+        log(f"  模擬交易：買進 {len(trades)} 檔，賣出 {len(sell_trades)} 檔，動用資金 {spent:,}")
 
         # 6) 自我檢討（規則模板）+ 多 AI 互評（OpenAI/Gemini，選用）
         review = (
             f"本日從 {len(picks)} 檔候選選出 {len(chosen)} 檔，"
-            f"回測通過 {len(passed_syms)} 檔，實際買進 {len(trades)} 檔。"
+            f"回測通過 {len(passed_syms)} 檔，買進 {len(trades)} 檔，"
+            f"賣出 {len(sell_trades)} 檔，持有 {len(held_symbols)+len(positions)} 檔。"
         )
         if len(passed_syms) == 0:
             improvement = "回測全數未過門檻，下次可放寬樣本數要求或調整訊號定義。"
@@ -426,10 +527,13 @@ def main():
             improvement = "有通過回測但綜合分偏低未進場，可檢視評分權重。"
         else:
             improvement = "策略運作正常，持續觀察持股後續表現再決定加減碼。"
+        if sell_trades:
+            improvement += " 本日有停利/停損出場，需檢討出場訊號是否過早或過晚。"
 
         stats_str = (
             f"候選{len(picks)}/選股{len(chosen)}/回測通過{len(passed_syms)}"
-            f"/買進{len(trades)}/動用資金{spent}"
+            f"/買進{len(trades)}/賣出{len(sell_trades)}/持倉{len(held_symbols)+len(positions)}"
+            f"/現金{cash_after}/持股市值{asset_after}"
         )
         cg = openai_review(ag.get("name", ""), stats_str)
         gm = gemini_review(ag.get("name", ""), stats_str)
@@ -458,6 +562,25 @@ def main():
             ],
         )
 
+        # 累積學習紀錄：每次檢討都留下策略版本備忘，不覆蓋舊紀錄。
+        next_ver = f"{ver}.{today.strftime('%m%d')}"
+        sb_upsert(
+            "ai_strategy_versions",
+            [
+                {
+                    "agent_id": aid,
+                    "version": next_ver,
+                    "change_summary": improvement,
+                    "old_rules": f"{atype} / {ver}",
+                    "new_rules": (
+                        f"保留交易歷史；停損{STOP_LOSS_PCT}%、"
+                        f"停利{TAKE_PROFIT_PCT}%；單次最多買{MAX_BUY_PER_RUN}檔"
+                    ),
+                    "reason": review,
+                }
+            ],
+        )
+
         # 更新 AI 帳戶現金/資產
         sb_upsert(
             "ai_agents",
@@ -468,8 +591,8 @@ def main():
                     "strategy_type": atype,
                     "description": ag.get("description"),
                     "initial_cash": INIT_CASH,
-                    "current_cash": INIT_CASH - spent,
-                    "current_asset_value": spent,
+                    "current_cash": cash_after,
+                    "current_asset_value": asset_after,
                     "status": "active",
                     "strategy_version": ver,
                 }
