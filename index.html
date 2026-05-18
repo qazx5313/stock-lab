@@ -305,6 +305,21 @@ async function sbWrite(path, body, method='POST'){
     method,
     headers:{
       apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`,
+      'Content-Type':'application/json', Prefer:'resolution=merge-duplicates,return=representation'
+    },
+    body:JSON.stringify(body)
+  });
+  if(!r.ok){
+    const txt = await r.text().catch(()=> '');
+    throw new Error('Supabase '+r.status+' '+txt.slice(0,160));
+  }
+  return r.json();
+}
+async function sbPatch(path, body){
+  const r = await fetch(`${SB_URL}/rest/v1/${path}`, {
+    method:'PATCH',
+    headers:{
+      apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}`,
       'Content-Type':'application/json', Prefer:'return=representation'
     },
     body:JSON.stringify(body)
@@ -457,6 +472,25 @@ async function loadReal(){
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
 
+    // ---- 重大公告：讀公開資訊觀測站公告 ----
+    try{
+      const anns = await sbGet(
+        'mops_announcements?select=date,symbol,company_name,title,category'+
+        '&order=date.desc&limit=20', 20);
+      if(Array.isArray(anns) && anns.length){
+        DATA.news = anns.map(a=>({
+          c:a.symbol||'-',
+          n:a.company_name||'',
+          title:[a.category,a.title].filter(Boolean).join(' · ')||'公告',
+          time:String(a.date||'').slice(5).replace('-','/'),
+          k:'neu'
+        }));
+        DATA.realNewsLoaded = true;
+      }else{
+        DATA.realNewsLoaded = false;
+      }
+    }catch(e){ DATA.realNewsLoaded = false; console.warn('公告載入略過:',e); }
+
     // ---- 每日篩選：讀 candidate_pool（綜合分排序）----
     try{
       const cp = await sbGet(
@@ -532,6 +566,7 @@ async function loadReal(){
       if(Array.isArray(st)){
         DATA.appSettings = DATA.appSettings || {};
         st.forEach(x=>DATA.appSettings[x.key]=x.value);
+        if(DATA.appSettings.daily_report_note) setReportNote(DATA.appSettings.daily_report_note);
       }
     }catch(e){ console.warn('app_settings 載入略過:',e); }
 
@@ -752,6 +787,7 @@ const DATA = {
 const fmtPx=v=>{const n=Number(v);return isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';};
 const sgn=v=>(v>0?'+':'')+v;
 const fmtSigned=v=>{const n=Number(v);return isFinite(n)?`${n>0?'+':''}${Math.round(n).toLocaleString('en-US')}`:'—';};
+const fmtInst=v=>{const n=Number(v);return isFinite(n)?fmtSigned(n/1000):'—';};
 const fmtLot=v=>{const n=Number(v);return isFinite(n)?`${Math.round(n).toLocaleString('en-US')} 張`:'—';};
 const dcls=v=>v>0?'up':(v<0?'down':'muted');
 
@@ -852,6 +888,7 @@ function readStore(k,fallback){
   try{return JSON.parse(localStorage.getItem(k))||fallback;}catch(e){return fallback;}
 }
 function writeStore(k,v){localStorage.setItem(k,JSON.stringify(v));}
+function esc(v){return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));}
 function users(){return readStore('stockLabUsers',[]);}
 function setUsers(v){writeStore('stockLabUsers',v);}
 function authUser(){return readStore('stockLabAuth',null);}
@@ -877,6 +914,8 @@ function setMemberEntitlements(account, rows){
   rows.forEach(r=>{all[account][r.id]={enabled:!!r.enabled,days:Number(r.days)||0};});
   setEntitlements(all);
 }
+function reportNote(){return localStorage.getItem('stockLabReportNote')||'';}
+function setReportNote(v){v?localStorage.setItem('stockLabReportNote',v):localStorage.removeItem('stockLabReportNote');}
 function isAdmin(){const u=authUser();return u&&u.role==='admin';}
 function hasAccess(id){
   if(isAdmin()) return true;
@@ -1401,13 +1440,13 @@ async function loadStockRealDetails(sym){
     if(inst&&inst.length){
       const latest=inst[0];
       DATA.stock.inst={
-        foreign:fmtSigned(latest.foreign_buy_sell),
-        trust:fmtSigned(latest.investment_trust_buy_sell),
-        dealer:fmtSigned(latest.dealer_buy_sell),
-        total:fmtSigned(latest.total_buy_sell)
+        foreign:fmtInst(latest.foreign_buy_sell),
+        trust:fmtInst(latest.investment_trust_buy_sell),
+        dealer:fmtInst(latest.dealer_buy_sell),
+        total:fmtInst(latest.total_buy_sell)
       };
       const sum=(k)=>inst.reduce((a,r)=>a+(Number(r[k])||0),0);
-      DATA.stock.inst3=`近${inst.length}筆合計：外資 ${fmtSigned(sum('foreign_buy_sell'))} · 投信 ${fmtSigned(sum('investment_trust_buy_sell'))} · 自營商 ${fmtSigned(sum('dealer_buy_sell'))}`;
+      DATA.stock.inst3=`近${inst.length}筆合計：外資 ${fmtInst(sum('foreign_buy_sell'))} · 投信 ${fmtInst(sum('investment_trust_buy_sell'))} · 自營商 ${fmtInst(sum('dealer_buy_sell'))}（單位：張）`;
     }
   }catch(e){ console.warn('法人籌碼載入略過:',e); }
   try{
@@ -1518,43 +1557,49 @@ function drawStockCharts(){
 /* ============ 5. 每日報告 ============ */
 function vReport(){
   const m=DATA.market;
+  const topThemes=DATA.themes.slice(0,5);
+  const topPicks=DATA.picks.slice(0,5);
+  const topNews=DATA.realNewsLoaded?(DATA.news||[]).filter(n=>n.c!=='-'||n.title).slice(0,5):[];
+  const risks=DATA.realRisksLoaded?(DATA.risks||[]):[];
+  const sourceReal=SRC_STATUS.indexOf('✅')===0;
+  const note=reportNote();
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div class="card">
      <div class="card-h"><h3>${DATA.meta.date}（${DATA.meta.weekday}）盤後報告</h3>
-       <span class="tag">系統自動產生 16:42</span>
-       <button class="btn ghost sm" style="margin-left:auto">下載 PDF</button></div>
+       <span class="tag">${sourceReal?'Supabase 真實資料':'資料不足，顯示可用資料'}</span></div>
      <div class="card-pad" style="line-height:1.85;font-size:14.5px">
-       <p><b>一、今日市場總結</b><br>今日市場${m.status}，加權指數收 <b class="num up">${fmtPx(m.twse.v)}</b>（${sgn(m.twse.dp.toFixed(2))}%），
-       上市成交 ${m.amtTwse}、櫃買 ${m.amtTpex}，量能略增。資金主要流向 PCB、玻纖布、面板與 AI 伺服器族群，上漲 ${m.up} 家、下跌 ${m.down} 家。</p>
+       <p><b>一、今日市場總結</b><br>
+       加權指數 <b class="num ${dcls(m.twse.dp)}">${fmtPx(m.twse.v)}</b>（${sgn(Number(m.twse.dp||0).toFixed(2))}%），
+       櫃買指數 <b class="num ${dcls(m.tpex.dp)}">${fmtPx(m.tpex.v)}</b>（${sgn(Number(m.tpex.dp||0).toFixed(2))}%）。
+       上漲 ${m.up} 家、下跌 ${m.down} 家。${sourceReal?'本段由 Supabase 最新交易日資料產生。':'目前資料來源不足，請先執行資料更新。'}</p>
 
        <p style="margin-top:14px"><b>二、今日強勢題材</b></p>
        <ol style="margin:6px 0 0 22px">
-       ${DATA.themes.slice(0,5).map(t=>`<li style="margin:3px 0">${t.name}　<span class="muted" style="font-size:13px">熱度 ${t.score} · ${t.status} · 平均 ${t.gain}</span></li>`).join('')}
+       ${topThemes.length?topThemes.map(t=>`<li style="margin:3px 0">${t.name}　<span class="muted" style="font-size:13px">熱度 ${t.score} · ${t.status} · 平均 ${t.gain}</span></li>`).join(''):'<li class="muted">尚無題材熱度資料</li>'}
        </ol>
 
        <p style="margin-top:14px"><b>三、今日精選股票</b></p>
-       <div style="background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:12px;padding:14px 18px;margin-top:8px">
-         <b style="font-size:15px">1815 富喬</b> <span class="badge hot" style="margin-left:6px">玻纖布</span>
-         <div style="margin-top:8px;font-size:13.5px;color:var(--ink-2);line-height:1.7">
-         · 技術：站上 20MA，多頭排列<br>· 籌碼：法人連續 3 日買超<br>
-         · 觀察：是否帶量突破前波高 39.8</div>
-       </div>
+       ${topPicks.length?topPicks.map(p=>`<div style="background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:12px;padding:13px 16px;margin-top:8px">
+         <b style="font-size:15px"><span class="code">${p.c}</span> ${p.n}</b> <span class="badge hot" style="margin-left:6px">${p.t||'—'}</span>
+         <div style="margin-top:7px;font-size:13.5px;color:var(--ink-2);line-height:1.7">
+         綜合分 ${p.fs??p.total??'—'} · 技術分 ${p.ts??'—'} · 籌碼分 ${p.cs??'—'} · 題材分 ${p.ms??'—'}<br>
+         ${p.ai||'尚無系統摘要'}</div>
+       </div>`).join(''):'<div class="muted" style="margin-top:8px">尚無精選股票資料</div>'}
 
        <p style="margin-top:14px"><b>四、今日風險股票</b><br>
-       ${DATA.risks.map(r=>`${r.c} ${r.n}（${r.type}）`).join('、')}。</p>
+       ${risks.length?risks.map(r=>`${r.c} ${r.n}（${r.type}）`).join('、'):'尚無真實風險清單資料'}。</p>
 
        <p style="margin-top:14px"><b>五、今日重大公告</b><br>
-       富喬泰國新廠設備到位，預計 2027 Q3 量產；台燿 4 月營收月增 18%。</p>
+       ${topNews.length?topNews.map(n=>`${n.c&&n.c!=='-'?n.c+' '+n.n+'：':''}${n.title}`).join('；'):'尚無重大公告資料'}。</p>
 
        <p style="margin-top:14px"><b>六、明日觀察重點</b><br>
-       玻纖布、PCB / CCL 是否續強並擴散至補漲股；面板低位階補漲是否延續；
-       留意法人是否持續買超主流題材龍頭。</p>
+       觀察 ${topThemes.slice(0,3).map(t=>t.name).join('、')||'主流題材'} 是否延續量價強度，並追蹤精選股是否維持技術分與籌碼分同步改善。</p>
+       ${note?`<p style="margin-top:14px"><b>管理員備註</b><br>${esc(note).replace(/\n/g,'<br>')}</p>`:''}
      </div>
    </div>
    <div class="card card-pad" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-     <span class="badge good">已發布</span>
-     <span style="font-size:13px;color:var(--ink-2)">本報告由系統盤後自動產生，後台可手動修改、加入個股評論與風險提醒。</span>
-     <div style="margin-left:auto;display:flex;gap:8px"><button class="btn line sm">編輯</button><button class="btn sm">重新產生</button></div>
+     <span class="badge ${sourceReal?'good':'warm'}">${sourceReal?'真實資料報告':'等待資料更新'}</span>
+     <span style="font-size:13px;color:var(--ink-2)">報告內容只使用目前資料庫已載入的市場、題材、候選股與公告資料，不再混入固定範例文字。</span>
    </div>
   </div>`;
 }
@@ -1766,16 +1811,18 @@ function vAdmin(){
 }
 function admBody(i){
   const b=document.getElementById('admBody');if(!b)return;
-  if(i===0){b.innerHTML=`<div class="card"><div class="card-h"><h3>股票資料管理</h3><button class="btn sm" style="margin-left:auto">+ 新增股票</button></div>
+  if(i===0){b.innerHTML=`<div class="card"><div class="card-h"><h3>股票資料管理</h3><button class="btn sm" id="addStockBtn" style="margin-left:auto">+ 新增股票</button></div>
+    <div id="adminEditor"></div>
     <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>市場</th><th>傳統產業</th><th>題材分類</th><th>龍頭</th><th>觀察</th><th>操作</th></tr></thead><tbody>
     ${DATA.adminStocks.map(s=>`<tr><td class="code">${s.c}</td><td><b>${s.n}</b></td><td>${s.m}</td><td class="muted">${s.ind}</td>
       <td><span class="badge">${s.th}</span></td><td>${s.lead?'<span class="badge hot">龍頭</span>':'—'}</td>
       <td>${s.obs?'<span class="badge warm">觀察</span>':'—'}</td>
-      <td><button class="btn line sm">編輯</button></td></tr>`).join('')}</tbody></table></div></div>`;}
-  else if(i===1){b.innerHTML=`<div class="card"><div class="card-h"><h3>題材分類管理</h3><button class="btn sm" style="margin-left:auto">+ 新增題材</button></div>
+      <td><button class="btn line sm" data-stock-edit="${s.c}">編輯</button></td></tr>`).join('')}</tbody></table></div></div>`;}
+  else if(i===1){b.innerHTML=`<div class="card"><div class="card-h"><h3>題材分類管理</h3><button class="btn sm" id="addThemeBtn" style="margin-left:auto">+ 新增題材</button></div>
+    <div id="adminEditor"></div>
     <div class="tbl-wrap"><table><thead><tr><th>題材名稱</th><th>說明</th><th>產業鏈位置</th><th>相關股票數</th><th>操作</th></tr></thead><tbody>
     ${DATA.themes.map(t=>`<tr><td><b>${t.name}</b></td><td class="muted" style="white-space:normal;min-width:260px">${t.desc}</td>
-      <td>${t.chain}</td><td class="num">8</td><td><button class="btn line sm">編輯產業鏈</button></td></tr>`).join('')}</tbody></table></div></div>`;}
+      <td>${t.chain}</td><td class="num">${Array.isArray(t.stocks)?t.stocks.length:'—'}</td><td><button class="btn line sm" data-theme-edit="${t.id}">編輯產業鏈</button></td></tr>`).join('')}</tbody></table></div></div>`;}
   else if(i===2){
     const P=DATA.appSettings||{};
     const fields=[
@@ -1821,10 +1868,20 @@ function admBody(i){
   }
   else if(i===3){b.innerHTML=`<div class="card card-pad"><h3 style="margin-bottom:14px">每日報告管理</h3>
     <div style="display:flex;flex-direction:column;gap:11px">
-    ${[['自動產出報告','已啟用 · 每日 16:40'],['發布狀態','已發布'],['管理員手動修改','可編輯內容、加入個股評論'],['風險提醒','可附加自訂風險清單']].map(r=>
+    ${[['自動產出報告','已啟用 · 依 Supabase 當日資料即時組成'],['資料來源',SRC_STATUS],['發布狀態','前台即時顯示，管理員備註可儲存'],['風險提醒','目前讀取系統風險清單，後續可擴充手動風險表']].map(r=>
       `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-soft)">
       <b style="font-size:13.5px;width:160px">${r[0]}</b><span class="muted" style="flex:1">${r[1]}</span>
-      <button class="btn line sm">設定</button></div>`).join('')}</div></div>`;}
+      <span class="badge obs">檢視</span></div>`).join('')}
+      <div class="field" style="margin-top:14px">
+        <label>管理員手動備註</label>
+        <textarea id="reportNoteInput" style="width:100%;min-height:120px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--sans);font-size:13.5px;outline:none">${esc(reportNote())}</textarea>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+        <button class="btn" id="saveReportNoteBtn">儲存報告備註</button>
+        <button class="btn line sm" id="regenReportBtn">重新產生報告</button>
+        <span id="reportMsg" class="muted" style="font-size:13px"></span>
+      </div>
+    </div></div>`;}
   else if(i===4){
     const members=users().filter(u=>u.role!=='admin');
     const selected=(localStorage.getItem('stockLabAdminMember')||members[0]?.account||'');
@@ -1865,6 +1922,46 @@ function admBody(i){
       <td class="num">${a.init.toLocaleString()}</td><td class="num r">8 檔</td><td class="num r">15%</td>
       <td class="num r down">-8%</td><td class="num r up">+15%</td><td><span class="badge">${a.ver}</span></td>
       <td><span class="badge good">啟用</span></td></tr>`).join('')}</tbody></table></div></div>`;}
+}
+
+function stockAdminForm(s={}){
+  return `<div class="card-pad" style="border-bottom:1px solid var(--border-soft);background:var(--blue-tint)">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+      <div class="field"><label>股票代號</label><input id="admStockSymbol" value="${esc(s.c||'')}" placeholder="2330"></div>
+      <div class="field"><label>名稱</label><input id="admStockName" value="${esc(s.n||'')}" placeholder="台積電"></div>
+      <div class="field"><label>市場</label><select id="admStockMarket"><option ${s.m==='上市'?'selected':''}>上市</option><option ${s.m==='上櫃'?'selected':''}>上櫃</option><option ${s.m==='TWSE'?'selected':''}>TWSE</option><option ${s.m==='TPEX'?'selected':''}>TPEX</option></select></div>
+      <div class="field"><label>傳統產業</label><input id="admStockIndustry" value="${esc(s.ind||'')}" placeholder="半導體"></div>
+      <div class="field"><label>題材分類</label><input id="admStockTheme" value="${esc(s.th||'')}" placeholder="AI 伺服器"></div>
+      <div class="field"><label>標記</label><div style="display:flex;gap:12px;align-items:center;height:38px"><label><input id="admStockLead" type="checkbox" ${s.lead?'checked':''}> 龍頭</label><label><input id="admStockObs" type="checkbox" ${s.obs?'checked':''}> 觀察</label></div></div>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn" id="saveStockBtn">儲存股票</button>
+      <button class="btn line sm" id="cancelAdminEditBtn">取消</button>
+      <span id="adminEditMsg" class="muted" style="font-size:13px"></span>
+    </div>
+  </div>`;
+}
+function themeAdminForm(t={}){
+  const stockLines=(t.stocks||[]).map(s=>`${s.c},${s.role||'成分'},${s.level||''},${s.score||80}`).join('\n');
+  return `<div class="card-pad" style="border-bottom:1px solid var(--border-soft);background:var(--blue-tint)">
+    <input id="admThemeLocalId" type="hidden" value="${esc(t.id||'')}">
+    <input id="admThemeDbId" type="hidden" value="${esc(t.themeId||'')}">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px">
+      <div class="field"><label>題材名稱</label><input id="admThemeName" value="${esc(t.name||'')}" placeholder="AI 伺服器"></div>
+      <div class="field"><label>熱度分數</label><input id="admThemeScore" type="number" min="0" max="100" value="${esc(t.score||70)}"></div>
+      <div class="field"><label>狀態</label><input id="admThemeStatus" value="${esc(t.status||'觀察')}" placeholder="主流 / 觀察"></div>
+      <div class="field"><label>產業鏈位置</label><input id="admThemeChain" value="${esc(t.chain||'')}" placeholder="上游 / 中游 / 下游"></div>
+    </div>
+    <div class="field" style="margin-top:12px"><label>說明</label><input id="admThemeDesc" value="${esc(t.desc||'')}" placeholder="題材說明"></div>
+    <div class="field" style="margin-top:12px"><label>相關股票，每行：代號,角色,產業鏈位置,關聯分</label>
+      <textarea id="admThemeStocks" style="width:100%;min-height:120px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--mono);font-size:13px;outline:none">${esc(stockLines)}</textarea>
+    </div>
+    <div style="display:flex;gap:10px;align-items:center;margin-top:12px;flex-wrap:wrap">
+      <button class="btn" id="saveThemeBtn">儲存題材</button>
+      <button class="btn line sm" id="cancelAdminEditBtn">取消</button>
+      <span id="adminEditMsg" class="muted" style="font-size:13px"></span>
+    </div>
+  </div>`;
 }
 
 /* ============ 8. 資料更新狀態 ============ */
@@ -2012,12 +2109,102 @@ function bindPage(id){
   }
   if(id==='admin'){
     admBody(0);
-    const bindActivation=()=>{
+    const bindAdminControls=()=>{
+      const editor=document.getElementById('adminEditor');
+      const clearEditor=()=>{if(editor)editor.innerHTML='';};
+      const cancel=document.getElementById('cancelAdminEditBtn');
+      if(cancel)cancel.onclick=clearEditor;
+      const addStock=document.getElementById('addStockBtn');
+      if(addStock&&editor)addStock.onclick=()=>{editor.innerHTML=stockAdminForm();bindAdminControls();};
+      document.querySelectorAll('[data-stock-edit]').forEach(btn=>btn.onclick=()=>{
+        const s=DATA.adminStocks.find(x=>x.c===btn.dataset.stockEdit)||{};
+        if(editor){editor.innerHTML=stockAdminForm(s);bindAdminControls();}
+      });
+      const saveStock=document.getElementById('saveStockBtn');
+      if(saveStock)saveStock.onclick=async()=>{
+        const msg=document.getElementById('adminEditMsg');
+        const row={
+          c:(document.getElementById('admStockSymbol')||{}).value?.trim()||'',
+          n:(document.getElementById('admStockName')||{}).value?.trim()||'',
+          m:(document.getElementById('admStockMarket')||{}).value||'TWSE',
+          ind:(document.getElementById('admStockIndustry')||{}).value?.trim()||'',
+          th:(document.getElementById('admStockTheme')||{}).value?.trim()||'',
+          lead:!!(document.getElementById('admStockLead')||{}).checked,
+          obs:!!(document.getElementById('admStockObs')||{}).checked
+        };
+        if(!/^[0-9A-Za-z.-]+$/.test(row.c)||!row.n){if(msg){msg.textContent='請填股票代號與名稱';msg.style.color='#92400E';}return;}
+        saveStock.disabled=true;saveStock.textContent='儲存中…';
+        try{
+          await sbWrite('stocks?on_conflict=symbol',{
+            symbol:row.c,name:row.n,market:row.m,industry:row.ind,
+            theme_tags:row.th?row.th.split(/[、,]/).map(x=>x.trim()).filter(Boolean):[],
+            is_leader:row.lead,is_active:true,updated_at:new Date().toISOString()
+          });
+          const i=DATA.adminStocks.findIndex(x=>x.c===row.c);
+          if(i>=0) DATA.adminStocks[i]=row; else DATA.adminStocks.unshift(row);
+          admBody(0);bindAdminControls();
+        }catch(e){if(msg){msg.textContent='儲存失敗：'+(e.message||e);msg.style.color='#92400E';}}
+        saveStock.disabled=false;saveStock.textContent='儲存股票';
+      };
+      const addTheme=document.getElementById('addThemeBtn');
+      if(addTheme&&editor)addTheme.onclick=()=>{editor.innerHTML=themeAdminForm();bindAdminControls();};
+      document.querySelectorAll('[data-theme-edit]').forEach(btn=>btn.onclick=()=>{
+        const t=DATA.themes.find(x=>x.id===btn.dataset.themeEdit)||{};
+        if(editor){editor.innerHTML=themeAdminForm(t);bindAdminControls();}
+      });
+      const saveTheme=document.getElementById('saveThemeBtn');
+      if(saveTheme)saveTheme.onclick=async()=>{
+        const msg=document.getElementById('adminEditMsg');
+        const localId=(document.getElementById('admThemeLocalId')||{}).value||'';
+        let dbId=(document.getElementById('admThemeDbId')||{}).value||'';
+        const name=(document.getElementById('admThemeName')||{}).value?.trim()||'';
+        const score=Math.max(0,Math.min(100,parseInt((document.getElementById('admThemeScore')||{}).value,10)||0));
+        const status=(document.getElementById('admThemeStatus')||{}).value?.trim()||'觀察';
+        const chain=(document.getElementById('admThemeChain')||{}).value?.trim()||'—';
+        const desc=(document.getElementById('admThemeDesc')||{}).value?.trim()||'';
+        if(!name){if(msg){msg.textContent='請填題材名稱';msg.style.color='#92400E';}return;}
+        saveTheme.disabled=true;saveTheme.textContent='儲存中…';
+        try{
+          const body={theme_name:name,heat_score:score,trend_status:status,description:desc,updated_at:new Date().toISOString()};
+          if(dbId){await sbPatch(`themes?id=eq.${encodeURIComponent(dbId)}`,body);}
+          else{
+            const rows=await sbWrite('themes',body);
+            dbId=rows&&rows[0]&&rows[0].id;
+          }
+          const lines=((document.getElementById('admThemeStocks')||{}).value||'').split('\n').map(x=>x.trim()).filter(Boolean);
+          const stocks=lines.map(line=>{
+            const [symbol,role,level,relevance]=line.split(',').map(x=>x.trim());
+            return {theme_id:Number(dbId),symbol,role:role||'成分',supply_chain_level:level||chain,relevance_score:parseInt(relevance,10)||80,note:''};
+          }).filter(x=>x.theme_id&&x.symbol);
+          if(stocks.length) await sbWrite('theme_stocks?on_conflict=theme_id,symbol',stocks);
+          const next={id:localId||('t'+Date.now()),themeId:dbId,name,score,gain:'—',vol:'—',limit:0,high:0,status,desc,chain,
+            stocks:stocks.map(x=>({c:x.symbol,n:x.symbol,role:x.role,level:x.supply_chain_level,score:x.relevance_score}))};
+          const i=DATA.themes.findIndex(x=>x.id===localId);
+          if(i>=0) DATA.themes[i]=next; else DATA.themes.unshift(next);
+          DATA.themeList=DATA.themes.map(t=>t.name);
+          admBody(1);bindAdminControls();
+        }catch(e){if(msg){msg.textContent='儲存失敗：'+(e.message||e);msg.style.color='#92400E';}}
+        saveTheme.disabled=false;saveTheme.textContent='儲存題材';
+      };
+      const saveNote=document.getElementById('saveReportNoteBtn');
+      if(saveNote)saveNote.onclick=async()=>{
+        const msg=document.getElementById('reportMsg');
+        const note=(document.getElementById('reportNoteInput')||{}).value||'';
+        setReportNote(note);
+        try{
+          await sbWrite('app_settings?on_conflict=key',{key:'daily_report_note',value:note,updated_at:new Date().toISOString()});
+          if(msg){msg.textContent='已儲存報告備註';msg.style.color='var(--up)';}
+        }catch(e){
+          if(msg){msg.textContent='已先儲存在本機；Supabase 儲存失敗：'+(e.message||e);msg.style.color='#92400E';}
+        }
+      };
+      const regen=document.getElementById('regenReportBtn');
+      if(regen)regen.onclick=()=>{setReportNote('');admBody(3);bindAdminControls();go('report');};
       const memberSelect=document.getElementById('memberSelect');
       if(memberSelect)memberSelect.onchange=async()=>{
         localStorage.setItem('stockLabAdminMember',memberSelect.value);
         await loadRemoteEntitlements(memberSelect.value);
-        admBody(4);bindActivation();
+        admBody(4);bindAdminControls();
       };
       const openAll=document.getElementById('openAllBtn');
       if(openAll)openAll.onclick=()=>{
@@ -2026,7 +2213,7 @@ function bindPage(id){
         const days=Math.max(1,parseInt((document.getElementById('allDaysInput')||{}).value,10)||1);
         const rows=manageableActivationSettings().map(a=>({...a,enabled:true,days}));
         setMemberEntitlements(account,rows);
-        admBody(4);bindActivation();
+        admBody(4);bindAdminControls();
         const msg=document.getElementById('activationMsg');
         if(msg){msg.textContent='已套用全部板塊 '+days+' 天，請儲存';msg.style.color='var(--up)';}
       };
@@ -2035,7 +2222,7 @@ function bindPage(id){
         if(!account) return;
         const acts=memberEntitlements(account);
         const item=acts.find(a=>a.id===btn.dataset.actToggle);
-        if(item){item.enabled=!item.enabled;setMemberEntitlements(account,acts);admBody(4);bindActivation();}
+        if(item){item.enabled=!item.enabled;setMemberEntitlements(account,acts);admBody(4);bindAdminControls();}
       });
       const saveAct=document.getElementById('saveActivationBtn');
       if(saveAct)saveAct.onclick=async()=>{
@@ -2053,8 +2240,8 @@ function bindPage(id){
     };
     document.querySelectorAll('#admSeg button').forEach(btn=>btn.onclick=()=>{
       document.querySelectorAll('#admSeg button').forEach(b=>b.classList.remove('on'));
-      btn.classList.add('on');admBody(+btn.dataset.tab);bindActivation();});
-    bindActivation();
+      btn.classList.add('on');admBody(+btn.dataset.tab);bindAdminControls();});
+    bindAdminControls();
   }
 }
 window.addEventListener('resize',()=>{if(CUR==='stock')drawStockCharts();});
