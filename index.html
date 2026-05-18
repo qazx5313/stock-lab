@@ -793,6 +793,7 @@ const MOB=[['home','總覽'],['screen','篩選'],['account','帳號'],['ai','AI'
 function visiblePages(){
   return PAGES.filter(p=>{
     if(p.topOnly) return false;
+    if(p.id==='status') return isAdmin();
     if(isAdmin()) return true;
     if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(p.id);
     return true;
@@ -867,12 +868,13 @@ function authUser(){return readStore('stockLabAuth',null);}
 function setAuthUser(v){v?writeStore('stockLabAuth',v):localStorage.removeItem('stockLabAuth');}
 function activationSettings(){return readStore('stockLabActivation',DATA.activation);}
 function setActivationSettings(v){writeStore('stockLabActivation',v);}
+function manageableActivationSettings(){return activationSettings().filter(a=>a.id!=='status');}
 function entitlements(){return readStore('stockLabEntitlements',{});}
 function setEntitlements(v){writeStore('stockLabEntitlements',v);}
 function memberEntitlements(account){
   const all=entitlements();
   const rows=all[account]||{};
-  return activationSettings().map(a=>({
+  return manageableActivationSettings().map(a=>({
     id:a.id,
     name:a.name,
     enabled:!!(rows[a.id]&&rows[a.id].enabled),
@@ -896,6 +898,7 @@ function hasAccess(id){
 function isPageAllowed(id){
   const p=PAGES.find(x=>x.id===id);
   if(!p || p.topOnly) return id==='account';
+  if(id==='status') return isAdmin();
   if(isAdmin()) return true;
   if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(id);
   return true;
@@ -984,14 +987,12 @@ async function remoteLogin(account,password){
 
 function vAccount(){
   const u=authUser();
-  const acts=u?memberEntitlements(u.account):activationSettings().map(a=>({...a,enabled:false,days:0}));
-  return `<div class="fade account-grid">
-    <div class="card card-pad auth-panel">
+  const acts=u?memberEntitlements(u.account):manageableActivationSettings().map(a=>({...a,enabled:false,days:0}));
+  const statusPanel=u?`<div class="card card-pad auth-panel">
       <h3 style="font-size:18px;margin-bottom:12px">帳號狀態</h3>
-      ${u?`<div class="auth-status"><div class="avatar">${u.nick.slice(0,1)}</div>
+      <div class="auth-status"><div class="avatar">${u.nick.slice(0,1)}</div>
         <div style="flex:1"><b>${u.nick}</b><div class="muted" style="font-size:12.5px">${u.account} · ${u.role==='admin'?'管理員':'一般會員'} · 剩餘 ${remainingDays()}</div></div>
-        <button class="btn line sm" id="logoutBtn">登出</button></div>`:
-        `<div class="auth-status"><div class="avatar">未</div><div><b>尚未登入</b><div class="muted" style="font-size:12.5px">登入後可查看帳號與開通狀態。</div></div></div>`}
+        <button class="btn line sm" id="logoutBtn">登出</button></div>
       <div style="margin-top:14px;font-size:12.5px;color:var(--ink-2);line-height:1.7">
         如沒帳號可先申請；管理員帳號不受開通限制。Supabase 表尚未建立時，系統會暫存於本機瀏覽器。
       </div>
@@ -1004,8 +1005,10 @@ function vAccount(){
           </div>`).join('')}
         </div>
       </div>
-    </div>
-    <div style="display:flex;flex-direction:column;gap:18px">
+    </div>`:'';
+  return `<div class="fade ${u?'account-grid':''}">
+    ${statusPanel}
+    <div style="display:flex;flex-direction:column;gap:18px;${u?'':'max-width:560px'}">
       <div class="card card-pad">
         <h3 style="font-size:18px;margin-bottom:12px">登入帳號</h3>
         <div class="form-grid">
@@ -1658,7 +1661,7 @@ function admBody(i){
   else if(i===4){
     const members=users().filter(u=>u.role!=='admin');
     const selected=(localStorage.getItem('stockLabAdminMember')||members[0]?.account||'');
-    const acts=selected?memberEntitlements(selected):activationSettings().map(a=>({...a,enabled:false,days:0}));
+    const acts=selected?memberEntitlements(selected):manageableActivationSettings().map(a=>({...a,enabled:false,days:0}));
     b.innerHTML=`<div class="card">
       <div class="card-h"><h3>會員開通設定</h3><span class="tag">可開通全部板塊或單獨板塊天數</span></div>
       <div class="card-pad" style="border-bottom:1px solid var(--border-soft)">
@@ -1824,7 +1827,7 @@ function bindPage(id){
         const account=(document.getElementById('memberSelect')||{}).value||'';
         if(!account) return;
         const days=Math.max(1,parseInt((document.getElementById('allDaysInput')||{}).value,10)||1);
-        const rows=activationSettings().map(a=>({...a,enabled:true,days}));
+        const rows=manageableActivationSettings().map(a=>({...a,enabled:true,days}));
         setMemberEntitlements(account,rows);
         admBody(4);bindActivation();
         const msg=document.getElementById('activationMsg');
