@@ -484,35 +484,7 @@ async function loadReal(){
             desc:a.description||''
           };
         });
-        // 第一個 agent 的明細給詳細頁用
-        const a0=ags[0];
-        const cs=await sbGet(
-          `ai_candidates?select=symbol,agent_reason,accepted_by_agent&agent_id=eq.${a0.id}&order=id.desc`,200);
-        DATA.aiCand=(Array.isArray(cs)?cs:[]).filter(c=>c.accepted_by_agent).slice(0,20).map(c=>({
-          c:c.symbol, n:c.symbol, src:'候選池', reason:c.agent_reason||'—', score:'—'}));
-        const bk=await sbGet(
-          `ai_backtests?select=symbol,matched_conditions,sample_count,win_rate,avg_return_5d,avg_return_3d,avg_return_10d,max_drawdown,profit_factor,passed&agent_id=eq.${a0.id}&order=id.desc`,200);
-        DATA.aiBack=(Array.isArray(bk)?bk:[]).slice(0,30).map(b=>({
-          c:b.symbol, n:b.symbol, cond:b.matched_conditions||'—',
-          s:b.sample_count, wr:b.win_rate+'%', ar:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
-          r3:(b.avg_return_3d>0?'+':'')+b.avg_return_3d+'%',
-          r5:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
-          r10:(b.avg_return_10d>0?'+':'')+b.avg_return_10d+'%',
-          mdd:b.max_drawdown+'%', pf:String(b.profit_factor),
-          res:b.passed?'通過':'不通過'}));
-        const ps=await sbGet(
-          `ai_positions?select=symbol,name,buy_price,current_price,quantity,buy_reason&agent_id=eq.${a0.id}`,200);
-        DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>({
-          c:p.symbol, n:p.name||p.symbol, bp:p.buy_price, cp:p.current_price,
-          q:p.quantity, reason:p.buy_reason||'—'}));
-        const tb=await sbGet(
-          `ai_trades?select=trade_date,symbol,price,quantity,reason,trade_type&agent_id=eq.${a0.id}&trade_type=eq.買進&order=id.desc`,200);
-        DATA.aiBuy=(Array.isArray(tb)?tb:[]).slice(0,20).map(t=>({
-          d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:t.symbol,
-          p:t.price, q:t.quantity, s:'—', reason:t.reason||'—',
-          tech:'—', theme:'—', chip:'—', risk:'—'}));
-        // 賣出尚未實作（schema 無賣出流程），清空避免顯示第一階段假資料
-        DATA.aiSell=[];
+        await loadAIDetailData(DATA.agents[0].id);
       }
     }catch(e){ console.warn('AI 實驗室載入略過:',e); }
 
@@ -1478,6 +1450,51 @@ function vAI(){
   </div>`;
 }
 
+async function loadAIDetailData(agentKey){
+  const a=DATA.agents.find(x=>x.id===agentKey)||DATA.agents[0];
+  if(!a || !a._id) return;
+  const aid=a._id;
+  try{
+    const cs=await sbGet(
+      `ai_candidates?select=symbol,agent_reason,accepted_by_agent&agent_id=eq.${aid}&order=id.desc`,200);
+    DATA.aiCand=(Array.isArray(cs)?cs:[]).filter(c=>c.accepted_by_agent).slice(0,20).map(c=>({
+      c:c.symbol, n:c.symbol, src:'候選池', reason:c.agent_reason||'—', score:'—'}));
+    const bk=await sbGet(
+      `ai_backtests?select=symbol,matched_conditions,sample_count,win_rate,avg_return_5d,avg_return_3d,avg_return_10d,max_drawdown,profit_factor,passed&agent_id=eq.${aid}&order=id.desc`,200);
+    DATA.aiBack=(Array.isArray(bk)?bk:[]).slice(0,30).map(b=>({
+      c:b.symbol, n:b.symbol, cond:b.matched_conditions||'—',
+      s:b.sample_count, wr:b.win_rate+'%', ar:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
+      r3:(b.avg_return_3d>0?'+':'')+b.avg_return_3d+'%',
+      r5:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
+      r10:(b.avg_return_10d>0?'+':'')+b.avg_return_10d+'%',
+      mdd:b.max_drawdown+'%', pf:String(b.profit_factor),
+      res:b.passed?'通過':'不通過'}));
+    const ps=await sbGet(
+      `ai_positions?select=symbol,name,buy_price,current_price,quantity,buy_reason,status&agent_id=eq.${aid}&status=eq.持有`,200);
+    DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>({
+      c:p.symbol, n:p.name||p.symbol, bp:p.buy_price, cp:p.current_price,
+      q:p.quantity, reason:p.buy_reason||'—'}));
+    const tb=await sbGet(
+      `ai_trades?select=trade_date,symbol,price,quantity,reason,trade_type&agent_id=eq.${aid}&order=id.desc`,200);
+    DATA.aiBuy=(Array.isArray(tb)?tb:[]).filter(t=>t.trade_type==='買進').slice(0,20).map(t=>({
+      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:t.symbol,
+      p:t.price, q:t.quantity, s:'—', reason:t.reason||'—'}));
+    DATA.aiSell=(Array.isArray(tb)?tb:[]).filter(t=>t.trade_type==='賣出').slice(0,20).map(t=>({
+      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:t.symbol,
+      p:t.price, pnl:'—', ret:'—', reason:t.reason||'—', early:'—', late:'—'}));
+    const rv=await sbGet(
+      `ai_reviews?select=review_date,self_review,improvement_suggestion&agent_id=eq.${aid}&order=id.desc`,20);
+    DATA.aiReview=(Array.isArray(rv)?rv:[]).slice(0,8).map(r=>({
+      q:String(r.review_date).slice(0,10), a:(r.improvement_suggestion||r.self_review||'—')}));
+    const vv=await sbGet(
+      `ai_strategy_versions?select=version,created_at,reason,old_rules,new_rules,change_summary&agent_id=eq.${aid}&order=id.desc`,20);
+    DATA.aiVer=(Array.isArray(vv)?vv:[]).slice(0,10).map(v=>({
+      v:v.version||'—', d:String(v.created_at||'').slice(0,10),
+      reason:v.reason||'—', old:v.old_rules||'—', new:v.new_rules||'—',
+      perf:v.change_summary||'—'}));
+  }catch(e){ console.warn('AI 明細載入略過:',e); }
+}
+
 function vAIDetail(id){
   const a=DATA.agents.find(x=>x.id===id);
   const blk=(title,sub,body)=>`<div class="card"><div class="card-h"><h3>${title}</h3>${sub?`<span class="tag">${sub}</span>`:''}</div>${body}</div>`;
@@ -1789,7 +1806,7 @@ function bindPage(id){
       document.querySelectorAll('#resBody [data-stock]').forEach(el=>el.onclick=async()=>{DATA.stock.c=el.dataset.stock;await loadStockSeries(el.dataset.stock);go('stock');});};
   }
   if(id==='ai'){
-    document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=()=>{AI_VIEW=el.dataset.ai;go('ai');});
+    document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=async()=>{AI_VIEW=el.dataset.ai;await loadAIDetailData(AI_VIEW);go('ai');});
     const bk=document.querySelector('[data-aiback]');if(bk)bk.onclick=()=>{AI_VIEW=null;go('ai');};
   }
   if(id==='stock'){
