@@ -13,6 +13,8 @@ run_ai_lab.py — AI 量化模擬實驗室
   - TP = 進場價 + 最新 K 棒 STDEV * 3，逐日更新，只往上調整
   - 週五收盤強制出場
   - 停損後，再進場需同時上穿 HMA 且突破前 6 根 K 棒高點
+  - 進場 K 棒成交量需超過 1000 張，且最近 5 日均量需具備流動性
+  - 若歷史回測已進場且一路未觸發出場，補進目前持股，不必只等今天新訊號
 
 注意：日 K 不知道盤中先碰高或低；同一根同時碰 SL/TP 時採保守順序，先停損。
 """
@@ -27,13 +29,16 @@ from sb_common import log, mark_status, sb_delete, sb_one, sb_select, sb_upsert
 
 AGENT_NAME = "HMA/STDEV 量化 AI"
 AGENT_TYPE = "hma_stdev_v1"
-AGENT_VERSION = "hma-stdev-v1.0"
+AGENT_VERSION = "hma-stdev-v1.1"
 INIT_CASH = 1_000_000
 HMA_LENGTH = 9
 STDEV_LENGTH = 9
 SL_MULT = 2
 TP_MULT = 3
 MAX_BUY_PER_RUN = 5
+MIN_ENTRY_VOLUME_LOTS = 1000
+MIN_ENTRY_VOLUME_SHARES = MIN_ENTRY_VOLUME_LOTS * 1000
+MIN_AVG5_VOLUME_SHARES = 800 * 1000
 
 
 def nfloat(v):
@@ -99,6 +104,7 @@ def normalize_rows(rows):
             "high": nfloat(r.get("high")) or close,
             "low": nfloat(r.get("low")) or close,
             "close": close,
+            "volume": nfloat(r.get("volume")) or 0,
         }
     for d in sorted(by_date):
         clean.append(by_date[d])
@@ -138,6 +144,23 @@ def breakout_prev6(rows, i):
     return rows[i]["close"] > prev_high
 
 
+def volume_lots(row):
+    return int((nfloat(row.get("volume")) or 0) // 1000)
+
+
+def liquidity_ok(rows, i):
+    """避免 AI 挑到冷門、沒成交量的股票。daily_prices.volume 是股數，1000 張=1,000,000 股。"""
+    if i < 0 or i >= len(rows):
+        return False
+    entry_volume = nfloat(rows[i].get("volume")) or 0
+    if entry_volume < MIN_ENTRY_VOLUME_SHARES:
+        return False
+    start = max(0, i - 4)
+    recent = [nfloat(r.get("volume")) or 0 for r in rows[start : i + 1]]
+    avg5 = sum(recent) / len(recent) if recent else 0
+    return avg5 >= MIN_AVG5_VOLUME_SHARES
+
+
 def parse_state(text):
     m = re.search(r"STATE=(\{.*\})", str(text or ""))
     if not m:
@@ -164,7 +187,7 @@ def hma_backtest(rows):
     for i, r in enumerate(rows):
         if pending_key is not None and not in_pos:
             entry_sd = r.get("stdev")
-            if entry_sd is not None:
+            if entry_sd is not None and liquidity_ok(rows, i):
                 entry = r["open"]
                 sl = entry - entry_sd * SL_MULT
                 tp = entry + entry_sd * TP_MULT
@@ -224,6 +247,71 @@ def latest_bar(symbol, prices_by_sym):
     return rows[-1] if rows else None
 
 
+def active_backtest_position(symbol, rows, agent_id):
+    """找出歷史進場後截至最新 K 仍未出場的部位，讓 AI 能持續追蹤既有有效訊號。"""
+    rows = enrich(rows)
+    if len(rows) < HMA_LENGTH + 3:
+        return None
+    in_pos = False
+    pending_key = None
+    stopped_out = False
+    entry = sl = tp = entry_sd = None
+    entry_date = key_date = None
+    key_hma = None
+    last_stop = last_stop_loss_date(agent_id, symbol)
+
+    for i, r in enumerate(rows):
+        if pending_key is not None and not in_pos:
+            entry_sd = r.get("stdev")
+            if entry_sd is not None and liquidity_ok(rows, i):
+                entry = r["open"]
+                sl = entry - entry_sd * SL_MULT
+                tp = entry + entry_sd * TP_MULT
+                entry_date = r["date"]
+                key_date = rows[pending_key]["date"]
+                key_hma = rows[pending_key].get("hma")
+                in_pos = True
+            pending_key = None
+
+        if in_pos:
+            if r.get("stdev") is not None:
+                tp = max(tp, entry + r["stdev"] * TP_MULT)
+            if r["low"] <= sl:
+                stopped_out = True
+                in_pos = False
+                entry = sl = tp = entry_sd = entry_date = key_date = key_hma = None
+            elif r["high"] >= tp or weekday(r["date"]) == 4:
+                in_pos = False
+                entry = sl = tp = entry_sd = entry_date = key_date = key_hma = None
+            continue
+
+        if i + 1 >= len(rows) or not is_cross_up(rows, i):
+            continue
+        if last_stop and r["date"] > last_stop and not breakout_prev6(rows, i):
+            continue
+        if stopped_out and not breakout_prev6(rows, i):
+            continue
+        pending_key = i
+
+    if not in_pos:
+        return None
+    latest = rows[-1]
+    return {
+        "symbol": symbol,
+        "date": latest["date"],
+        "key_date": key_date,
+        "entry_date": entry_date,
+        "entry": entry,
+        "entry_sd": entry_sd,
+        "sl": sl,
+        "tp": tp,
+        "hma": key_hma,
+        "current_price": latest["close"],
+        "volume_lots": volume_lots(latest),
+        "carry_from_backtest": True,
+    }
+
+
 def last_stop_loss_date(agent_id, symbol):
     rows = sb_select(
         "ai_trades",
@@ -249,6 +337,8 @@ def latest_entry_signal(symbol, rows, agent_id):
     entry_sd = rows[entry_i].get("stdev")
     if entry_sd is None:
         return None
+    if not liquidity_ok(rows, entry_i):
+        return None
     entry = rows[entry_i]["open"]
     sl = entry - entry_sd * SL_MULT
     tp = entry + entry_sd * TP_MULT
@@ -261,6 +351,8 @@ def latest_entry_signal(symbol, rows, agent_id):
         "sl": sl,
         "tp": tp,
         "hma": rows[key_i].get("hma"),
+        "volume_lots": volume_lots(rows[entry_i]),
+        "carry_from_backtest": False,
     }
 
 
@@ -402,7 +494,7 @@ def main():
 
     prices = sb_select(
         "daily_prices",
-        "select=date,symbol,open,high,low,close&order=date.asc",
+        "select=date,symbol,open,high,low,close,volume&order=date.asc",
         page_size=1000,
     )
     prices_by_sym = defaultdict(list)
@@ -428,16 +520,27 @@ def main():
             continue
         bt = hma_backtest(rows)
         sig = latest_entry_signal(sym, rows, aid)
+        if not sig:
+            sig = active_backtest_position(sym, rows, aid)
         if sig:
             signals.append(sig)
             accepted = True
-            reason = (
-                f"關鍵K={sig['key_date']} 收盤上穿HMA9；"
-                f"進場={sig['entry']:.2f} SL={sig['sl']:.2f} TP={sig['tp']:.2f}"
-            )
+            if sig.get("carry_from_backtest"):
+                reason = (
+                    f"回測持股延續：關鍵K={sig['key_date']}，"
+                    f"{sig.get('entry_date')} 進場後尚未停損/停利/週五出場；"
+                    f"進場={sig['entry']:.2f} SL={sig['sl']:.2f} 移動TP={sig['tp']:.2f}；"
+                    f"最新量={sig.get('volume_lots', 0)}張"
+                )
+            else:
+                reason = (
+                    f"關鍵K={sig['key_date']} 收盤上穿HMA9；"
+                    f"進場={sig['entry']:.2f} SL={sig['sl']:.2f} TP={sig['tp']:.2f}；"
+                    f"進場量={sig.get('volume_lots', 0)}張"
+                )
         else:
             accepted = False
-            reason = "今日無 HMA/STDEV 進場訊號"
+            reason = "無 HMA/STDEV 進場訊號，或成交量未達 1000 張/均量不足"
         if accepted:
             candidates.append(
                 {
@@ -483,6 +586,7 @@ def main():
     cash_available = int(agent.get("current_cash") if agent.get("current_cash") is not None else INIT_CASH)
     sold_cash = sum(int(t["amount"]) for t in sells)
     cash_available += sold_cash
+    signals.sort(key=lambda s: (s.get("carry_from_backtest", False), s.get("volume_lots", 0)), reverse=True)
     buy_signals = [s for s in signals if s["symbol"] not in held][:MAX_BUY_PER_RUN]
     per = cash_available // len(buy_signals) if buy_signals else 0
     positions, buys = [], []
@@ -492,27 +596,36 @@ def main():
         qty = int(per // (entry * 1000)) if entry else 0
         if qty < 1:
             continue
+        buy_date = sig.get("entry_date") or latest
+        current_price = latest_price(sym, prices_by_sym) or sig.get("current_price") or entry
         amount = int(entry * qty * 1000)
+        market_value = int(current_price * qty * 1000)
         state = {
             "key_date": sig["key_date"],
+            "entry_date": buy_date,
             "entry_sd": round(sig["entry_sd"], 4),
             "sl": round(sig["sl"], 4),
             "tp": round(sig["tp"], 4),
             "hma": round(sig["hma"], 4) if sig.get("hma") is not None else None,
+            "volume_lots": sig.get("volume_lots"),
+            "carry_from_backtest": bool(sig.get("carry_from_backtest")),
         }
         positions.append(
             {
                 "agent_id": aid,
                 "symbol": sym,
                 "name": name_map.get(sym, sym),
-                "buy_date": latest,
+                "buy_date": buy_date,
                 "buy_price": entry,
                 "quantity": qty,
-                "current_price": latest_price(sym, prices_by_sym) or entry,
-                "market_value": amount,
-                "unrealized_pnl": 0,
-                "unrealized_return": 0,
-                "buy_reason": reason_with_state("HMA/STDEV 進場", state),
+                "current_price": current_price,
+                "market_value": market_value,
+                "unrealized_pnl": int((current_price - entry) * qty * 1000),
+                "unrealized_return": round((current_price - entry) / entry * 100, 2) if entry else 0,
+                "buy_reason": reason_with_state(
+                    "HMA/STDEV 回測持股補進" if sig.get("carry_from_backtest") else "HMA/STDEV 進場",
+                    state,
+                ),
                 "status": "持有",
             }
         )
@@ -520,12 +633,15 @@ def main():
             {
                 "agent_id": aid,
                 "symbol": sym,
-                "trade_date": latest,
+                "trade_date": buy_date,
                 "trade_type": "買進",
                 "price": entry,
                 "quantity": qty,
                 "amount": amount,
-                "reason": reason_with_state("HMA/STDEV 進場", state),
+                "reason": reason_with_state(
+                    "HMA/STDEV 回測持股補進" if sig.get("carry_from_backtest") else "HMA/STDEV 進場",
+                    state,
+                ),
                 "strategy_version": AGENT_VERSION,
             }
         )
@@ -536,13 +652,13 @@ def main():
     cash_after = cash_available - spent
     asset_after = current_asset_value + sum(int(p["market_value"]) for p in positions)
     review = (
-        f"HMA/STDEV 今日掃描 {len(prices_by_sym)} 檔，出現 {len(signals)} 檔進場訊號，"
+        f"HMA/STDEV 今日掃描 {len(prices_by_sym)} 檔，符合量能/回測有效條件 {len(signals)} 檔，"
         f"買進 {len(buys)} 檔，賣出 {len(sells)} 檔，持有 {len(held)+len(positions)} 檔。"
     )
     improvement = (
-        "策略已可執行。下一步可加入成交量濾網或大盤濾網，降低盤整區間頻繁進出。"
+        "已加入 1000 張成交量濾網與回測持股補進；後續可統計不同量能門檻、均量門檻的勝率差異。"
         if signals
-        else "今日無進場訊號，維持等待；後續可統計不同 STDEV 倍數下的訊號品質。"
+        else "今日無符合 HMA/STDEV 且量能足夠的訊號；後續可統計不同 STDEV 倍數與量能門檻。"
     )
     sb_upsert(
         "ai_reviews",
@@ -566,9 +682,9 @@ def main():
             {
                 "agent_id": aid,
                 "version": AGENT_VERSION,
-                "change_summary": "建立 HMA(9)+STDEV(9) 日K策略。",
-                "old_rules": "舊三機器人已停用",
-                "new_rules": "HMA 上穿隔日進場；SL=entry-STDEV*2；TP=entry+STDEV*3 移動；週五出場。",
+                "change_summary": "加入量能濾網與回測持股補進。",
+                "old_rules": "只買進今天剛好出現 HMA/STDEV 訊號的股票。",
+                "new_rules": "HMA 上穿隔日進場；進場量需超過1000張且5日均量足夠；SL=entry-STDEV*2；TP=entry+STDEV*3 移動；週五出場；回測仍有效的持股可補進。",
                 "reason": review,
             }
         ],
@@ -580,7 +696,7 @@ def main():
                 "id": aid,
                 "name": AGENT_NAME,
                 "strategy_type": AGENT_TYPE,
-                "description": "日K HMA(9) 上穿搭配 STDEV(9) 風控；週五出場；SL 固定、TP 移動。",
+                "description": "日K HMA(9) 上穿搭配 STDEV(9) 風控；成交量需超過1000張；回測有效持股可延續；週五出場。",
                 "initial_cash": INIT_CASH,
                 "current_cash": cash_after,
                 "current_asset_value": asset_after,
@@ -590,7 +706,7 @@ def main():
         ],
         on_conflict="id",
     )
-    mark_status("run_ai_lab", True, f"hma_signals={len(signals)} buys={len(buys)} sells={len(sells)} latest={latest}")
+    mark_status("run_ai_lab", True, f"hma_liquid_signals_or_active={len(signals)} buys={len(buys)} sells={len(sells)} latest={latest}")
     log(f"=== run_ai_lab 完成：signals={len(signals)} buys={len(buys)} sells={len(sells)} ===")
 
 
