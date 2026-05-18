@@ -175,6 +175,12 @@ def reason_with_state(label, state):
     return f"{label} STATE={json.dumps(state, ensure_ascii=False, separators=(',', ':'))}"
 
 
+def valid_name(name, symbol):
+    n = str(name or "").strip()
+    s = str(symbol or "").strip()
+    return bool(n and n != s and n not in ("尚無名稱", "—", "-"))
+
+
 def hma_backtest(rows):
     rows = enrich(rows)
     trades = []
@@ -407,7 +413,8 @@ def sync_hma_agent():
     return hma_agents[0]
 
 
-def update_open_positions(agent, latest, prices_by_sym):
+def update_open_positions(agent, latest, prices_by_sym, name_map=None):
+    name_map = name_map or {}
     aid = agent["id"]
     open_pos = sb_select("ai_positions", f"select=*&agent_id=eq.{aid}&status=eq.持有")
     updates, sells = [], []
@@ -451,7 +458,7 @@ def update_open_positions(agent, latest, prices_by_sym):
                 "id": p["id"],
                 "agent_id": aid,
                 "symbol": sym,
-                "name": p.get("name"),
+                "name": name_map.get(sym) or p.get("name") or sym,
                 "buy_date": p.get("buy_date"),
                 "buy_price": bp,
                 "quantity": qty,
@@ -502,9 +509,26 @@ def main():
         prices_by_sym[r["symbol"]].append(r)
 
     stocks = sb_select("stocks", "select=symbol,name", page_size=1000)
-    name_map = {s["symbol"]: s.get("name") for s in stocks}
+    name_map = {
+        str(s["symbol"]): str(s.get("name") or "").strip()
+        for s in stocks
+        if valid_name(s.get("name"), s.get("symbol"))
+    }
+    try:
+        pool_names = sb_select(
+            "candidate_pool",
+            "select=symbol,name&order=date.desc",
+            page_size=1000,
+            max_rows=50000,
+        )
+        for row in pool_names:
+            sym = str(row.get("symbol") or "").strip()
+            if sym not in name_map and valid_name(row.get("name"), sym):
+                name_map[sym] = str(row.get("name") or "").strip()
+    except Exception as e:  # noqa
+        log(f"  股票名稱 fallback 載入略過：{e}")
 
-    updated, sells = update_open_positions(agent, latest, prices_by_sym)
+    updated, sells = update_open_positions(agent, latest, prices_by_sym, name_map)
     held = {p["symbol"] for p in updated if p.get("status") == "持有"}
     current_asset_value = sum(int(p.get("market_value") or 0) for p in updated if p.get("status") == "持有")
 
