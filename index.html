@@ -422,7 +422,7 @@ async function loadReal(){
     // ---- 題材熱度：讀 themes（有真實就覆蓋範例）----
     try{
       const th = await sbGet(
-        'themes?select=theme_name,heat_score,trend_status,description'+
+        'themes?select=id,theme_name,heat_score,trend_status,description'+
         '&order=heat_score.desc', 200);
       if(Array.isArray(th) && th.length){
         DATA.themes = th.map((t,i)=>{
@@ -446,13 +446,14 @@ async function loadReal(){
         const byTheme={};
         (ts||[]).forEach(r=>{
           const sm=stockMap[r.symbol]||{};
-          (byTheme[r.theme_id]=byTheme[r.theme_id]||[]).push({
+          const key=String(r.theme_id);
+          (byTheme[key]=byTheme[key]||[]).push({
             c:r.symbol,n:sm.name||r.symbol,role:r.role||'成分',
             level:r.supply_chain_level||sm.industry||'未分類',
             score:r.relevance_score||0,note:r.note||''
           });
         });
-        DATA.themes.forEach(t=>{t.stocks=(byTheme[t.themeId]||[]).sort((a,b)=>b.score-a.score);});
+        DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
 
