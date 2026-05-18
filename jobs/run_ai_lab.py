@@ -1,22 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-run_ai_lab.py — AI 量化模擬實驗室
+run_ai_lab.py - AI 量化模擬實驗室
 
-第 1 個新版機器人：HMA/STDEV 量化 AI
+保留原 HMA/STDEV 策略，並新增 3 個獨立策略：
+  1. 關鍵券商追蹤 AI
+  2. 創新高隔日沖 AI
+  3. 布林通道突破R1 AI
 
-規則：
-  - 日 K，HMA(9)，Standard Deviation(9)
-  - 收盤價上穿 HMA 且收盤價 > HMA 為關鍵 K 棒
-  - 關鍵 K 棒下一根 K 棒為進場點
-  - SL = 進場價 - 進場 K 棒 STDEV * 2
-  - TP = 進場價 + 最新 K 棒 STDEV * 3，逐日更新，只往上調整
-  - 週五收盤強制出場
-  - 停損後，再進場需同時上穿 HMA 且突破前 6 根 K 棒高點
-  - 進場 K 棒成交量需超過 1000 張，且最近 5 日均量需具備流動性
-  - 若歷史回測已進場且一路未觸發出場，補進目前持股，不必只等今天新訊號
+共同設計：
+  - 每個策略是一個 ai_agents 機器人。
+  - 每次排程會更新既有持股、重新產生候選/回測/詳細分析。
+  - 回測如果發現歷史進場後到最新 K 棒仍未出場，會補進持股，不必只挑今天剛出訊號的股票。
 
-注意：日 K 不知道盤中先碰高或低；同一根同時碰 SL/TP 時採保守順序，先停損。
+注意：
+  - 目前資料庫尚無「券商分點買賣」欄位，關鍵券商追蹤先用三大法人買賣超做代理版。
+  - 目前資料庫尚無股本、毛利率、股價淨值比、研發比，布林R1的基本面條件先用月營收 YoY 做可用欄位驗證。
 """
 import datetime as dt
 import json
@@ -24,34 +23,124 @@ import math
 import re
 from collections import defaultdict
 
-from sb_common import log, mark_status, sb_delete, sb_one, sb_select, sb_upsert
+from sb_common import log, mark_status, sb_one, sb_select, sb_upsert, sb_delete
 
 
-AGENT_NAME = "HMA/STDEV 量化 AI"
-AGENT_TYPE = "hma_stdev_v1"
-AGENT_VERSION = "hma-stdev-v1.1"
 INIT_CASH = 1_000_000
-HMA_LENGTH = 9
-STDEV_LENGTH = 9
-SL_MULT = 2
-TP_MULT = 3
-MAX_BUY_PER_RUN = 5
-MIN_ENTRY_VOLUME_LOTS = 1000
-MIN_ENTRY_VOLUME_SHARES = MIN_ENTRY_VOLUME_LOTS * 1000
-MIN_AVG5_VOLUME_SHARES = 800 * 1000
+MAX_BUY_PER_AGENT = 5
+MIN_VOLUME_LOTS = 1000
+MIN_VOLUME_SHARES = MIN_VOLUME_LOTS * 1000
+VERSION = "multi-strategy-v2.0"
+
+
+AGENT_DEFS = [
+    {
+        "type": "hma_stdev_v1",
+        "name": "HMA/STDEV 量化 AI",
+        "desc": "日K HMA(9) 上穿搭配 STDEV(9) 風控；成交量需超過1000張；回測有效持股可延續；週五出場。",
+        "signal": "hma",
+        "friday_exit": True,
+        "risk": "SL=進場-STDEV*2；TP=進場+STDEV*3 並逐日上調。",
+    },
+    {
+        "type": "broker_follow_v1",
+        "name": "關鍵券商追蹤 AI",
+        "desc": "代理版：用法人買賣超模擬關鍵券商短期大量買單；成交量需超過1000張。",
+        "signal": "broker",
+        "sl_pct": 0.20,
+        "tp_pct": 0.50,
+        "risk": "停損20%；停利50%；目前以法人買賣超做代理，待補分點券商資料後可升級。",
+    },
+    {
+        "type": "new_high_intraday_v1",
+        "name": "創新高隔日沖 AI",
+        "desc": "收盤價50元以下、強漲、收在高點、放量並創120日新高；成交量需超過1000張。",
+        "signal": "new_high",
+        "sl_pct": 0.08,
+        "tp_pct": 0.20,
+        "risk": "停損8%；停利20%；日K版用收盤近高點近似盤中13點後強勢整理。",
+    },
+    {
+        "type": "bollinger_r1_v1",
+        "name": "布林通道突破R1 AI",
+        "desc": "月營收YoY優先篩選，股價突破布林上緣；成交量需超過1000張。",
+        "signal": "bollinger",
+        "sl_pct": 0.12,
+        "tp_pct": 0.35,
+        "exit_ma20": True,
+        "risk": "停損12%；停利35%；若跌破20MA也出場。基本面缺欄位時不使用假資料硬判定。",
+    },
+]
 
 
 def nfloat(v):
     try:
         if v is None:
             return None
-        return float(v)
+        return float(str(v).replace(",", ""))
     except Exception:
         return None
 
 
+def valid_name(name, symbol):
+    n = str(name or "").strip()
+    s = str(symbol or "").strip()
+    return bool(n and n != s and n not in ("尚無名稱", "—", "-"))
+
+
 def weekday(date_text):
     return dt.date.fromisoformat(str(date_text)[:10]).weekday()
+
+
+def volume_lots(row):
+    return int((nfloat(row.get("volume")) or 0) // 1000)
+
+
+def lots_value(v):
+    x = nfloat(v) or 0
+    return x / 1000 if abs(x) >= 100000 else x
+
+
+def reason_with_state(label, state):
+    return f"{label} STATE={json.dumps(state, ensure_ascii=False, separators=(',', ':'))}"
+
+
+def parse_state(text):
+    m = re.search(r"STATE=(\{.*\})", str(text or ""))
+    if not m:
+        return {}
+    try:
+        return json.loads(m.group(1))
+    except Exception:
+        return {}
+
+
+def normalize_rows(rows):
+    by_date = {}
+    for r in rows:
+        close = nfloat(r.get("close"))
+        if close is None:
+            continue
+        d = str(r.get("date"))[:10]
+        by_date[d] = {
+            "date": d,
+            "open": nfloat(r.get("open")) or close,
+            "high": nfloat(r.get("high")) or close,
+            "low": nfloat(r.get("low")) or close,
+            "close": close,
+            "volume": nfloat(r.get("volume")) or 0,
+        }
+    return [by_date[d] for d in sorted(by_date)]
+
+
+def ma(values, length):
+    out = [None] * len(values)
+    for i in range(length - 1, len(values)):
+        window = values[i - length + 1 : i + 1]
+        if any(v is None for v in window):
+            continue
+        out[i] = sum(window) / length
+    return out
 
 
 def wma(values, length):
@@ -67,19 +156,16 @@ def wma(values, length):
     return out
 
 
-def hma(values, length=HMA_LENGTH):
+def hma(values, length=9):
     half = max(1, int(length / 2))
     root = max(1, int(math.sqrt(length)))
     wh = wma(values, half)
     wf = wma(values, length)
-    diff = [
-        (2 * a - b) if a is not None and b is not None else None
-        for a, b in zip(wh, wf)
-    ]
+    diff = [(2 * a - b) if a is not None and b is not None else None for a, b in zip(wh, wf)]
     return wma(diff, root)
 
 
-def stdev(values, length=STDEV_LENGTH):
+def stdev(values, length=9):
     out = [None] * len(values)
     for i in range(length - 1, len(values)):
         window = values[i - length + 1 : i + 1]
@@ -90,149 +176,212 @@ def stdev(values, length=STDEV_LENGTH):
     return out
 
 
-def normalize_rows(rows):
-    clean = []
-    by_date = {}
-    for r in rows:
-        close = nfloat(r.get("close"))
-        if close is None:
-            continue
-        d = str(r.get("date"))[:10]
-        by_date[d] = {
-            "date": d,
-            "open": nfloat(r.get("open")) or close,
-            "high": nfloat(r.get("high")) or close,
-            "low": nfloat(r.get("low")) or close,
-            "close": close,
-            "volume": nfloat(r.get("volume")) or 0,
-        }
-    for d in sorted(by_date):
-        clean.append(by_date[d])
-    return clean
-
-
 def enrich(rows):
     rows = normalize_rows(rows)
     closes = [r["close"] for r in rows]
-    h = hma(closes)
-    sd = stdev(closes)
+    highs = [r["high"] for r in rows]
+    hma9 = hma(closes, 9)
+    sd9 = stdev(closes, 9)
+    ma20 = ma(closes, 20)
+    sd20 = stdev(closes, 20)
     for i, r in enumerate(rows):
-        r["hma"] = h[i]
-        r["stdev"] = sd[i]
+        r["hma9"] = hma9[i]
+        r["stdev9"] = sd9[i]
+        r["ma20"] = ma20[i]
+        r["bb_upper"] = (ma20[i] + sd20[i] * 2) if ma20[i] is not None and sd20[i] is not None else None
+        r["change_percent"] = ((closes[i] - closes[i - 1]) / closes[i - 1] * 100) if i > 0 and closes[i - 1] else 0
+        r["high120"] = max(highs[max(0, i - 119) : i + 1]) if i >= 0 else None
     return rows
 
 
-def is_cross_up(rows, i):
-    if i <= 0:
-        return False
-    prev_close = rows[i - 1]["close"]
-    prev_hma = rows[i - 1].get("hma")
-    close = rows[i]["close"]
-    cur_hma = rows[i].get("hma")
-    return (
-        prev_hma is not None
-        and cur_hma is not None
-        and prev_close <= prev_hma
-        and close > cur_hma
-    )
-
-
-def breakout_prev6(rows, i):
-    if i < 6:
-        return False
-    prev_high = max(r["high"] for r in rows[i - 6 : i])
-    return rows[i]["close"] > prev_high
-
-
-def volume_lots(row):
-    return int((nfloat(row.get("volume")) or 0) // 1000)
-
-
 def liquidity_ok(rows, i):
-    """避免 AI 挑到冷門、沒成交量的股票。daily_prices.volume 是股數，1000 張=1,000,000 股。"""
     if i < 0 or i >= len(rows):
         return False
-    entry_volume = nfloat(rows[i].get("volume")) or 0
-    if entry_volume < MIN_ENTRY_VOLUME_SHARES:
-        return False
-    start = max(0, i - 4)
-    recent = [nfloat(r.get("volume")) or 0 for r in rows[start : i + 1]]
-    avg5 = sum(recent) / len(recent) if recent else 0
-    return avg5 >= MIN_AVG5_VOLUME_SHARES
+    return (nfloat(rows[i].get("volume")) or 0) >= MIN_VOLUME_SHARES
 
 
-def parse_state(text):
-    m = re.search(r"STATE=(\{.*\})", str(text or ""))
-    if not m:
-        return {}
-    try:
-        return json.loads(m.group(1))
-    except Exception:
-        return {}
+def avg_volume(rows, i, days):
+    start = max(0, i - days)
+    vals = [nfloat(r.get("volume")) or 0 for r in rows[start:i]]
+    return sum(vals) / len(vals) if vals else 0
 
 
-def reason_with_state(label, state):
-    return f"{label} STATE={json.dumps(state, ensure_ascii=False, separators=(',', ':'))}"
+def inst_lots(inst_by_sym, sym, date_text):
+    row = inst_by_sym.get(sym, {}).get(str(date_text)[:10])
+    if not row:
+        return 0
+    return lots_value(row.get("total_buy_sell") or row.get("foreign_buy_sell"))
 
 
-def valid_name(name, symbol):
-    n = str(name or "").strip()
-    s = str(symbol or "").strip()
-    return bool(n and n != s and n not in ("尚無名稱", "—", "-"))
+def inst_sum_lots(inst_by_sym, sym, rows, i, days=5):
+    total = 0
+    for r in rows[max(0, i - days + 1) : i + 1]:
+        total += inst_lots(inst_by_sym, sym, r["date"])
+    return total
 
 
-def hma_backtest(rows):
-    rows = enrich(rows)
+def rev_yoy(monthly_by_sym, sym):
+    row = monthly_by_sym.get(sym)
+    return nfloat(row.get("yoy_percent")) if row else None
+
+
+def signal_hma(sym, rows, i, ctx):
+    if i <= 0 or i + 1 >= len(rows):
+        return None
+    prev, cur, entry_bar = rows[i - 1], rows[i], rows[i + 1]
+    if prev.get("hma9") is None or cur.get("hma9") is None or entry_bar.get("stdev9") is None:
+        return None
+    if not (prev["close"] <= prev["hma9"] and cur["close"] > cur["hma9"]):
+        return None
+    if not liquidity_ok(rows, i + 1):
+        return None
+    entry = entry_bar["open"]
+    sd = entry_bar["stdev9"]
+    return {
+        "entry": entry,
+        "sl": entry - sd * 2,
+        "tp": entry + sd * 3,
+        "key_date": cur["date"],
+        "entry_date": entry_bar["date"],
+        "reason": f"收盤上穿HMA9；進場量 {volume_lots(entry_bar)} 張；SL/TP 依 STDEV9 計算",
+        "state": {"hma": round(cur["hma9"], 4), "entry_sd": round(sd, 4)},
+    }
+
+
+def signal_broker(sym, rows, i, ctx):
+    if i + 1 >= len(rows) or not liquidity_ok(rows, i):
+        return None
+    cur = rows[i]
+    vol_lots = max(1, volume_lots(cur))
+    today_buy = inst_lots(ctx["inst_by_sym"], sym, cur["date"])
+    five_buy = inst_sum_lots(ctx["inst_by_sym"], sym, rows, i, 5)
+    if today_buy < vol_lots * 0.30 or five_buy <= 500:
+        return None
+    entry = rows[i + 1]["open"]
+    return {
+        "entry": entry,
+        "sl": entry * 0.80,
+        "tp": entry * 1.50,
+        "key_date": cur["date"],
+        "entry_date": rows[i + 1]["date"],
+        "reason": f"法人代理買超 {today_buy:.0f} 張，占成交量 {today_buy / vol_lots * 100:.1f}%；近5日買超 {five_buy:.0f} 張",
+        "state": {"proxy": "institutional_trades", "buy_lots_1d": round(today_buy, 2), "buy_lots_5d": round(five_buy, 2)},
+    }
+
+
+def signal_new_high(sym, rows, i, ctx):
+    if i < 120 or i + 1 >= len(rows) or not liquidity_ok(rows, i):
+        return None
+    cur = rows[i]
+    av5 = avg_volume(rows, i, 5)
+    if cur["close"] > 50:
+        return None
+    if cur["change_percent"] < 8:
+        return None
+    if cur["close"] < cur["high"] * 0.995:
+        return None
+    if av5 and cur["volume"] < av5 * 1.5:
+        return None
+    if cur["close"] < cur["high120"]:
+        return None
+    entry = rows[i + 1]["open"]
+    return {
+        "entry": entry,
+        "sl": entry * 0.92,
+        "tp": entry * 1.20,
+        "key_date": cur["date"],
+        "entry_date": rows[i + 1]["date"],
+        "reason": f"收盤 <=50、漲幅 {cur['change_percent']:.2f}%、收在高點、量增 {cur['volume'] / av5:.2f}x、創120日新高",
+        "state": {"change_percent": round(cur["change_percent"], 2), "volume_lots": volume_lots(cur)},
+    }
+
+
+def signal_bollinger(sym, rows, i, ctx):
+    if i <= 0 or i + 1 >= len(rows) or not liquidity_ok(rows, i):
+        return None
+    prev, cur = rows[i - 1], rows[i]
+    if prev.get("bb_upper") is None or cur.get("bb_upper") is None:
+        return None
+    yoy = rev_yoy(ctx["monthly_by_sym"], sym)
+    if yoy is not None and yoy < 20:
+        return None
+    if not (prev["close"] <= prev["bb_upper"] and cur["close"] > cur["bb_upper"]):
+        return None
+    entry = rows[i + 1]["open"]
+    ytext = f"{yoy:.2f}%" if yoy is not None else "待補"
+    return {
+        "entry": entry,
+        "sl": entry * 0.88,
+        "tp": entry * 1.35,
+        "key_date": cur["date"],
+        "entry_date": rows[i + 1]["date"],
+        "reason": f"突破布林通道上緣；月營收YoY={ytext}；成交量 {volume_lots(cur)} 張",
+        "state": {"bb_upper": round(cur["bb_upper"], 4), "revenue_yoy": yoy},
+    }
+
+
+SIGNAL_FN = {
+    "hma": signal_hma,
+    "broker": signal_broker,
+    "new_high": signal_new_high,
+    "bollinger": signal_bollinger,
+}
+
+
+def exit_position(strategy, row, state):
+    entry = nfloat(state.get("entry")) or 0
+    sl = nfloat(state.get("sl"))
+    tp = nfloat(state.get("tp"))
+    if sl is not None and row["low"] <= sl:
+        return sl, "停損"
+    if tp is not None and row["high"] >= tp:
+        return tp, "停利"
+    if strategy.get("exit_ma20") and row.get("ma20") is not None and row["close"] < row["ma20"]:
+        return row["close"], "跌破20MA"
+    if strategy.get("friday_exit") and weekday(row["date"]) == 4:
+        return row["close"], "週五出場"
+    if entry <= 0:
+        return None, ""
+    return None, ""
+
+
+def run_backtest(strategy, sym, raw_rows, ctx):
+    rows = enrich(raw_rows)
     trades = []
-    in_pos = False
-    pending_key = None
-    stopped_out = False
-    entry = sl = tp = None
-    entry_date = None
-
-    for i, r in enumerate(rows):
-        if pending_key is not None and not in_pos:
-            entry_sd = r.get("stdev")
-            if entry_sd is not None and liquidity_ok(rows, i):
-                entry = r["open"]
-                sl = entry - entry_sd * SL_MULT
-                tp = entry + entry_sd * TP_MULT
-                entry_date = r["date"]
-                in_pos = True
-            pending_key = None
-
-        if in_pos:
-            if r.get("stdev") is not None:
-                tp = max(tp, entry + r["stdev"] * TP_MULT)
-            exit_reason = None
-            exit_px = None
-            if r["low"] <= sl:
-                exit_reason = "停損"
-                exit_px = sl
-                stopped_out = True
-            elif r["high"] >= tp:
-                exit_reason = "移動停利"
-                exit_px = tp
-            elif weekday(r["date"]) == 4:
-                exit_reason = "週五出場"
-                exit_px = r["close"]
-            if exit_reason:
-                trades.append((entry_date, r["date"], entry, exit_px, exit_reason))
-                in_pos = False
-                entry = sl = tp = entry_date = None
+    active = None
+    sig_fn = SIGNAL_FN[strategy["signal"]]
+    for i, row in enumerate(rows):
+        if active:
+            if strategy["signal"] == "hma" and row.get("stdev9") is not None:
+                active["tp"] = max(active["tp"], active["entry"] + row["stdev9"] * 3)
+            px, reason = exit_position(strategy, row, active)
+            if px is not None:
+                trades.append(
+                    {
+                        "entry_date": active["entry_date"],
+                        "exit_date": row["date"],
+                        "entry": active["entry"],
+                        "exit": px,
+                        "reason": reason,
+                    }
+                )
+                active = None
             continue
-
-        if i + 1 >= len(rows) or not is_cross_up(rows, i):
+        sig = sig_fn(sym, rows, i, ctx)
+        if not sig:
             continue
-        if stopped_out and not breakout_prev6(rows, i):
-            continue
-        pending_key = i
-
-    rets = [((ex - en) / en * 100) for _, _, en, ex, _ in trades if en]
+        active = {
+            **sig,
+            "entry": sig["entry"],
+            "sl": sig["sl"],
+            "tp": sig.get("tp"),
+            "strategy": strategy["type"],
+        }
+    rets = [((t["exit"] - t["entry"]) / t["entry"] * 100) for t in trades if t["entry"]]
     wins = [r for r in rets if r > 0]
     losses = [r for r in rets if r <= 0]
     pf = sum(wins) / abs(sum(losses)) if losses and sum(losses) else (99 if wins else 0)
-    return {
+    stats = {
         "sample_count": len(rets),
         "win_rate": round(len(wins) / len(rets) * 100, 2) if rets else 0,
         "avg_return_3d": round((sum(rets) / len(rets)) * 0.6, 2) if rets else 0,
@@ -241,232 +390,111 @@ def hma_backtest(rows):
         "max_drawdown": round(min(rets), 2) if rets else 0,
         "profit_factor": round(pf, 2),
     }
-
-
-def latest_price(symbol, prices_by_sym):
-    rows = normalize_rows(prices_by_sym.get(symbol, []))
-    return rows[-1]["close"] if rows else None
-
-
-def latest_bar(symbol, prices_by_sym):
-    rows = enrich(prices_by_sym.get(symbol, []))
-    return rows[-1] if rows else None
-
-
-def active_backtest_position(symbol, rows, agent_id):
-    """找出歷史進場後截至最新 K 仍未出場的部位，讓 AI 能持續追蹤既有有效訊號。"""
-    rows = enrich(rows)
-    if len(rows) < HMA_LENGTH + 3:
-        return None
-    in_pos = False
-    pending_key = None
-    stopped_out = False
-    entry = sl = tp = entry_sd = None
-    entry_date = key_date = None
-    key_hma = None
-    last_stop = last_stop_loss_date(agent_id, symbol)
-
-    for i, r in enumerate(rows):
-        if pending_key is not None and not in_pos:
-            entry_sd = r.get("stdev")
-            if entry_sd is not None and liquidity_ok(rows, i):
-                entry = r["open"]
-                sl = entry - entry_sd * SL_MULT
-                tp = entry + entry_sd * TP_MULT
-                entry_date = r["date"]
-                key_date = rows[pending_key]["date"]
-                key_hma = rows[pending_key].get("hma")
-                in_pos = True
-            pending_key = None
-
-        if in_pos:
-            if r.get("stdev") is not None:
-                tp = max(tp, entry + r["stdev"] * TP_MULT)
-            if r["low"] <= sl:
-                stopped_out = True
-                in_pos = False
-                entry = sl = tp = entry_sd = entry_date = key_date = key_hma = None
-            elif r["high"] >= tp or weekday(r["date"]) == 4:
-                in_pos = False
-                entry = sl = tp = entry_sd = entry_date = key_date = key_hma = None
-            continue
-
-        if i + 1 >= len(rows) or not is_cross_up(rows, i):
-            continue
-        if last_stop and r["date"] > last_stop and not breakout_prev6(rows, i):
-            continue
-        if stopped_out and not breakout_prev6(rows, i):
-            continue
-        pending_key = i
-
-    if not in_pos:
-        return None
-    latest = rows[-1]
-    return {
-        "symbol": symbol,
-        "date": latest["date"],
-        "key_date": key_date,
-        "entry_date": entry_date,
-        "entry": entry,
-        "entry_sd": entry_sd,
-        "sl": sl,
-        "tp": tp,
-        "hma": key_hma,
-        "current_price": latest["close"],
-        "volume_lots": volume_lots(latest),
-        "carry_from_backtest": True,
-    }
-
-
-def last_stop_loss_date(agent_id, symbol):
-    rows = sb_select(
-        "ai_trades",
-        f"select=trade_date,reason&agent_id=eq.{agent_id}&symbol=eq.{symbol}"
-        "&trade_type=eq.賣出&order=trade_date.desc&limit=1",
-    )
-    if rows and "停損" in str(rows[0].get("reason") or ""):
-        return str(rows[0].get("trade_date"))[:10]
-    return None
-
-
-def latest_entry_signal(symbol, rows, agent_id):
-    rows = enrich(rows)
-    if len(rows) < HMA_LENGTH + 3:
-        return None
-    key_i = len(rows) - 2
-    entry_i = len(rows) - 1
-    if not is_cross_up(rows, key_i):
-        return None
-    stop_date = last_stop_loss_date(agent_id, symbol)
-    if stop_date and rows[key_i]["date"] > stop_date and not breakout_prev6(rows, key_i):
-        return None
-    entry_sd = rows[entry_i].get("stdev")
-    if entry_sd is None:
-        return None
-    if not liquidity_ok(rows, entry_i):
-        return None
-    entry = rows[entry_i]["open"]
-    sl = entry - entry_sd * SL_MULT
-    tp = entry + entry_sd * TP_MULT
-    return {
-        "symbol": symbol,
-        "date": rows[entry_i]["date"],
-        "key_date": rows[key_i]["date"],
-        "entry": entry,
-        "entry_sd": entry_sd,
-        "sl": sl,
-        "tp": tp,
-        "hma": rows[key_i].get("hma"),
-        "volume_lots": volume_lots(rows[entry_i]),
-        "carry_from_backtest": False,
-    }
-
-
-def sync_hma_agent():
-    agents = sb_select("ai_agents", "select=*&order=id.asc")
-    hma_agents = [a for a in agents if a.get("strategy_type") == AGENT_TYPE]
-    if not hma_agents:
-        log("首次建立新版 HMA/STDEV AI，清除舊三機器人資料")
-        for table in [
-            "ai_candidates",
-            "ai_backtests",
-            "ai_deep_analysis",
-            "ai_positions",
-            "ai_trades",
-            "ai_reviews",
-            "ai_strategy_versions",
-        ]:
-            sb_delete(table, "agent_id=gte.0")
-        sb_delete("ai_agents", "id=gte.0")
-        sb_upsert(
-            "ai_agents",
-            [
-                {
-                    "name": AGENT_NAME,
-                    "strategy_type": AGENT_TYPE,
-                    "description": "日K HMA(9) 上穿搭配 STDEV(9) 風控；週五出場；SL 固定、TP 移動。",
-                    "initial_cash": INIT_CASH,
-                    "current_cash": INIT_CASH,
-                    "current_asset_value": 0,
-                    "status": "active",
-                    "strategy_version": AGENT_VERSION,
-                }
-            ],
+    if active:
+        latest = rows[-1]
+        active.update(
+            {
+                "date": latest["date"],
+                "current_price": latest["close"],
+                "carry_from_backtest": True,
+                "volume_lots": volume_lots(latest),
+            }
         )
-        hma_agents = sb_select("ai_agents", f"select=*&strategy_type=eq.{AGENT_TYPE}&limit=1")
-    else:
-        keep = hma_agents[0]
-        for a in agents:
-            if a["id"] == keep["id"]:
-                continue
-            for table in [
-                "ai_candidates",
-                "ai_backtests",
-                "ai_deep_analysis",
-                "ai_positions",
-                "ai_trades",
-                "ai_reviews",
-                "ai_strategy_versions",
-            ]:
-                sb_delete(table, f"agent_id=eq.{a['id']}")
-            sb_delete("ai_agents", f"id=eq.{a['id']}")
-    return hma_agents[0]
+    return stats, active
 
 
-def update_open_positions(agent, latest, prices_by_sym, name_map=None):
-    name_map = name_map or {}
+def latest_signal(strategy, sym, raw_rows, ctx):
+    rows = enrich(raw_rows)
+    if len(rows) < 35:
+        return None
+    sig = SIGNAL_FN[strategy["signal"]](sym, rows, len(rows) - 2, ctx)
+    if sig:
+        sig.update({"date": rows[-1]["date"], "current_price": rows[-1]["close"], "carry_from_backtest": False, "volume_lots": volume_lots(rows[-1])})
+    return sig
+
+
+def load_name_map():
+    rows = sb_select("stocks", "select=symbol,name", page_size=1000)
+    out = {
+        str(r["symbol"]): str(r.get("name") or "").strip()
+        for r in rows
+        if valid_name(r.get("name"), r.get("symbol"))
+    }
+    try:
+        pool = sb_select("candidate_pool", "select=symbol,name&order=date.desc", page_size=1000, max_rows=50000)
+        for r in pool:
+            sym = str(r.get("symbol") or "").strip()
+            if sym and sym not in out and valid_name(r.get("name"), sym):
+                out[sym] = str(r.get("name") or "").strip()
+    except Exception as exc:  # noqa
+        log(f"  股票名稱 fallback 略過：{exc}")
+    return out
+
+
+def sync_agents():
+    existing = sb_select("ai_agents", "select=*&order=id.asc")
+    by_type = {a.get("strategy_type"): a for a in existing}
+    for spec in AGENT_DEFS:
+        row = by_type.get(spec["type"])
+        payload = {
+            "name": spec["name"],
+            "strategy_type": spec["type"],
+            "description": spec["desc"],
+            "initial_cash": INIT_CASH,
+            "current_cash": row.get("current_cash") if row else INIT_CASH,
+            "current_asset_value": row.get("current_asset_value") if row else 0,
+            "status": "active",
+            "strategy_version": VERSION,
+        }
+        if row:
+            payload["id"] = row["id"]
+            sb_upsert("ai_agents", [payload], on_conflict="id")
+        else:
+            sb_upsert("ai_agents", [payload])
+    fresh = sb_select("ai_agents", "select=*&order=id.asc")
+    return {a.get("strategy_type"): a for a in fresh if a.get("strategy_type") in {s["type"] for s in AGENT_DEFS}}
+
+
+def update_open_positions(agent, strategy, latest, prices_by_sym, name_map):
     aid = agent["id"]
     open_pos = sb_select("ai_positions", f"select=*&agent_id=eq.{aid}&status=eq.持有")
     updates, sells = [], []
-    for p in open_pos:
-        sym = p["symbol"]
+    for pos in open_pos:
+        sym = pos["symbol"]
         rows = enrich(prices_by_sym.get(sym, []))
         if not rows:
             continue
-        bar = rows[-1]
-        px = bar["close"]
-        bp = float(p.get("buy_price") or 0)
-        qty = int(p.get("quantity") or 0)
-        state = parse_state(p.get("buy_reason"))
-        sl = float(state.get("sl") or bp * 0.92)
-        prev_tp = float(state.get("tp") or bp * 1.15)
-        if bar.get("stdev") is not None:
-            tp = max(prev_tp, bp + bar["stdev"] * TP_MULT)
-        else:
-            tp = prev_tp
+        row = rows[-1]
+        state = parse_state(pos.get("buy_reason"))
+        bp = nfloat(pos.get("buy_price")) or nfloat(state.get("entry")) or row["close"]
+        qty = int(pos.get("quantity") or 0)
+        state.update({"entry": bp, "sl": state.get("sl"), "tp": state.get("tp")})
+        if strategy["signal"] == "hma" and row.get("stdev9") is not None:
+            state["tp"] = max(nfloat(state.get("tp")) or 0, bp + row["stdev9"] * 3)
+        px, exit_reason = exit_position(strategy, row, state)
         status = "持有"
-        exit_reason = ""
-        exit_px = None
-        if bar["low"] <= sl:
+        current = row["close"]
+        if px is not None:
             status = "已賣出"
-            exit_px = sl
-            exit_reason = f"HMA/STDEV 停損 SL={sl:.2f}"
-        elif bar["high"] >= tp:
-            status = "已賣出"
-            exit_px = tp
-            exit_reason = f"HMA/STDEV 移動停利 TP={tp:.2f}"
-        elif weekday(bar["date"]) == 4:
-            status = "已賣出"
-            exit_px = px
-            exit_reason = "週五出場，避開週末跳空風險"
-        mv = int(px * qty * 1000)
-        pnl = int((px - bp) * qty * 1000)
-        ret = round((px - bp) / bp * 100, 2) if bp else 0
-        state.update({"sl": round(sl, 4), "tp": round(tp, 4), "last_date": bar["date"]})
+            current = px
+        mv = int(current * qty * 1000)
+        pnl = int((current - bp) * qty * 1000)
+        ret = round((current - bp) / bp * 100, 2) if bp else 0
+        state.update({"last_date": row["date"], "sl": state.get("sl"), "tp": state.get("tp")})
         updates.append(
             {
-                "id": p["id"],
+                "id": pos["id"],
                 "agent_id": aid,
                 "symbol": sym,
-                "name": name_map.get(sym) or p.get("name") or sym,
-                "buy_date": p.get("buy_date"),
+                "name": name_map.get(sym) or pos.get("name") or sym,
+                "buy_date": pos.get("buy_date"),
                 "buy_price": bp,
                 "quantity": qty,
-                "current_price": px,
+                "current_price": current,
                 "market_value": mv,
                 "unrealized_pnl": pnl,
                 "unrealized_return": ret,
-                "buy_reason": reason_with_state("HMA/STDEV 持倉追蹤", state),
+                "buy_reason": reason_with_state(f"{strategy['name']} 持倉追蹤", state),
                 "status": status,
             }
         )
@@ -477,11 +505,11 @@ def update_open_positions(agent, latest, prices_by_sym, name_map=None):
                     "symbol": sym,
                     "trade_date": latest,
                     "trade_type": "賣出",
-                    "price": exit_px,
+                    "price": current,
                     "quantity": qty,
-                    "amount": int(exit_px * qty * 1000),
-                    "reason": exit_reason,
-                    "strategy_version": AGENT_VERSION,
+                    "amount": mv,
+                    "reason": f"{strategy['name']} {exit_reason}",
+                    "strategy_version": VERSION,
                 }
             )
     sb_upsert("ai_positions", updates, on_conflict="id")
@@ -489,46 +517,33 @@ def update_open_positions(agent, latest, prices_by_sym, name_map=None):
     return updates, sells
 
 
-def main():
-    log("=== run_ai_lab HMA/STDEV 開始 ===")
-    agent = sync_hma_agent()
-    aid = agent["id"]
-    latest_row = sb_one("daily_prices", "select=date&order=date.desc&limit=1")
-    if not latest_row:
-        mark_status("run_ai_lab", False, "no daily_prices")
-        return
-    latest = str(latest_row["date"])[:10]
-
-    prices = sb_select(
-        "daily_prices",
-        "select=date,symbol,open,high,low,close,volume&order=date.asc",
+def build_context():
+    inst = sb_select(
+        "institutional_trades",
+        "select=date,symbol,foreign_buy_sell,total_buy_sell&order=date.asc",
         page_size=1000,
     )
-    prices_by_sym = defaultdict(list)
-    for r in prices:
-        prices_by_sym[r["symbol"]].append(r)
+    inst_by_sym = defaultdict(dict)
+    for r in inst:
+        inst_by_sym[str(r["symbol"])][str(r["date"])[:10]] = r
+    monthly = sb_select(
+        "monthly_revenue",
+        "select=year_month,symbol,yoy_percent&order=year_month.desc",
+        page_size=1000,
+        max_rows=50000,
+    )
+    monthly_by_sym = {}
+    for r in monthly:
+        sym = str(r.get("symbol") or "")
+        if sym and sym not in monthly_by_sym:
+            monthly_by_sym[sym] = r
+    return {"inst_by_sym": inst_by_sym, "monthly_by_sym": monthly_by_sym}
 
-    stocks = sb_select("stocks", "select=symbol,name", page_size=1000)
-    name_map = {
-        str(s["symbol"]): str(s.get("name") or "").strip()
-        for s in stocks
-        if valid_name(s.get("name"), s.get("symbol"))
-    }
-    try:
-        pool_names = sb_select(
-            "candidate_pool",
-            "select=symbol,name&order=date.desc",
-            page_size=1000,
-            max_rows=50000,
-        )
-        for row in pool_names:
-            sym = str(row.get("symbol") or "").strip()
-            if sym not in name_map and valid_name(row.get("name"), sym):
-                name_map[sym] = str(row.get("name") or "").strip()
-    except Exception as e:  # noqa
-        log(f"  股票名稱 fallback 載入略過：{e}")
 
-    updated, sells = update_open_positions(agent, latest, prices_by_sym, name_map)
+def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
+    aid = agent["id"]
+    log(f"--- {strategy['name']} 開始 ---")
+    updated, sells = update_open_positions(agent, strategy, latest, prices_by_sym, name_map)
     held = {p["symbol"] for p in updated if p.get("status") == "持有"}
     current_asset_value = sum(int(p.get("market_value") or 0) for p in updated if p.get("status") == "持有")
 
@@ -536,104 +551,96 @@ def main():
     sb_delete("ai_backtests", f"agent_id=eq.{aid}")
     sb_delete("ai_deep_analysis", f"agent_id=eq.{aid}")
 
-    candidates, backtests, deep_rows = [], [], []
-    signals = []
-    for sym, rows in prices_by_sym.items():
-        rows = normalize_rows(rows)
+    candidates, backtests, deep_rows, signals = [], [], [], []
+    for sym, raw in prices_by_sym.items():
+        rows = normalize_rows(raw)
         if len(rows) < 35 or rows[-1]["date"] != latest:
             continue
-        bt = hma_backtest(rows)
-        sig = latest_entry_signal(sym, rows, aid)
+        stats, active = run_backtest(strategy, sym, rows, ctx)
+        sig = latest_signal(strategy, sym, rows, ctx) or active
         if not sig:
-            sig = active_backtest_position(sym, rows, aid)
-        if sig:
-            signals.append(sig)
-            accepted = True
-            if sig.get("carry_from_backtest"):
-                reason = (
-                    f"回測持股延續：關鍵K={sig['key_date']}，"
-                    f"{sig.get('entry_date')} 進場後尚未停損/停利/週五出場；"
-                    f"進場={sig['entry']:.2f} SL={sig['sl']:.2f} 移動TP={sig['tp']:.2f}；"
-                    f"最新量={sig.get('volume_lots', 0)}張"
-                )
-            else:
-                reason = (
-                    f"關鍵K={sig['key_date']} 收盤上穿HMA9；"
-                    f"進場={sig['entry']:.2f} SL={sig['sl']:.2f} TP={sig['tp']:.2f}；"
-                    f"進場量={sig.get('volume_lots', 0)}張"
-                )
-        else:
-            accepted = False
-            reason = "無 HMA/STDEV 進場訊號，或成交量未達 1000 張/均量不足"
-        if accepted:
-            candidates.append(
-                {
-                    "agent_id": aid,
-                    "candidate_pool_id": None,
-                    "date": latest,
-                    "symbol": sym,
-                    "accepted_by_agent": True,
-                    "agent_reason": reason,
-                }
-            )
-            backtests.append(
-                {
-                    "agent_id": aid,
-                    "ai_candidate_id": None,
-                    "symbol": sym,
-                    "matched_conditions": reason,
-                    **bt,
-                    "passed": bt["sample_count"] >= 2,
-                    "failed_reason": "" if bt["sample_count"] >= 2 else "歷史訊號樣本不足",
-                }
-            )
-            deep_rows.append(
-                {
-                    "agent_id": aid,
-                    "ai_candidate_id": None,
-                    "symbol": sym,
-                    "finmind_data_used": json.dumps({"strategy": AGENT_TYPE}, ensure_ascii=False),
-                    "technical_summary": reason,
-                    "chip_summary": "本策略只使用價格指標，不納入籌碼。",
-                    "fundamental_summary": "本策略只使用日K HMA/STDEV，不納入基本面。",
-                    "risk_summary": "週五出場；固定 SL；TP 以 STDEV 移動。",
-                    "final_score": min(100, 60 + bt["sample_count"] * 2 + int(bt["win_rate"] / 5)),
-                    "decision": "買進",
-                    "decision_reason": reason,
-                }
-            )
+            continue
+        sig["symbol"] = sym
+        sig["reason"] = sig.get("reason") or "回測持股延續"
+        signals.append(sig)
+        reason = (
+            f"回測持股延續：{sig.get('entry_date')} 進場後尚未觸發出場；{sig['reason']}"
+            if sig.get("carry_from_backtest")
+            else sig["reason"]
+        )
+        candidates.append(
+            {
+                "agent_id": aid,
+                "candidate_pool_id": None,
+                "date": latest,
+                "symbol": sym,
+                "accepted_by_agent": True,
+                "agent_reason": reason,
+            }
+        )
+        backtests.append(
+            {
+                "agent_id": aid,
+                "ai_candidate_id": None,
+                "symbol": sym,
+                "matched_conditions": reason,
+                **stats,
+                "passed": stats["sample_count"] >= 1,
+                "failed_reason": "" if stats["sample_count"] >= 1 else "歷史完成交易樣本不足，但目前仍可能有有效持股",
+            }
+        )
+        deep_rows.append(
+            {
+                "agent_id": aid,
+                "ai_candidate_id": None,
+                "symbol": sym,
+                "finmind_data_used": json.dumps(
+                    {"strategy": strategy["type"], "available_fields_only": True},
+                    ensure_ascii=False,
+                ),
+                "technical_summary": reason,
+                "chip_summary": "關鍵券商追蹤目前使用法人買賣超做代理。" if strategy["signal"] == "broker" else "本策略以日K與成交量為主。",
+                "fundamental_summary": "布林R1目前只驗證月營收YoY；股本/毛利率/PB/研發比待補欄位。" if strategy["signal"] == "bollinger" else "本策略不使用基本面或目前無對應欄位。",
+                "risk_summary": strategy["risk"],
+                "final_score": min(100, 60 + stats["sample_count"] * 2 + int(stats["win_rate"] / 5)),
+                "decision": "買進",
+                "decision_reason": reason,
+            }
+        )
 
     sb_upsert("ai_candidates", candidates)
     sb_upsert("ai_backtests", backtests)
     sb_upsert("ai_deep_analysis", deep_rows)
 
-    cash_available = int(agent.get("current_cash") if agent.get("current_cash") is not None else INIT_CASH)
-    sold_cash = sum(int(t["amount"]) for t in sells)
-    cash_available += sold_cash
+    cash = int(agent.get("current_cash") if agent.get("current_cash") is not None else INIT_CASH)
+    cash += sum(int(t["amount"]) for t in sells)
     signals.sort(key=lambda s: (s.get("carry_from_backtest", False), s.get("volume_lots", 0)), reverse=True)
-    buy_signals = [s for s in signals if s["symbol"] not in held][:MAX_BUY_PER_RUN]
-    per = cash_available // len(buy_signals) if buy_signals else 0
+    buy_signals = [s for s in signals if s["symbol"] not in held][:MAX_BUY_PER_AGENT]
+    per = cash // len(buy_signals) if buy_signals else 0
     positions, buys = [], []
     for sig in buy_signals:
         sym = sig["symbol"]
-        entry = sig["entry"]
-        qty = int(per // (entry * 1000)) if entry else 0
+        entry = nfloat(sig.get("entry"))
+        if not entry:
+            continue
+        qty = int(per // (entry * 1000))
         if qty < 1:
             continue
-        buy_date = sig.get("entry_date") or latest
-        current_price = latest_price(sym, prices_by_sym) or sig.get("current_price") or entry
+        current = nfloat(sig.get("current_price")) or entry
         amount = int(entry * qty * 1000)
-        market_value = int(current_price * qty * 1000)
+        mv = int(current * qty * 1000)
+        buy_date = sig.get("entry_date") or latest
         state = {
-            "key_date": sig["key_date"],
+            "strategy": strategy["type"],
+            "key_date": sig.get("key_date"),
             "entry_date": buy_date,
-            "entry_sd": round(sig["entry_sd"], 4),
-            "sl": round(sig["sl"], 4),
-            "tp": round(sig["tp"], 4),
-            "hma": round(sig["hma"], 4) if sig.get("hma") is not None else None,
-            "volume_lots": sig.get("volume_lots"),
+            "entry": round(entry, 4),
+            "sl": round(nfloat(sig.get("sl")) or 0, 4),
+            "tp": round(nfloat(sig.get("tp")) or 0, 4) if sig.get("tp") is not None else None,
             "carry_from_backtest": bool(sig.get("carry_from_backtest")),
+            **(sig.get("state") or {}),
         }
+        label = f"{strategy['name']} 回測持股補進" if sig.get("carry_from_backtest") else f"{strategy['name']} 進場"
         positions.append(
             {
                 "agent_id": aid,
@@ -642,14 +649,11 @@ def main():
                 "buy_date": buy_date,
                 "buy_price": entry,
                 "quantity": qty,
-                "current_price": current_price,
-                "market_value": market_value,
-                "unrealized_pnl": int((current_price - entry) * qty * 1000),
-                "unrealized_return": round((current_price - entry) / entry * 100, 2) if entry else 0,
-                "buy_reason": reason_with_state(
-                    "HMA/STDEV 回測持股補進" if sig.get("carry_from_backtest") else "HMA/STDEV 進場",
-                    state,
-                ),
+                "current_price": current,
+                "market_value": mv,
+                "unrealized_pnl": int((current - entry) * qty * 1000),
+                "unrealized_return": round((current - entry) / entry * 100, 2),
+                "buy_reason": reason_with_state(label, state),
                 "status": "持有",
             }
         )
@@ -662,28 +666,17 @@ def main():
                 "price": entry,
                 "quantity": qty,
                 "amount": amount,
-                "reason": reason_with_state(
-                    "HMA/STDEV 回測持股補進" if sig.get("carry_from_backtest") else "HMA/STDEV 進場",
-                    state,
-                ),
-                "strategy_version": AGENT_VERSION,
+                "reason": reason_with_state(label, state),
+                "strategy_version": VERSION,
             }
         )
     sb_upsert("ai_positions", positions)
     sb_upsert("ai_trades", buys)
 
     spent = sum(int(t["amount"]) for t in buys)
-    cash_after = cash_available - spent
+    cash_after = cash - spent
     asset_after = current_asset_value + sum(int(p["market_value"]) for p in positions)
-    review = (
-        f"HMA/STDEV 今日掃描 {len(prices_by_sym)} 檔，符合量能/回測有效條件 {len(signals)} 檔，"
-        f"買進 {len(buys)} 檔，賣出 {len(sells)} 檔，持有 {len(held)+len(positions)} 檔。"
-    )
-    improvement = (
-        "已加入 1000 張成交量濾網與回測持股補進；後續可統計不同量能門檻、均量門檻的勝率差異。"
-        if signals
-        else "今日無符合 HMA/STDEV 且量能足夠的訊號；後續可統計不同 STDEV 倍數與量能門檻。"
-    )
+    review = f"{strategy['name']} 掃描 {len(prices_by_sym)} 檔，符合/回測延續 {len(signals)} 檔，買進 {len(buys)} 檔，賣出 {len(sells)} 檔。"
     sb_upsert(
         "ai_reviews",
         [
@@ -695,7 +688,7 @@ def main():
                 "chatgpt_review": "",
                 "gemini_review": "",
                 "final_review": review,
-                "improvement_suggestion": improvement,
+                "improvement_suggestion": strategy["risk"],
                 "applied_to_strategy": False,
             }
         ],
@@ -705,10 +698,10 @@ def main():
         [
             {
                 "agent_id": aid,
-                "version": AGENT_VERSION,
-                "change_summary": "加入量能濾網與回測持股補進。",
-                "old_rules": "只買進今天剛好出現 HMA/STDEV 訊號的股票。",
-                "new_rules": "HMA 上穿隔日進場；進場量需超過1000張且5日均量足夠；SL=entry-STDEV*2；TP=entry+STDEV*3 移動；週五出場；回測仍有效的持股可補進。",
+                "version": VERSION,
+                "change_summary": "多策略 AI 模擬與回測持股延續。",
+                "old_rules": "單一 HMA/STDEV 策略。",
+                "new_rules": strategy["desc"],
                 "reason": review,
             }
         ],
@@ -718,20 +711,54 @@ def main():
         [
             {
                 "id": aid,
-                "name": AGENT_NAME,
-                "strategy_type": AGENT_TYPE,
-                "description": "日K HMA(9) 上穿搭配 STDEV(9) 風控；成交量需超過1000張；回測有效持股可延續；週五出場。",
+                "name": strategy["name"],
+                "strategy_type": strategy["type"],
+                "description": strategy["desc"],
                 "initial_cash": INIT_CASH,
                 "current_cash": cash_after,
                 "current_asset_value": asset_after,
                 "status": "active",
-                "strategy_version": AGENT_VERSION,
+                "strategy_version": VERSION,
             }
         ],
         on_conflict="id",
     )
-    mark_status("run_ai_lab", True, f"hma_liquid_signals_or_active={len(signals)} buys={len(buys)} sells={len(sells)} latest={latest}")
-    log(f"=== run_ai_lab 完成：signals={len(signals)} buys={len(buys)} sells={len(sells)} ===")
+    log(f"--- {strategy['name']} 完成 signals={len(signals)} buys={len(buys)} sells={len(sells)} ---")
+    return len(signals), len(buys), len(sells)
+
+
+def main():
+    log("=== run_ai_lab 多策略開始 ===")
+    latest_row = sb_one("daily_prices", "select=date&order=date.desc&limit=1")
+    if not latest_row:
+        mark_status("run_ai_lab", False, "no daily_prices")
+        return
+    latest = str(latest_row["date"])[:10]
+    prices = sb_select(
+        "daily_prices",
+        "select=date,symbol,open,high,low,close,volume&order=date.asc",
+        page_size=1000,
+        max_rows=300000,
+    )
+    prices_by_sym = defaultdict(list)
+    for r in prices:
+        prices_by_sym[str(r["symbol"])].append(r)
+    name_map = load_name_map()
+    ctx = build_context()
+    agents = sync_agents()
+
+    total_s = total_b = total_x = 0
+    for spec in AGENT_DEFS:
+        agent = agents.get(spec["type"])
+        if not agent:
+            log(f"  找不到 agent: {spec['type']}，略過")
+            continue
+        s, b, x = run_strategy(agent, spec, latest, prices_by_sym, name_map, ctx)
+        total_s += s
+        total_b += b
+        total_x += x
+    mark_status("run_ai_lab", True, f"strategies={len(AGENT_DEFS)} signals={total_s} buys={total_b} sells={total_x} latest={latest}")
+    log("=== run_ai_lab 多策略完成 ===")
 
 
 if __name__ == "__main__":
