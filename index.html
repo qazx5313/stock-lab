@@ -288,6 +288,7 @@
    service_role 絕不放這裡，只放 GitHub Actions Secrets。 */
 const SB_URL  = 'https://wgyumblfupaspzywiwzc.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXVtYmxmdXBhc3B6eXdpd3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDg5NjksImV4cCI6MjA5NDU4NDk2OX0.pUur9c40B76uOsI4LphE2cwtE_oqBWUMOwIT-L8qu9g';
+const EDGE_RUN_DAILY_URL = `${SB_URL}/functions/v1/trigger-github-action`;
 
 async function sbGet(path, hi){
   const headers = { apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` };
@@ -313,6 +314,25 @@ async function sbWrite(path, body, method='POST'){
     throw new Error('Supabase '+r.status+' '+txt.slice(0,160));
   }
   return r.json();
+}
+
+async function triggerDailyWorkflow(){
+  const r = await fetch(EDGE_RUN_DAILY_URL, {
+    method:'POST',
+    headers:{
+      apikey:SB_ANON,
+      Authorization:`Bearer ${SB_ANON}`,
+      'Content-Type':'application/json'
+    },
+    body:JSON.stringify({workflow:'daily.yml', ref:'main'})
+  });
+  const txt = await r.text().catch(()=> '');
+  let data = {};
+  try{ data = txt ? JSON.parse(txt) : {}; }catch(_){ data = {error:txt}; }
+  if(!r.ok || data.ok===false){
+    throw new Error(data.error || data.message || `HTTP ${r.status}`);
+  }
+  return data;
 }
 
 let SRC_STATUS = '載入中…';
@@ -1733,7 +1753,8 @@ function vStatus(){
      <div class="stat"><span class="k">今日抓取進度</span><span class="v"><span class="up">${ok}</span><span style="color:var(--ink-3);font-size:18px"> / ${DATA.dataStatus.length}</span></span></div>
      <div style="flex:1;min-width:200px"><div class="progress"><i style="width:${ok/DATA.dataStatus.length*100}%"></i></div>
        <div style="font-size:12px;color:var(--ink-2);margin-top:7px">最後更新：${DATA.meta.date} 16:42 · 排程 GitHub Actions 每日 14:30 / 16:00</div></div>
-     <button class="btn sm">手動重新抓取</button>
+     <button class="btn sm" id="runDailyBtn">手動重新抓取</button>
+     <span id="runDailyMsg" class="muted" style="font-size:12px"></span>
    </div>
    <div class="card"><div class="card-h"><h3>資料來源狀態</h3><span class="tag">每日盤後排程結果</span></div>
      <div class="tbl-wrap"><table><thead><tr><th>資料來源</th><th>狀態</th><th class="r">完成時間</th><th>備註</th></tr></thead><tbody>
@@ -1837,6 +1858,28 @@ function bindPage(id){
     };
     if(btn)btn.onclick=doSearch;
     if(inp)inp.onkeydown=(e)=>{ if(e.key==='Enter')doSearch(); };
+  }
+  if(id==='status'){
+    const runBtn=document.getElementById('runDailyBtn');
+    const runMsg=document.getElementById('runDailyMsg');
+    if(runBtn)runBtn.onclick=async()=>{
+      if(!isAdmin()){
+        if(runMsg){runMsg.textContent='只有管理員可以執行';runMsg.style.color='#92400E';}
+        return;
+      }
+      runBtn.disabled=true;
+      runBtn.textContent='觸發中…';
+      if(runMsg){runMsg.textContent='正在請 GitHub Actions 開始跑 daily.yml';runMsg.style.color='var(--ink-2)';}
+      try{
+        await triggerDailyWorkflow();
+        if(runMsg){runMsg.textContent='已送出，請到 GitHub Actions 查看執行進度';runMsg.style.color='var(--up)';}
+      }catch(e){
+        if(runMsg){runMsg.textContent='觸發失敗：'+(e.message||e);runMsg.style.color='#92400E';}
+      }finally{
+        runBtn.disabled=false;
+        runBtn.textContent='手動重新抓取';
+      }
+    };
   }
   if(id==='admin'){
     admBody(0);
