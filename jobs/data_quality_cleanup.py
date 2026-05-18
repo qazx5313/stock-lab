@@ -218,6 +218,27 @@ def fill_stock_names(name_map):
     return rest_upsert("stocks", updates, on_conflict="symbol")
 
 
+def upsert_known_stocks(symbols, name_map, price_map):
+    rows = []
+    for sym in sorted(set(symbols)):
+        if not is_symbol(sym):
+            continue
+        source = name_map.get(sym) or {}
+        if bad_name(source.get("name"), sym):
+            continue
+        price = price_map.get(sym) or {}
+        rows.append(
+            {
+                "symbol": sym,
+                "name": source["name"],
+                "industry": source.get("industry"),
+                "market": source.get("market") or price.get("market"),
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            }
+        )
+    return rest_upsert("stocks", rows, on_conflict="symbol")
+
+
 def fill_candidate_names(latest, name_map):
     rows = rest_get(
         "candidate_pool",
@@ -446,6 +467,7 @@ def main():
     ]
     all_symbols = sorted(set(candidate_symbols + theme_symbols + signal_symbols))
     price_map = latest_price_by_symbol(all_symbols, latest)
+    stock_rows_upserted = upsert_known_stocks(all_symbols, name_map, price_map)
 
     candidate_added = top_up_candidates(latest, candidates, name_map, price_map)
     theme_summary = normalize_theme_stocks(latest, name_map, price_map)
@@ -457,6 +479,7 @@ def main():
     summary = (
         f"date={latest}; "
         f"stock_name_fixed={stock_name_fixed}; "
+        f"stock_rows_upserted={stock_rows_upserted}; "
         f"candidate_name_fixed={candidate_name_fixed}; "
         f"candidate_added={candidate_added}; "
         f"missing_candidate_names={missing_candidate_names}; "
