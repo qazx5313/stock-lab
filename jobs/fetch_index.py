@@ -64,47 +64,30 @@ def fetch_taiex():
 
 
 def fetch_tpex_index():
-    """櫃買指數 — 改用 FinMind TaiwanStockTotalReturnIndex (data_id=TPEx)。
-    回最近一筆指數值，並用前一筆算漲跌。"""
-    import os
-
-    token = os.environ.get("FINMIND_TOKEN", "").strip()
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
-    start = (dt.date.today() - dt.timedelta(days=14)).isoformat()
+    """櫃買指數(價格指數) — TPEX 官方端點。
+    https://www.tpex.org.tw/www/zh-tw/indexInfo/inx
+    回當月每日 [日期,開,高,低,收,漲跌]，取最後一筆(最新交易日)。"""
+    url = "https://www.tpex.org.tw/www/zh-tw/indexInfo/inx"
     for attempt in range(1, 4):
         try:
-            r = requests.get(
-                "https://api.finmindtrade.com/api/v4/data",
-                params={
-                    "dataset": "TaiwanStockTotalReturnIndex",
-                    "data_id": "TPEx",
-                    "start_date": start,
-                },
-                headers=headers,
-                timeout=TIMEOUT,
-            )
+            r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
             time.sleep(2)
             if r.status_code != 200:
                 continue
             j = r.json()
-            if j.get("status") != 200:
-                log(f"  FinMind 櫃買 status={j.get('status')} {j.get('msg')}")
+            if j.get("stat") != "ok" or not j.get("tables"):
+                log(f"  TPEX 指數回應 stat={j.get('stat')}")
                 continue
-            arr = sorted(
-                j.get("data", []), key=lambda x: x.get("date", "")
-            )
-            if not arr:
+            rows = j["tables"][0].get("data", [])
+            if not rows:
                 return None
-            last = arr[-1]
-            prev = arr[-2] if len(arr) >= 2 else None
-            v = num(last.get("price") or last.get("TotalReturnIndex"))
-            chg, cp = None, None
-            if prev:
-                pv = num(prev.get("price") or prev.get("TotalReturnIndex"))
-                if v is not None and pv:
-                    chg = round(v - pv, 2)
-                    cp = round((v - pv) / pv * 100, 2)
-            return {"value": v, "change": chg, "change_percent": cp}
+            last = rows[-1]  # [日期, 開, 高, 低, 收, 漲跌]
+            close = num(last[4]) if len(last) > 4 else None
+            chg = num(last[5]) if len(last) > 5 else None
+            cp = None
+            if close is not None and chg is not None and (close - chg):
+                cp = round(chg / (close - chg) * 100, 2)
+            return {"value": close, "change": chg, "change_percent": cp}
         except Exception as e:  # noqa
             log(f"  櫃買指數重試 {attempt}: {e}")
             time.sleep(2 * attempt)
