@@ -62,6 +62,18 @@ def ymd(d: dt.date) -> str:
     return d.strftime("%Y%m%d")
 
 
+def parse_roc_or_ymd(v):
+    s = str(v or "").strip().replace("/", "").replace("-", "")
+    try:
+        if len(s) == 7:  # 1150518
+            return dt.date(int(s[:3]) + 1911, int(s[3:5]), int(s[5:7]))
+        if len(s) == 8:  # 20260518
+            return dt.date(int(s[:4]), int(s[4:6]), int(s[6:8]))
+    except Exception:
+        return None
+    return None
+
+
 def last_weekday(d: dt.date) -> dt.date:
     """OpenAPI 收盤端點不回日期，回最近一個工作日當交易日近似值。
     （週六->週五、週日->週五；國定假日的細微誤差待第四階段用法人實際交易日校正）"""
@@ -232,9 +244,10 @@ def fetch_twse_price():
         #       LowestPrice,ClosingPrice,Change,Transaction
         close = num(d.get("ClosingPrice"))
         chg = num(d.get("Change"))
+        row_date = parse_roc_or_ymd(d.get("Date")) or TRADE_DAY
         rows.append(
             {
-                "date": TRADE_DAY.isoformat(),
+                "date": row_date.isoformat(),
                 "symbol": d.get("Code"),
                 "open": num(d.get("OpeningPrice")),
                 "high": num(d.get("HighestPrice")),
@@ -276,9 +289,10 @@ def fetch_tpex_price():
         name = d.get("CompanyName") or d.get("Name")
         close = num(d.get("Close"))
         chg = num(d.get("Change"))
+        row_date = parse_roc_or_ymd(d.get("Date")) or TRADE_DAY
         rows.append(
             {
-                "date": TRADE_DAY.isoformat(),
+                "date": row_date.isoformat(),
                 "symbol": sym,
                 "open": num(d.get("Open")),
                 "high": num(d.get("High")),
@@ -303,7 +317,7 @@ def fetch_tpex_price():
 
 # ==================================================================
 # 3. TWSE 三大法人買賣超（個股）
-#    端點：fund/T86（回 JSON，需帶 response=json & date & selectType=ALL）
+#    端點：fund/T86（回 JSON，需帶 response=json & date & selectType=ALLBUT0999）
 # ==================================================================
 def fetch_twse_inst():
     log("TWSE 三大法人買賣超…")
@@ -315,7 +329,7 @@ def fetch_twse_inst():
             continue
         j = http_get(
             url,
-            params={"response": "json", "date": ymd(d), "selectType": "ALL"},
+            params={"response": "json", "date": ymd(d), "selectType": "ALLBUT0999"},
             expect="json",
         )
         if j and j.get("stat") == "OK" and j.get("data"):
@@ -340,6 +354,58 @@ def fetch_twse_inst():
             return len(rows)
     # 10 天內都查無（極少見：長假），視為正常空資料，不算失敗
     log("  近 10 日查無法人資料（可能長假），記 0 筆")
+    return 0
+
+
+# ==================================================================
+# 3b. TPEX 上櫃 三大法人買賣超（個股）
+#    端點：3insti/daily_trade/3itrade_hedge_result.php
+# ==================================================================
+def fetch_tpex_inst():
+    log("TPEX 上櫃三大法人買賣超…")
+    url = "https://www.tpex.org.tw/web/stock/3insti/daily_trade/3itrade_hedge_result.php"
+    for back in range(0, 10):
+        d = TODAY - dt.timedelta(days=back)
+        if d.weekday() >= 5:
+            continue
+        j = http_get(
+            url,
+            params={
+                "l": "zh-tw",
+                "o": "json",
+                "se": "EW",
+                "t": "D",
+                "d": roc_date(d),
+                "s": "0,asc",
+            },
+            expect="json",
+        )
+        tables = j.get("tables") if isinstance(j, dict) else None
+        target = tables[0] if tables else None
+        data = target.get("data") if target else None
+        if not data:
+            continue
+        row_date = parse_roc_or_ymd(target.get("date")) or d
+        rows = []
+        for f in data:
+            if len(f) < 24:
+                continue
+            rows.append(
+                {
+                    "date": row_date.isoformat(),
+                    "symbol": str(f[0]).strip(),
+                    # TPEx 欄位：外資總買賣超=10，投信買賣超=13，自營商合計=22，三大法人合計=23
+                    "foreign_buy_sell": to_int(f[10]),
+                    "investment_trust_buy_sell": to_int(f[13]),
+                    "dealer_buy_sell": to_int(f[22]),
+                    "total_buy_sell": to_int(f[23]),
+                    "market": "TPEX",
+                }
+            )
+        log(f"  （採用交易日 {row_date}）")
+        sb_upsert("institutional_trades", rows, on_conflict="date,symbol")
+        return len(rows)
+    log("  近 10 日查無上櫃法人資料（可能長假），記 0 筆")
     return 0
 
 
@@ -480,6 +546,7 @@ JOBS = [
     ("twse_price", fetch_twse_price),
     ("tpex_price", fetch_tpex_price),
     ("twse_inst", fetch_twse_inst),
+    ("tpex_inst", fetch_tpex_inst),
     ("twse_margin", fetch_twse_margin),
     ("mops_announcements", fetch_mops_announcements),
     ("monthly_revenue", fetch_monthly_revenue),
