@@ -63,6 +63,10 @@
     display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:700;
     padding:6px 12px;border-radius:999px;background:var(--blue-tint);color:var(--primary);
   }
+  .market-pill{white-space:nowrap;background:#F8FAFC;color:var(--ink-1);border:1px solid var(--border)}
+  .market-pill b{font-weight:900}
+  .market-pill .up{color:var(--up)}
+  .market-pill .down{color:var(--down)}
   .pill.live{background:#FEF2F2;color:var(--up)}
   .menu-btn{display:none}
   .content{padding:26px;max-width:1320px;width:100%}
@@ -231,6 +235,7 @@
     .topbar{padding:0 16px;height:56px}
     .topbar h1{font-size:15px}
     .topbar .sub{display:none}
+    .market-pill{display:none}
     .top-auth .pill{display:none}
     .top-user span{display:none}
     .stat .v{font-size:21px}
