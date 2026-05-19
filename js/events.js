@@ -19,6 +19,7 @@ function bindPage(id){
     }
     setAuthUser({account:found.account,nick:found.nick,role:found.role||'user',daysRemaining:found.daysRemaining||0});
     await loadRemoteEntitlements(found.account);
+    await syncWatchlistFromRemote(true);
     buildNav();
     go(id==='admin'?'admin':'home');
   };
@@ -47,7 +48,7 @@ function bindPage(id){
     if(msg){msg.textContent='申請完成，可直接登入';msg.style.color='var(--up)';}
   };
   const logoutBtn=document.getElementById('logoutBtn');
-  if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);setAuthToken('');buildNav();go('home');};
+  if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);setAuthToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
   if(id==='screen'){
     const upd=()=>{document.getElementById('selCnt').textContent=SEL.size;
       document.querySelectorAll('[data-f]').forEach(c=>c.classList.toggle('on',SEL.has(c.dataset.f)));};
@@ -65,9 +66,44 @@ function bindPage(id){
     document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=async()=>{AI_VIEW=el.dataset.ai;await loadAIDetailData(AI_VIEW);go('ai');});
     const bk=document.querySelector('[data-aiback]');if(bk)bk.onclick=()=>{AI_VIEW=null;go('ai');};
   }
+  if(id==='watch'){
+    if(authUser() && !WATCH_REMOTE_LOADED){
+      syncWatchlistFromRemote().then(ok=>{if(ok&&CUR==='watch')go('watch');});
+    }
+    const inp=document.getElementById('watchInput');
+    const add=document.getElementById('watchAddBtn');
+    const doAdd=async()=>{
+      const v=(inp&&inp.value||'').trim();
+      if(!/^[1-9]\d{3}$/.test(v)){
+        alert('請輸入 4 位數字股票代號（例：1815）');return;
+      }
+      addWatchStock(v);
+      await persistWatchlist();
+      go('watch');
+    };
+    if(add)add.onclick=doAdd;
+    if(inp)inp.onkeydown=e=>{if(e.key==='Enter')doAdd();};
+    document.querySelectorAll('[data-watch-remove]').forEach(btn=>btn.onclick=async()=>{
+      removeWatchStock(btn.dataset.watchRemove);
+      await persistWatchlist();
+      go('watch');
+    });
+  }
   if(id==='stock'){
     const inp=document.getElementById('stkInput');
     const btn=document.getElementById('stkSearchBtn');
+    const watchBtn=document.getElementById('watchToggleBtn');
+    if(watchBtn)watchBtn.onclick=async()=>{
+      const sym=watchBtn.dataset.watchSymbol||DATA.stock.c;
+      if(isWatched(sym)){
+        removeWatchStock(sym);
+        watchBtn.textContent='加入自選';
+      }else{
+        addWatchStock(DATA.stock);
+        watchBtn.textContent='移出自選';
+      }
+      await persistWatchlist();
+    };
     const doSearch=async()=>{
       const v=(inp&&inp.value||'').trim();
       if(!/^[1-9]\d{3}$/.test(v)){

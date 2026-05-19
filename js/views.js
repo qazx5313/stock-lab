@@ -170,6 +170,124 @@ function vMap(){
 
 /* ============ 3. 每日篩選 ============ */
 const SEL=new Set(['今日漲幅 > 3%','站上 20MA','三大法人合計買超','今日強勢題材']);
+const WATCH_KEY='stockLabWatchlist';
+let WATCH_REMOTE_LOADED=false;
+let WATCH_SYNC_STATUS='';
+function watchlist(){
+  return readStore(WATCH_KEY,[]).filter(x=>x&&/^[1-9]\d{3}$/.test(String(x.c||'')));
+}
+function setWatchlist(rows){
+  const seen=new Set();
+  const clean=(rows||[]).map(x=>({
+    c:String(x.c||'').trim(),
+    n:String(x.n||'').trim(),
+    addedAt:x.addedAt||new Date().toISOString()
+  })).filter(x=>{
+    if(!/^[1-9]\d{3}$/.test(x.c) || seen.has(x.c)) return false;
+    seen.add(x.c);
+    return true;
+  });
+  writeStore(WATCH_KEY,clean);
+}
+function stockKnownInfo(sym){
+  const c=String(sym||'').trim();
+  const pools=[DATA.stock, ...(DATA.screen||[]), ...(DATA.picks||[])];
+  (DATA.themes||[]).forEach(t=>Array.isArray(t.stocks)&&pools.push(...t.stocks));
+  const hit=pools.find(s=>String(s&&s.c)===c && s.n && s.n!==c && s.n!=='尚無名稱') ||
+            pools.find(s=>String(s&&s.c)===c);
+  return hit||{c,n:c};
+}
+function addWatchStock(stock){
+  const s=stockKnownInfo(stock&&stock.c||stock);
+  const rows=watchlist().filter(x=>x.c!==String(s.c));
+  rows.unshift({c:String(s.c),n:s.n&&s.n!=='尚無名稱'?s.n:String(s.c),addedAt:new Date().toISOString()});
+  setWatchlist(rows);
+}
+function removeWatchStock(sym){setWatchlist(watchlist().filter(x=>x.c!==String(sym)));}
+function isWatched(sym){return watchlist().some(x=>x.c===String(sym));}
+function mergeWatchlists(localRows,remoteRows){
+  const out=[];
+  const add=r=>{
+    const c=String(r&&r.c||'').trim();
+    if(!/^[1-9]\d{3}$/.test(c) || out.some(x=>x.c===c)) return;
+    const info=stockKnownInfo(c);
+    out.push({
+      c,
+      n:(r.n&&r.n!==c&&r.n!=='尚無名稱')?r.n:(info.n&&info.n!=='尚無名稱'?info.n:c),
+      note:r.note||'',
+      addedAt:r.addedAt||new Date().toISOString()
+    });
+  };
+  (remoteRows||[]).forEach(add);
+  (localRows||[]).forEach(add);
+  return out;
+}
+async function syncWatchlistFromRemote(force=false){
+  if(!authUser() || !authToken()) return false;
+  if(WATCH_REMOTE_LOADED && !force) return true;
+  const remote=await loadRemoteWatchlist();
+  if(!remote) {
+    WATCH_SYNC_STATUS='無法連線 Supabase，自選股暫存在此瀏覽器';
+    return false;
+  }
+  const merged=mergeWatchlists(watchlist(),remote);
+  setWatchlist(merged);
+  WATCH_REMOTE_LOADED=true;
+  const saved=await saveRemoteWatchlist(merged);
+  WATCH_SYNC_STATUS=saved?'已同步 Supabase 會員自選股':'已讀取 Supabase，但儲存同步失敗';
+  return true;
+}
+async function persistWatchlist(){
+  if(!authUser() || !authToken()){
+    WATCH_SYNC_STATUS='已儲存在此瀏覽器，登入後可同步到 Supabase';
+    return false;
+  }
+  const ok=await saveRemoteWatchlist(watchlist());
+  WATCH_REMOTE_LOADED=true;
+  WATCH_SYNC_STATUS=ok?'已同步 Supabase':'同步失敗，已先保留在此瀏覽器';
+  return ok;
+}
+function watchRows(){
+  return watchlist().map(x=>{
+    const info=stockKnownInfo(x.c);
+    return {...x,...info,n:(info.n&&info.n!=='尚無名稱')?info.n:(x.n||x.c)};
+  });
+}
+function vWatch(){
+  const rows=watchRows();
+  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+   <div class="card card-pad">
+     <div style="display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap">
+       <div style="flex:1;min-width:240px">
+         <h3 style="font-size:18px;margin-bottom:8px">自選股清單</h3>
+         <div class="muted" style="font-size:13px;line-height:1.6">${authUser()?'登入後會同步到 Supabase 會員自選股。':'請先登入，登入後自選股會同步到 Supabase。'} ${WATCH_SYNC_STATUS||''}</div>
+       </div>
+       <div style="display:flex;gap:8px;align-items:center">
+         <input id="watchInput" placeholder="輸入股票代號" style="width:150px;padding:9px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--mono);font-size:14px;outline:none">
+         <button class="btn sm" id="watchAddBtn">加入自選</button>
+       </div>
+     </div>
+   </div>
+   <div class="card">
+     <div class="card-h"><h3>追蹤列表</h3><span class="tag">${rows.length} 檔 · 點分析可查看完整個股資料</span></div>
+     ${rows.length?`<div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">收盤</th><th class="r">漲跌</th><th class="r">成交量</th><th>加入時間</th><th>操作</th></tr></thead>
+       <tbody>${rows.map(s=>`<tr>
+         <td class="code lnk" data-stock="${s.c}">${s.c}</td>
+         <td><b>${esc(s.n||s.c)}</b></td>
+         <td><span class="badge">${esc(s.t||s.theme||s.industry||'—')}</span></td>
+         <td class="r num">${fmtPx(s.px)}</td>
+         <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>
+         <td class="r num muted">${s.vol??'—'}</td>
+         <td class="muted" style="font-size:12px">${String(s.addedAt||'').slice(0,10)||'—'}</td>
+         <td style="display:flex;gap:8px;flex-wrap:wrap">
+           <button class="btn line sm" data-stock="${s.c}">分析</button>
+           <button class="btn ghost sm" data-watch-remove="${s.c}">移除</button>
+         </td>
+       </tr>`).join('')}</tbody></table></div>`:
+       `<div class="card-pad"><div class="muted" style="font-size:13.5px">目前還沒有自選股。輸入股票代號後加入，或到個股分析頁把正在看的股票加入自選。</div></div>`}
+   </div>
+  </div>`;
+}
 function vScreen(){
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div class="card card-pad">
@@ -231,6 +349,7 @@ function vStock(){
      <div style="display:flex;gap:8px;margin-top:14px">
        <input id="stkInput" placeholder="輸入股票代號（示範：1815）" style="flex:1;max-width:260px;padding:9px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--mono);font-size:14px;outline:none">
        <button class="btn sm" id="stkSearchBtn">查詢</button>
+       <button class="btn line sm" id="watchToggleBtn" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
      </div>
    </div>
 

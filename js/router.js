@@ -2,6 +2,7 @@
 const I={
   home:'<path d="M3 11l9-8 9 8M5 10v10h5v-6h4v6h5V10"/>',
   map:'<path d="M9 4L3 6v14l6-2 6 2 6-2V4l-6 2-6-2zM9 4v14M15 6v14"/>',
+  watch:'<path d="M19 21l-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
   filter:'<path d="M3 5h18M6 12h12M10 19h4"/>',
   stock:'<path d="M3 17l5-5 4 4 8-8M21 8h-5M21 8v5"/>',
   report:'<path d="M7 3h10l4 4v14H3V3zM14 3v5h5M8 13h8M8 17h8"/>',
@@ -13,6 +14,7 @@ const I={
 const PAGES=[
   {id:'home',t:'今日市場總覽',s:'一眼掌握多空與資金題材',ic:I.home,grp:'每日盤後'},
   {id:'map',t:'產業題材地圖',s:'市場題材分類與產業鏈',ic:I.map,grp:'每日盤後'},
+  {id:'watch',t:'自選股',s:'追蹤自己關注的股票清單',ic:I.watch,grp:'每日盤後'},
   {id:'screen',t:'每日篩選',s:'核心選股工具',ic:I.filter,grp:'每日盤後'},
   {id:'stock',t:'個股分析',s:'單一股票完整資訊',ic:I.stock,grp:'每日盤後'},
   {id:'report',t:'每日報告',s:'盤後自動產生報告',ic:I.report,grp:'每日盤後'},
@@ -21,12 +23,12 @@ const PAGES=[
   {id:'status',t:'資料更新狀態',s:'每日抓取結果監控',ic:I.status,grp:'系統'},
   {id:'account',t:'帳號登入 / 申請',s:'會員申請、登入與權限狀態',ic:I.account,grp:'帳號',topOnly:true},
 ];
-const MOB=[['home','總覽'],['screen','篩選'],['account','帳號'],['ai','AI'],['status','狀態']];
+const MOB=[['home','總覽'],['map','題材'],['watch','自選'],['stock','個股'],['account','帳號']];
 
 function visiblePages(){
   return PAGES.filter(p=>{
     if(p.topOnly) return false;
-    if(['home','map','screen','stock','report'].includes(p.id)) return true;
+    if(['home','map','watch','screen','stock','report'].includes(p.id)) return true;
     if(!authUser()) return false;
     if(p.id==='status') return isAdmin();
     if(isAdmin()) return true;
@@ -77,7 +79,7 @@ function go(id){
     }else if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
       v.innerHTML=vDataUnavailable();
     }else{
-      v.innerHTML=({home:vHome,map:vMap,screen:vScreen,stock:vStock,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
+      v.innerHTML=({home:vHome,map:vMap,watch:vWatch,screen:vScreen,stock:vStock,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
     }
   }catch(err){
     console.error('頁面渲染錯誤 ['+id+']:', err);

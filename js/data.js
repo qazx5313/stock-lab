@@ -193,6 +193,7 @@ const DATA = {
   activation:[
     {id:'home',name:'今日市場總覽',enabled:true,days:30},
     {id:'map',name:'產業題材地圖',enabled:true,days:30},
+    {id:'watch',name:'自選股',enabled:true,days:14},
     {id:'screen',name:'每日篩選',enabled:true,days:14},
     {id:'stock',name:'個股分析',enabled:true,days:14},
     {id:'report',name:'每日報告',enabled:false,days:7},

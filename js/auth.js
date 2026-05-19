@@ -16,7 +16,13 @@ function authEmailFor(account){
   const safe=a.toLowerCase().replace(/[^a-z0-9._-]/g,'');
   return `${safe || 'user'}@stocklab.local`;
 }
-function activationSettings(){return readStore('stockLabActivation',DATA.activation);}
+function activationSettings(){
+  const saved=readStore('stockLabActivation',[]);
+  const byId=new Map((Array.isArray(saved)?saved:[]).map(a=>[a.id,a]));
+  const merged=DATA.activation.map(a=>({...a,...(byId.get(a.id)||{})}));
+  (Array.isArray(saved)?saved:[]).forEach(a=>{if(a&&a.id&&!merged.some(x=>x.id===a.id)) merged.push(a);});
+  return merged;
+}
 function setActivationSettings(v){writeStore('stockLabActivation',v);}
 function manageableActivationSettings(){return activationSettings().filter(a=>a.id!=='status');}
 function entitlements(){return readStore('stockLabEntitlements',{});}
@@ -54,7 +60,7 @@ function isPageAllowed(id){
   if(!authUser()) return false;
   if(id==='status') return isAdmin();
   if(isAdmin()) return true;
-  if(['screen','stock','report'].includes(id)) return true;
+  if(['watch','screen','stock','report'].includes(id)) return true;
   if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(id);
   return true;
 }
@@ -75,7 +81,7 @@ function renderTopAuth(){
     : `<button class="btn sm" data-go="account">登入 / 申請</button>`;
   document.querySelectorAll('#topAuth [data-go]').forEach(el=>el.onclick=()=>go(el.dataset.go));
   const out=document.getElementById('topLogoutBtn');
-  if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');buildNav();go('home');};
+  if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
 }
 function renderDataFreshness(){
   const el=document.getElementById('dataFreshness');
@@ -199,6 +205,42 @@ async function adminWrite(action,payload){
   try{data=txt?JSON.parse(txt):{};}catch(_){data={error:txt};}
   if(!r.ok || data.ok===false) throw new Error(data.error||`HTTP ${r.status}`);
   return data.data;
+}
+async function userWrite(action,payload){
+  const token=authToken();
+  if(!token) throw new Error('尚未登入');
+  const r=await fetch(EDGE_ADMIN_WRITE_URL,{
+    method:'POST',
+    headers:{
+      apikey:SB_ANON,
+      Authorization:`Bearer ${token}`,
+      'Content-Type':'application/json'
+    },
+    body:JSON.stringify({action,payload})
+  });
+  const txt=await r.text().catch(()=> '');
+  let data={};
+  try{data=txt?JSON.parse(txt):{};}catch(_){data={error:txt};}
+  if(!r.ok || data.ok===false) throw new Error(data.error||`HTTP ${r.status}`);
+  return data.data;
+}
+async function loadRemoteWatchlist(){
+  try{
+    const rows=await userWrite('get_watchlist',{});
+    return Array.isArray(rows)?rows:[];
+  }catch(e){
+    console.warn('會員自選股載入略過:',e);
+    return null;
+  }
+}
+async function saveRemoteWatchlist(rows){
+  try{
+    await userWrite('save_watchlist',{rows});
+    return true;
+  }catch(e){
+    console.warn('會員自選股儲存略過:',e);
+    return false;
+  }
 }
 
 function vAccount(){
