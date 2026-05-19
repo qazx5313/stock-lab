@@ -34,6 +34,41 @@ function normMarket(v){
   if(s==='TWSE' || s.includes('上市') || s.includes('證交')) return 'TWSE';
   return '';
 }
+function normThemeText(v){
+  return String(v||'').toLowerCase().replace(/[ \t\r\n/／、,，()（）\[\]【】・·\-＿_]/g,'');
+}
+function themeAliases(name){
+  const n=normThemeText(name);
+  const base=[n];
+  const groups=[
+    ['玻纖布','玻織布','玻璃纖維布','玻璃纖維','玻纖','玻璃玻纖'],
+    ['pcb','ccl','銅箔基板','電路板','印刷電路板'],
+    ['玻璃基板','玻璃載板','先進封裝玻璃'],
+    ['ai伺服器','伺服器','aiserver','ai'],
+    ['散熱','熱傳','液冷','散熱模組'],
+    ['面板','顯示器','lcd'],
+    ['營建','建設','營造','建材'],
+    ['航運','貨櫃','散裝','航空'],
+    ['生技醫療','生技','醫療','製藥'],
+    ['油電燃氣','油電','燃氣','電力'],
+    ['食品','食物','飲料'],
+    ['半導體','ic','晶圓','封測']
+  ].map(g=>g.map(normThemeText));
+  groups.forEach(g=>{if(g.some(x=>n.includes(x)||x.includes(n))) base.push(...g);});
+  return [...new Set(base.filter(Boolean))];
+}
+function themeStockMatched(themeName, stockInfo, linkInfo={}){
+  const name=String(themeName||'').trim();
+  if(!name || name==='其他') return true;
+  const aliases=themeAliases(name);
+  const tags=Array.isArray(stockInfo.theme_tags)?stockInfo.theme_tags.join(' '):String(stockInfo.theme_tags||'');
+  const hay=normThemeText([
+    stockInfo.industry, tags, stockInfo.theme, linkInfo.role,
+    linkInfo.supply_chain_level, linkInfo.note
+  ].filter(Boolean).join(' '));
+  if(!hay) return false;
+  return aliases.some(a=>hay.includes(a) || a.includes(hay));
+}
 async function loadNameMap(symbols, dateHint){
   const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
   const map={};
@@ -43,21 +78,21 @@ async function loadNameMap(symbols, dateHint){
   };
   if(!wanted.length) return map;
   try{
-    const rows=await sbGet('stocks?select=symbol,name,industry,market',20000);
+    const rows=await sbGet('stocks?select=symbol,name,industry,market,theme_tags',20000);
     (rows||[]).forEach(r=>{
       const sym=String(r.symbol||'').trim();
-      if(sym && wanted.includes(sym)) map[sym]={name:validName(r.name,sym)?String(r.name).trim():'',industry:r.industry,market:r.market};
+      if(sym && wanted.includes(sym)) map[sym]={name:validName(r.name,sym)?String(r.name).trim():'',industry:r.industry,market:r.market,theme_tags:r.theme_tags};
     });
   }catch(_){}
   const missingFromAll=wanted.filter(sym=>!map[sym]||!validName(map[sym].name,sym));
   for(const part of chunks(missingFromAll,40)){
     try{
       const rows=await sbGet(
-        `stocks?select=symbol,name,industry,market&symbol=in.(${part.join(',')})`,2000);
+        `stocks?select=symbol,name,industry,market,theme_tags&symbol=in.(${part.join(',')})`,2000);
       (rows||[]).forEach(r=>{
         const sym=String(r.symbol||'').trim();
         if(sym && wanted.includes(sym) && validName(r.name,sym)){
-          map[sym]={name:String(r.name).trim(),industry:r.industry,market:r.market};
+          map[sym]={name:String(r.name).trim(),industry:r.industry,market:r.market,theme_tags:r.theme_tags};
         }
       });
     }catch(_){}
@@ -137,7 +172,7 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v3';
+const REAL_CACHE_KEY='stockLabRealCache:v4';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -313,6 +348,7 @@ async function loadReal(){
         const symbols = [...new Set((ts||[]).map(x=>String(x.symbol||'').trim()).filter(Boolean))];
         const stockMap=await loadNameMap(symbols,d);
         const priceMap=await loadLatestPriceMap(symbols,d);
+        const themeById={}; DATA.themes.forEach(t=>{themeById[String(t.themeId)]=t;});
         const byTheme={};
         (ts||[]).forEach(r=>{
           const sym=String(r.symbol||'').trim();
@@ -320,6 +356,8 @@ async function loadReal(){
           const px=priceMap[sym]||{};
           const fallbackName=(DATA.stock&&DATA.stock.c===sym&&DATA.stock.n&&DATA.stock.n!==sym)?DATA.stock.n:'尚無名稱';
           const key=String(r.theme_id);
+          const th=themeById[key];
+          if(th && !themeStockMatched(th.name,sm,r)) return;
           (byTheme[key]=byTheme[key]||[]).push({
             c:sym,n:(sm.name&&sm.name!==sym)?sm.name:fallbackName,role:r.role||'成分',
             level:r.supply_chain_level||sm.industry||'未分類',
@@ -328,6 +366,12 @@ async function loadReal(){
           });
         });
         DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
+        const visibleThemes=DATA.themes.filter(t=>Array.isArray(t.stocks)&&t.stocks.length>0);
+        if(visibleThemes.length){
+          DATA.themes=visibleThemes;
+          DATA.themeList=DATA.themes.map(t=>t.name);
+          if(!DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
+        }
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
 
