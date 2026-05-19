@@ -214,7 +214,7 @@ function buildClassThemesFromCaches(){
     return am-bm || b.score-a.score;
   });
 }
-const REAL_CACHE_KEY='stockLabRealCache:v10';
+const REAL_CACHE_KEY='stockLabRealCache:v11';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',

@@ -77,9 +77,13 @@ function vHome(){
      <div class="card card-pad">
        <div class="sec-title">今日走勢圖</div>
        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-         ${ov.map(([k,o])=>`<div class="stat"><span class="k">${k}</span><span class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span><span class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span></div>`).join('')}
+         ${ov.map(([k,o])=>`<div class="stat">
+           <span class="k">${k}</span>
+           <span class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span>
+           <span class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span>
+           ${marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E')}
+         </div>`).join('')}
        </div>
-       ${marketTrendSvg(m.twse,Number(m.twse&&m.twse.d)<0?'#EF4444':'#22C55E')}
      </div>
      <div class="card card-pad">
        <div class="sec-title">漲跌分布</div>
@@ -109,8 +113,21 @@ function vHome(){
    </div>
 
    <div class="dashboard-table-grid">
-     ${trendMini('加權指數',m.twse,Number(m.twse&&m.twse.d)<0?'#EF4444':'#22C55E')}
-     ${trendMini('櫃買指數',m.tpex,Number(m.tpex&&m.tpex.d)<0?'#EF4444':'#22C55E')}
+     <div class="card">
+       <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
+       <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
+         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r"><svg width="70" height="24" viewBox="0 0 70 24"><polyline points="0,19 10,15 20,17 30,11 40,13 50,7 60,9 70,4" fill="none" stroke="#22C55E" stroke-width="2"/></svg></td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
+       </tbody></table></div>
+     </div>
+     <div class="card">
+       <div class="card-h"><h3>個股比較</h3><span class="tag">Stock Compare</span></div>
+       <div class="tbl-wrap"><table class="compare-mini"><thead><tr><th>股票</th>${picks.map(s=>`<th>${s.c}</th>`).join('')}</tr></thead><tbody>
+         <tr><td>總分</td>${picks.map(s=>`<td class="num ${s.fs>=84?'up':'warn'}"><b>${s.fs}</b></td>`).join('')}</tr>
+         <tr><td>基本分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round((s.cs+s.ms)/2))}</td>`).join('')}</tr>
+         <tr><td>技術分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round(s.ts/2))}</td>`).join('')}</tr>
+         <tr><td>漲跌幅</td>${picks.map(s=>`<td class="num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>`).join('')}</tr>
+       </tbody></table></div>
+     </div>
    </div>
 
    <div class="grid" style="grid-template-columns:1fr 1fr">
