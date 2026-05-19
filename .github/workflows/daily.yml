@@ -3,6 +3,7 @@ name: Daily market data pipeline
 on:
   schedule:
     # GitHub Actions uses UTC. Taiwan time is UTC+8.
+    - cron: "45 5 * * 1-5"   # 13:45 Taiwan time
     - cron: "30 6 * * 1-5"   # 14:30 Taiwan time
     - cron: "15 8 * * 1-5"   # 16:15 Taiwan time
   workflow_dispatch: {}
@@ -32,7 +33,15 @@ jobs:
           THROTTLE_SEC: "3"
         run: python fetch_all.py
 
-      - name: 2) Fetch market indexes
+      - name: 2) Fetch MIS same-day stock quotes
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python fetch_mis_daily_prices.py
+
+      - name: 3) Fetch market indexes
         if: always()
         working-directory: jobs
         env:
@@ -40,7 +49,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python fetch_index.py
 
-      - name: 3) Repair missing recent K bars
+      - name: 4) Repair missing recent K bars
         if: always()
         working-directory: jobs
         env:
@@ -49,7 +58,15 @@ jobs:
           REPAIR_LOOKBACK_DAYS: "3"
         run: python repair_missing_prices.py
 
-      - name: 4) Validate close prices with TWSE MIS
+      - name: 5) Build stock industry classes
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python fetch_stock_classes.py
+
+      - name: 6) Validate close prices with TWSE MIS
         if: always()
         working-directory: jobs
         env:
@@ -58,7 +75,7 @@ jobs:
           MIS_VALIDATE_MAX_SYMBOLS: "220"
         run: python validate_mis_quotes.py
 
-      - name: 5) Compute daily signals
+      - name: 7) Compute daily signals
         if: always()
         working-directory: jobs
         env:
@@ -66,7 +83,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_signals.py
 
-      - name: 6) Run AI lab
+      - name: 8) Run AI lab
         if: always()
         working-directory: jobs
         env:
@@ -78,7 +95,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_ai_lab.py
 
-      - name: 7) Data quality cleanup
+      - name: 9) Data quality cleanup
         if: always()
         working-directory: jobs
         env:
