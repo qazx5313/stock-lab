@@ -194,6 +194,16 @@ def sb_upsert(table, rows, on_conflict=None, batch=500):
     return total
 
 
+def sb_delete(table, query):
+    if not SUPABASE_URL or not SERVICE_KEY:
+        raise RuntimeError("缺少 SUPABASE_URL 或 SUPABASE_SERVICE_KEY 環境變數")
+    url = f"{SUPABASE_URL}/rest/v1/{table}?{query}"
+    r = requests.delete(url, headers=sb_headers(), timeout=TIMEOUT)
+    if r.status_code not in (200, 204):
+        raise RuntimeError(f"Supabase 刪除失敗 {table} HTTP {r.status_code}: {r.text[:300]}")
+    return True
+
+
 def mark_status(source, ok, error=""):
     try:
         sb_upsert(
@@ -459,41 +469,99 @@ def fetch_twse_margin():
 
 # ==================================================================
 # 5. MOPS 重大訊息（當日）
-#    端點：mopsov（公開資訊觀測站即時重大訊息）
+#    來源：新版公開資訊觀測站首頁；資料查詢使用同站重大訊息表格端點。
 # ==================================================================
 def fetch_mops_announcements():
-    log("MOPS 重大訊息…")
-    url = "https://mopsov.twse.com.tw/mops/web/ajax_t05sr01_1"
-    txt = http_get(
-        url,
-        params={
-            "step": "1",
-            "TYPEK": "sii",
-            "year": str(TODAY.year - 1911),
-            "month": f"{TODAY.month:02d}",
-            "day": f"{TODAY.day:02d}",
-        },
-        expect="text",
-    )
-    rows = []
-    # MOPS 此頁回 HTML 表格，做最小化解析（找 <tr>）
     import re
 
-    for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S):
-        cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
-        cells = [re.sub(r"<[^>]+>", "", c).strip() for c in cells]
-        if len(cells) >= 4 and cells[0].isdigit():
-            rows.append(
+    log("MOPS 重大訊息…")
+    home_url = "https://mops.twse.com.tw/mops/#/web/home"
+    endpoints = [
+        "https://mops.twse.com.tw/mops/web/ajax_t05sr01_1",
+        "https://mopsov.twse.com.tw/mops/web/ajax_t05sr01_1",
+    ]
+    markets = [
+        ("sii", "上市"),
+        ("otc", "上櫃"),
+        ("rotc", "興櫃"),
+        ("pub", "公發"),
+    ]
+    rows, seen = [], set()
+    target_days = [TODAY - dt.timedelta(days=i) for i in range(0, 3)]
+
+    def clean_cell(v):
+        text = re.sub(r"<script.*?</script>", "", v, flags=re.S | re.I)
+        text = re.sub(r"<style.*?</style>", "", text, flags=re.S | re.I)
+        text = re.sub(r"<[^>]+>", "", text)
+        return (
+            text.replace("&nbsp;", " ")
+            .replace("&amp;", "&")
+            .replace("&lt;", "<")
+            .replace("&gt;", ">")
+            .strip()
+        )
+
+    def parse_rows(txt, row_date, label):
+        out = []
+        for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S | re.I):
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S | re.I)
+            cells = [clean_cell(c) for c in cells]
+            cells = [c for c in cells if c]
+            if len(cells) < 3:
+                continue
+            code_idx = next((i for i, c in enumerate(cells) if re.fullmatch(r"[1-9]\d{3}", c)), None)
+            if code_idx is None:
+                continue
+            symbol = cells[code_idx]
+            company = cells[code_idx + 1] if len(cells) > code_idx + 1 else ""
+            title = cells[-1]
+            if not title or title == company:
+                continue
+            key = (row_date.isoformat(), symbol, title)
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(
                 {
-                    "date": TRADE_DAY.isoformat(),
-                    "symbol": cells[0],
-                    "company_name": cells[1] if len(cells) > 1 else None,
-                    "title": cells[-1][:500],
+                    "date": row_date.isoformat(),
+                    "symbol": symbol,
+                    "company_name": company or None,
+                    "title": title[:500],
                     "content": None,
-                    "category": "重大訊息",
-                    "source_url": "https://mops.twse.com.tw",
+                    "category": f"重大訊息-{label}",
+                    "source_url": home_url,
                 }
             )
+        return out
+
+    for day in target_days:
+        if day.weekday() >= 5:
+            continue
+        for typek, label in markets:
+            txt = None
+            params = {
+                "step": "1",
+                "TYPEK": typek,
+                "year": str(day.year - 1911),
+                "month": f"{day.month:02d}",
+                "day": f"{day.day:02d}",
+            }
+            for url in endpoints:
+                try:
+                    txt = http_get(url, params=params, expect="text")
+                    if txt:
+                        break
+                except Exception as exc:
+                    log(f"  MOPS {label} {day} endpoint skipped: {exc}")
+            if txt:
+                rows.extend(parse_rows(txt, day, label))
+
+    # Re-running Actions should replace the recent MOPS window, not duplicate it.
+    for day in target_days:
+        try:
+            sb_delete("mops_announcements", f"date=eq.{day.isoformat()}")
+        except Exception as exc:
+            log(f"  MOPS duplicate cleanup skipped for {day}: {exc}")
     sb_upsert("mops_announcements", rows)
     return len(rows)
 
