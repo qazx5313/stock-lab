@@ -178,7 +178,43 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v9';
+function buildClassThemesFromCaches(){
+  const stockMap=DATA.stockMap||{}, priceMap=DATA.priceMap||{};
+  const groups={};
+  Object.keys(priceMap).forEach(sym=>{
+    const st=stockMap[sym]||{}, px=priceMap[sym]||{};
+    const industry=String(st.industry||'').trim();
+    const market=normMarket(px.market||st.market);
+    if(!/^[1-9]\d{3}$/.test(sym) || !industry || !market) return;
+    const label=market==='TPEX'?'上櫃':'上市';
+    const name=`${label} · ${industry}`;
+    const g=groups[name]||(groups[name]={name,market,label,industry,stocks:[],amount:0,changeSum:0,changeN:0});
+    const cp=Number(px.change_percent);
+    const amt=Number(px.amount)||0;
+    g.amount+=amt;
+    if(Number.isFinite(cp)){g.changeSum+=cp;g.changeN++;}
+    g.stocks.push({
+      c:sym,n:st.name||sym,role:'成分',level:industry,score:70,
+      note:'',px:Number(px.close),dp:cp,vol:Number(px.volume)
+    });
+  });
+  return Object.values(groups).map((g,i)=>{
+    const avg=g.changeN?g.changeSum/g.changeN:0;
+    g.stocks.sort((a,b)=>(Number(b.vol)||0)-(Number(a.vol)||0));
+    return {
+      id:`class-${g.market}-${i}`,themeId:`class-${g.market}-${i}`,
+      name:g.name,score:Math.max(1,Math.min(99,Math.round(60+avg*3+Math.min(g.stocks.length,80)/4))),
+      gain:(avg>=0?'+':'')+avg.toFixed(2)+'%',vol:'—',
+      status:avg>=1.5?'強勢':(avg<=-1.5?'偏弱':'一般'),
+      desc:`${g.name}：成分 ${g.stocks.length} 檔，平均漲幅 ${avg.toFixed(2)}%，成交金額 ${(g.amount/100000000).toFixed(2)} 億。`,
+      chain:g.industry,stocks:g.stocks
+    };
+  }).filter(t=>t.stocks.length).sort((a,b)=>{
+    const am=a.name.startsWith('上市')?0:1, bm=b.name.startsWith('上市')?0:1;
+    return am-bm || b.score-a.score;
+  });
+}
+const REAL_CACHE_KEY='stockLabRealCache:v10';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -396,10 +432,16 @@ async function loadReal(){
         });
         DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
         DATA.themes=DATA.themes.filter(t=>Array.isArray(t.stocks)&&t.stocks.length);
+        if(!DATA.themes.length) DATA.themes=buildClassThemesFromCaches();
         DATA.themeList=DATA.themes.map(t=>t.name);
         if(!DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
+    if(!Array.isArray(DATA.themes) || !DATA.themes.length){
+      DATA.themes=buildClassThemesFromCaches();
+      DATA.themeList=DATA.themes.map(t=>t.name);
+      if(DATA.themes.length && !DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
+    }
 
     // ---- 重大公告：讀公開資訊觀測站公告 ----
     try{

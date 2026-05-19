@@ -138,7 +138,12 @@ function mapMarketLabel(){
 }
 function mapMarketThemes(){
   const label=mapMarketLabel();
-  return (DATA.themes||[]).filter(t=>String(t.name||'').trim().startsWith(label+' ·'));
+  const rows=(DATA.themes||[]).filter(t=>{
+    const n=String(t.name||'').trim();
+    if(label==='上市') return n.includes('上市') && !n.includes('上櫃');
+    return n.includes('上櫃');
+  });
+  return rows.length?rows:(DATA.themes||[]);
 }
 function vMap(){
   const themes=mapMarketThemes();

@@ -9,7 +9,10 @@ function bindPage(id){
   document.querySelectorAll('[data-map-market]').forEach(el=>el.onclick=()=>{
     MAP_MARKET=el.dataset.mapMarket==='TPEX'?'TPEX':'TWSE';
     const label=MAP_MARKET==='TPEX'?'上櫃':'上市';
-    const first=(DATA.themes||[]).find(t=>String(t.name||'').trim().startsWith(label+' ·'));
+    const first=(DATA.themes||[]).find(t=>{
+      const n=String(t.name||'').trim();
+      return label==='上市'?(n.includes('上市')&&!n.includes('上櫃')):n.includes('上櫃');
+    });
     MAP_SEL=first?first.id:'';
     go('map');
   });
