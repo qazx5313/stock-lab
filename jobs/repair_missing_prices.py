@@ -1,16 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Repair missing latest daily_prices rows for symbols used by the app.
+Repair missing recent daily_prices rows for symbols used by the app.
 
-The broad TWSE/TPEX daily APIs occasionally miss a subset of symbols or are
-not fully updated when the workflow runs. This job checks app-visible symbols
-and fetches only missing latest-date K bars from FinMind TaiwanStockPrice.
-
-It never copies yesterday's price forward. If FinMind has no row for the target
-date, the symbol stays missing and the result is recorded in data_status.
+Official broad daily APIs can be incomplete for some symbols when the workflow
+runs. This job checks app-visible symbols over the latest few trading dates and
+uses FinMind TaiwanStockPrice only to fill missing real K bars.
 """
-import datetime as dt
 import os
 import time
 
@@ -18,11 +14,11 @@ import requests
 
 from sb_common import log, mark_status, sb_one, sb_select, sb_upsert
 
-
 FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "").strip()
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 TIMEOUT = 45
-REPAIR_MAX_SYMBOLS = int(os.environ.get("REPAIR_MAX_SYMBOLS", "500"))
+REPAIR_MAX_SYMBOLS = int(os.environ.get("REPAIR_MAX_SYMBOLS", "800"))
+REPAIR_LOOKBACK_DAYS = int(os.environ.get("REPAIR_LOOKBACK_DAYS", "3"))
 SLEEP_SEC = float(os.environ.get("REPAIR_SLEEP_SEC", "0.35"))
 
 
@@ -52,6 +48,19 @@ def latest_date():
     return str(row["date"])[:10]
 
 
+def recent_trade_dates(limit):
+    rows = sb_select("daily_prices", "select=date&order=date.desc", page_size=1000, max_rows=10000)
+    out, seen = [], set()
+    for row in rows:
+        d = str(row.get("date") or "")[:10]
+        if d and d not in seen:
+            seen.add(d)
+            out.append(d)
+        if len(out) >= limit:
+            break
+    return out
+
+
 def collect_target_symbols(latest):
     symbols = set()
 
@@ -60,54 +69,38 @@ def collect_target_symbols(latest):
         if is_symbol(sym):
             symbols.add(sym)
 
-    for row in sb_select(
-        "candidate_pool",
-        f"select=symbol&date=eq.{latest}",
-        page_size=1000,
-        max_rows=50000,
-    ):
-        sym = str(row.get("symbol") or "").strip()
-        if is_symbol(sym):
-            symbols.add(sym)
-
-    for row in sb_select(
-        "daily_signals",
-        f"select=symbol&date=eq.{latest}",
-        page_size=1000,
-        max_rows=50000,
-    ):
-        sym = str(row.get("symbol") or "").strip()
-        if is_symbol(sym):
-            symbols.add(sym)
+    for table in ("candidate_pool", "daily_signals"):
+        for row in sb_select(table, f"select=symbol&date=eq.{latest}", page_size=1000, max_rows=50000):
+            sym = str(row.get("symbol") or "").strip()
+            if is_symbol(sym):
+                symbols.add(sym)
 
     try:
-        for row in sb_select(
-            "ai_positions",
-            "select=symbol&status=eq.持有",
-            page_size=1000,
-            max_rows=10000,
-        ):
+        for row in sb_select("ai_positions", "select=symbol", page_size=1000, max_rows=10000):
             sym = str(row.get("symbol") or "").strip()
             if is_symbol(sym):
                 symbols.add(sym)
     except Exception as exc:
-        log(f"  ai_positions 略過：{exc}")
+        log(f"  ai_positions lookup skipped: {exc}")
 
     return sorted(symbols)
 
 
-def existing_latest_symbols(latest):
-    rows = sb_select(
-        "daily_prices",
-        f"select=symbol,close&date=eq.{latest}",
-        page_size=1000,
-        max_rows=50000,
-    )
-    return {
-        str(r.get("symbol") or "").strip()
-        for r in rows
-        if is_symbol(r.get("symbol")) and r.get("close") is not None
-    }
+def existing_symbols_by_date(dates):
+    out = {d: set() for d in dates}
+    for d in dates:
+        rows = sb_select(
+            "daily_prices",
+            f"select=symbol,close&date=eq.{d}",
+            page_size=1000,
+            max_rows=50000,
+        )
+        out[d] = {
+            str(r.get("symbol") or "").strip()
+            for r in rows
+            if is_symbol(r.get("symbol")) and r.get("close") is not None
+        }
+    return out
 
 
 def stock_market_map(symbols):
@@ -118,12 +111,7 @@ def stock_market_map(symbols):
         if not part:
             continue
         try:
-            rows = sb_select(
-                "stocks",
-                f"select=symbol,market&symbol=in.({part})",
-                page_size=1000,
-                max_rows=1000,
-            )
+            rows = sb_select("stocks", f"select=symbol,market&symbol=in.({part})", page_size=1000, max_rows=1000)
             for row in rows:
                 sym = str(row.get("symbol") or "").strip()
                 market = str(row.get("market") or "").strip().upper()
@@ -173,47 +161,54 @@ def fetch_finmind_price(symbol, target_date):
 
 
 def main():
-    log("=== repair_missing_prices 開始 ===")
+    log("=== repair_missing_prices start ===")
     if not FINMIND_TOKEN:
-        log("  ⚠️ 未設定 FINMIND_TOKEN，仍嘗試公開額度")
+        log("  FINMIND_TOKEN not set; anonymous quota may be limited")
 
     latest = latest_date()
+    dates = recent_trade_dates(max(1, REPAIR_LOOKBACK_DAYS)) or [latest]
     targets = collect_target_symbols(latest)
-    existing = existing_latest_symbols(latest)
-    missing = [s for s in targets if s not in existing]
-    markets = stock_market_map(missing)
+    existing_by_date = existing_symbols_by_date(dates)
+    missing_pairs = [
+        (d, sym)
+        for d in dates
+        for sym in targets
+        if sym not in existing_by_date.get(d, set())
+    ]
 
     if REPAIR_MAX_SYMBOLS > 0:
-        missing = missing[:REPAIR_MAX_SYMBOLS]
+        missing_pairs = missing_pairs[:REPAIR_MAX_SYMBOLS]
 
-    log(f"  latest={latest} app symbols={len(targets)} missing={len(missing)}")
+    markets = stock_market_map([sym for _, sym in missing_pairs])
+    log(f"  dates={','.join(dates)} app_symbols={len(targets)} missing_pairs={len(missing_pairs)}")
+
     rows, failed = [], []
-    for i, sym in enumerate(missing, 1):
+    for i, (target_date, sym) in enumerate(missing_pairs, 1):
         try:
-            row = fetch_finmind_price(sym, latest)
+            row = fetch_finmind_price(sym, target_date)
             if row and row.get("close") is not None:
                 if markets.get(sym):
                     row["market"] = markets[sym]
                 rows.append(row)
-                log(f"  [{i}/{len(missing)}] {sym} 補到 {latest}")
+                log(f"  [{i}/{len(missing_pairs)}] {sym} repaired {target_date}")
             else:
-                failed.append(sym)
-                log(f"  [{i}/{len(missing)}] {sym} FinMind 無 {latest} K棒")
+                failed.append(f"{target_date}:{sym}")
+                log(f"  [{i}/{len(missing_pairs)}] {sym} no FinMind K bar for {target_date}")
         except Exception as exc:
-            failed.append(sym)
-            log(f"  [{i}/{len(missing)}] {sym} 失敗：{exc}")
+            failed.append(f"{target_date}:{sym}")
+            log(f"  [{i}/{len(missing_pairs)}] {sym} failed: {exc}")
         time.sleep(SLEEP_SEC)
 
     written = sb_upsert("daily_prices", rows, on_conflict="date,symbol")
     msg = (
-        f"date={latest}; targets={len(targets)}; missing_checked={len(missing)}; "
+        f"dates={','.join(dates)}; targets={len(targets)}; missing_checked={len(missing_pairs)}; "
         f"repaired={written}; still_missing={len(failed)}"
     )
     if failed:
         msg += "; examples=" + ",".join(failed[:20])
     mark_status("repair_missing_prices", True, msg)
     log("  " + msg)
-    log("=== repair_missing_prices 完成 ===")
+    log("=== repair_missing_prices done ===")
 
 
 if __name__ == "__main__":

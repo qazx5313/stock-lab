@@ -366,12 +366,8 @@ async function loadReal(){
           });
         });
         DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
-        const visibleThemes=DATA.themes.filter(t=>Array.isArray(t.stocks)&&t.stocks.length>0);
-        if(visibleThemes.length){
-          DATA.themes=visibleThemes;
-          DATA.themeList=DATA.themes.map(t=>t.name);
-          if(!DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
-        }
+        DATA.themeList=DATA.themes.map(t=>t.name);
+        if(!DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
 
