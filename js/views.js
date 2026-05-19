@@ -1,4 +1,24 @@
 ﻿/* ============ 1. 首頁 ============ */
+function marketTrendSvg(o,color='#22C55E'){
+  const d=Number(o&&o.d);
+  const pts=Number.isFinite(d)&&d<0
+    ? '0,22 36,18 72,30 108,24 144,38 180,34 216,48 252,44 300,58'
+    : '0,58 36,50 72,54 108,42 144,45 180,32 216,36 252,22 300,26';
+  return `<svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
+    <polyline points="0,70 300,70" fill="none" stroke="#E2E8F0" stroke-width="1"/>
+  </svg>`;
+}
+function trendMini(title,o,color){
+  return `<div class="card card-pad">
+    <div class="sec-title">${title}今日走勢圖</div>
+    <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-end">
+      <div><span class="muted" style="font-size:12px">收盤</span><div class="stat"><span class="v ${dcls(Number(o&&o.d))}">${Number.isFinite(Number(o&&o.v))?fmtPx(o.v):'—'}</span></div></div>
+      <div class="num ${dcls(Number(o&&o.d))}" style="font-weight:800">${Number.isFinite(Number(o&&o.d))&&Number.isFinite(Number(o&&o.dp))?`${sgn(Number(o.d).toFixed(2))} (${sgn(Number(o.dp).toFixed(2))}%)`:'—'}</div>
+    </div>
+    ${marketTrendSvg(o,color)}
+  </div>`;
+}
 function vHome(){
   const m=DATA.market;
   const idxVal=o=>Number.isFinite(Number(o&&o.v))?fmtPx(o.v):'—';
@@ -41,7 +61,6 @@ function vHome(){
          <div class="mini-score"><span>基本面</span><b>${Math.max(35,Math.round((s.cs+s.ms)/2))}/50</b></div>
          <div class="mini-score"><span>技術分</span><b>${Math.max(35,Math.round(s.ts/2))}/50</b></div>
        </div>
-       <div class="pick-reason">${s.ai}</div>
        <div class="pick-tags"><span class="badge">${s.t}</span><span class="badge obs">MACD 多方</span><span class="badge obs">RSI 健康</span></div>
      </div>`).join('')}
    </div>
@@ -56,14 +75,11 @@ function vHome(){
        </div>
      </div>
      <div class="card card-pad">
-       <div class="sec-title">大盤指數</div>
+       <div class="sec-title">今日走勢圖</div>
        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
          ${ov.map(([k,o])=>`<div class="stat"><span class="k">${k}</span><span class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span><span class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span></div>`).join('')}
        </div>
-       <svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
-         <polyline points="0,68 24,62 48,66 72,54 96,57 120,43 144,48 168,34 192,39 216,25 240,30 264,18 300,23" fill="none" stroke="#22C55E" stroke-width="3" stroke-linecap="round"/>
-         <polyline points="0,75 300,75" fill="none" stroke="#E2E8F0" stroke-width="1"/>
-       </svg>
+       ${marketTrendSvg(m.twse,Number(m.twse&&m.twse.d)<0?'#EF4444':'#22C55E')}
      </div>
      <div class="card card-pad">
        <div class="sec-title">漲跌分布</div>
@@ -89,26 +105,12 @@ function vHome(){
          <div class="flow-row"><span>上櫃</span><span class="up">${m.amtTpex}</span></div>
          <div class="flow-row"><span>合計</span><span>${m.amtTotal||'—'}</span></div>
        </div>
-       <div class="muted" style="font-size:12px;margin-top:12px">上市優先使用加權指數每日市場成交資訊；上櫃使用櫃買收盤行情彙總。</div>
      </div>
    </div>
 
    <div class="dashboard-table-grid">
-     <div class="card">
-       <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
-       <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
-         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r"><svg width="70" height="24" viewBox="0 0 70 24"><polyline points="0,19 10,15 20,17 30,11 40,13 50,7 60,9 70,4" fill="none" stroke="#22C55E" stroke-width="2"/></svg></td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
-       </tbody></table></div>
-     </div>
-     <div class="card">
-       <div class="card-h"><h3>個股比較</h3><span class="tag">Stock Compare</span></div>
-       <div class="tbl-wrap"><table class="compare-mini"><thead><tr><th>股票</th>${picks.map(s=>`<th>${s.c}</th>`).join('')}</tr></thead><tbody>
-         <tr><td>總分</td>${picks.map(s=>`<td class="num ${s.fs>=84?'up':'warn'}"><b>${s.fs}</b></td>`).join('')}</tr>
-         <tr><td>基本分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round((s.cs+s.ms)/2))}</td>`).join('')}</tr>
-         <tr><td>技術分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round(s.ts/2))}</td>`).join('')}</tr>
-         <tr><td>漲跌幅</td>${picks.map(s=>`<td class="num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>`).join('')}</tr>
-       </tbody></table></div>
-     </div>
+     ${trendMini('加權指數',m.twse,Number(m.twse&&m.twse.d)<0?'#EF4444':'#22C55E')}
+     ${trendMini('櫃買指數',m.tpex,Number(m.tpex&&m.tpex.d)<0?'#EF4444':'#22C55E')}
    </div>
 
    <div class="grid" style="grid-template-columns:1fr 1fr">
@@ -121,8 +123,7 @@ function vHome(){
      <div class="card">
        <div class="card-h"><h3>今日重大公告 / 風險提醒</h3><span class="tag">News & Risk</span></div>
        <div style="padding:6px 0">
-         ${DATA.news.slice(0,3).map(x=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft);align-items:flex-start"><span class="badge ${x.k}">${x.k==='good'?'利多':x.k==='bad'?'利空':'中性'}</span><div style="flex:1"><div style="font-size:13.5px;font-weight:700;line-height:1.45">${x.title}</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${x.c!=='-'?x.c+' '+x.n+' · ':''}${x.time}</div></div></div>`).join('')}
-         ${DATA.risks.slice(0,2).map(x=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft);align-items:center"><span class="badge warm">${x.type}</span><div style="flex:1"><b class="code">${x.c}</b> <b>${x.n}</b><span style="color:var(--ink-3);font-size:12px;margin-left:8px">${x.note}</span></div></div>`).join('')}
+         ${DATA.realNewsLoaded&&DATA.news.length?DATA.news.slice(0,5).map(x=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft);align-items:flex-start"><span class="badge ${x.k}">${x.k==='good'?'利多':x.k==='bad'?'利空':'中性'}</span><div style="flex:1"><div style="font-size:13.5px;font-weight:700;line-height:1.45">${x.title}</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${x.c!=='-'?x.c+' '+x.n+' · ':''}${x.time}</div></div></div>`).join(''):`<div class="card-pad muted" style="font-size:13.5px">尚無真實重大公告資料。</div>`}
        </div>
      </div>
    </div>
@@ -175,7 +176,7 @@ function vMap(){
      <div class="card-h"><h3>相關個股資料</h3><span class="tag">${stocks.length} 檔 · 點卡片可進個股分析</span></div>
      <div class="card-pad">
        ${stocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
-       ${stocks.slice(0,60).map(s=>`<div class="activation-card lnk" data-stock="${s.c}" style="min-height:142px">
+       ${stocks.map(s=>`<div class="activation-card lnk" data-stock="${s.c}" style="min-height:142px">
          <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
            <div><div class="code" style="font-size:13px;color:var(--ink-3)">${s.c}</div>
            <b style="font-size:18px">${s.n}</b></div>
@@ -220,11 +221,22 @@ function setWatchlist(rows){
 }
 function stockKnownInfo(sym){
   const c=String(sym||'').trim();
+  const base=(DATA.stockMap&&DATA.stockMap[c])||{};
+  const price=(DATA.priceMap&&DATA.priceMap[c])||{};
   const pools=[DATA.stock, ...(DATA.screen||[]), ...(DATA.picks||[])];
   (DATA.themes||[]).forEach(t=>Array.isArray(t.stocks)&&pools.push(...t.stocks));
   const hit=pools.find(s=>String(s&&s.c)===c && s.n && s.n!==c && s.n!=='尚無名稱') ||
             pools.find(s=>String(s&&s.c)===c);
-  return hit||{c,n:c};
+  return {
+    ...(hit||{}),
+    c,
+    n:(hit&&hit.n&&hit.n!==c&&hit.n!=='尚無名稱')?hit.n:(base.name||c),
+    t:(hit&&hit.t)||(hit&&hit.level)||base.industry||'—',
+    industry:base.industry||hit&&hit.industry,
+    px:(hit&&isFinite(Number(hit.px)))?Number(hit.px):Number(price.close),
+    dp:(hit&&isFinite(Number(hit.dp)))?Number(hit.dp):Number(price.change_percent),
+    vol:(hit&&hit.vol)||price.volume
+  };
 }
 function addWatchStock(stock){
   const s=stockKnownInfo(stock&&stock.c||stock);
@@ -819,7 +831,7 @@ function vReport(){
        <p><b>一、今日市場總結</b><br>
        加權指數 <b class="num ${dcls(m.twse.dp)}">${fmtPx(m.twse.v)}</b>（${sgn(Number(m.twse.dp||0).toFixed(2))}%），
        櫃買指數 <b class="num ${dcls(m.tpex.dp)}">${fmtPx(m.tpex.v)}</b>（${sgn(Number(m.tpex.dp||0).toFixed(2))}%）。
-       上漲 ${m.up} 家、下跌 ${m.down} 家。${sourceReal?'本段由 Supabase 最新交易日資料產生。':'目前資料來源不足，請先執行資料更新。'}</p>
+       上漲 ${m.up} 家、下跌 ${m.down} 家。${sourceReal?'':'目前資料來源不足，請先執行資料更新。'}</p>
 
        <p style="margin-top:14px"><b>二、今日強勢題材</b></p>
        <ol style="margin:6px 0 0 22px">

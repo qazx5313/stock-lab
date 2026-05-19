@@ -178,12 +178,12 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v8';
+const REAL_CACHE_KEY='stockLabRealCache:v9';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
   'agents','aiCand','aiBack','aiDeep','aiTrades','aiReviews','aiVersions',
-  'dataStatus','appSettings','realNewsLoaded'
+  'dataStatus','appSettings','realNewsLoaded','stockMap','priceMap'
 ];
 function saveRealCache(){
   try{
@@ -255,12 +255,14 @@ async function loadReal(){
     // 今日漲跌家數 / 成交金額 / 漲跌停，全部由 daily_prices 最新交易日彙總
     try{
       const dayRows = await sbGet(
-        `daily_prices?select=symbol,change,change_percent,amount,market&date=eq.${d}`, 20000);
+        `daily_prices?select=symbol,close,change,change_percent,amount,volume,market&date=eq.${d}`, 20000);
       if(Array.isArray(dayRows) && dayRows.length){
+        DATA.priceMap={};
         const twse=emptyDist(), tpex=emptyDist(), other=emptyDist();
         const marketMap=await loadMarketMap(dayRows.filter(r=>!normMarket(r.market)).map(r=>r.symbol));
         dayRows.forEach(r=>{
           const sym=String(r.symbol||'').trim();
+          if(sym) DATA.priceMap[sym]=r;
           const mk=normMarket(r.market) || marketMap[sym] || '';
           if(mk==='TPEX') addDist(tpex,r);
           else if(mk==='TWSE') addDist(twse,r);
@@ -280,6 +282,14 @@ async function loadReal(){
         DATA.market.statusNote=`上市 ${twse.up} 漲 / ${twse.down} 跌；上櫃 ${tpex.up} 漲 / ${tpex.down} 跌。漲停 ${limitUp}、跌停 ${limitDown}。`;
       }
     }catch(e){ console.warn('市場分布彙總略過:',e); }
+    try{
+      const rows=await sbGet('stocks?select=symbol,name,industry,market,theme_tags',20000);
+      DATA.stockMap={};
+      (rows||[]).forEach(r=>{
+        const sym=String(r.symbol||'').trim();
+        if(sym) DATA.stockMap[sym]=r;
+      });
+    }catch(e){ console.warn('股票基本資料快取略過:',e); }
 
     // 大盤指數（真實，取最新一日）
     try{
@@ -317,16 +327,17 @@ async function loadReal(){
       // 補當日價格/漲跌/量
       const pr = await sbGet(
         `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
-      const pm = {}; (pr||[]).forEach(x=>pm[x.symbol]=x);
+      const pm = {}; (pr||[]).forEach(x=>pm[String(x.symbol||'').trim()]=x);
       DATA.picks = sigTop.map(sg=>{
-        const p = pm[sg.symbol] || {};
+        const sym=String(sg.symbol||'').trim();
+        const p = pm[sym] || (DATA.priceMap&&DATA.priceMap[sym]) || {};
         const cp = parseFloat(p.change_percent);
         const px = parseFloat(p.close);
         const vol = parseInt(p.volume);
         return {
-          c:sg.symbol,
-          n:(nameMap[sg.symbol]&&nameMap[sg.symbol].name)||sg.symbol,
-          t:(nameMap[sg.symbol]&&nameMap[sg.symbol].industry)||'—',
+          c:sym,
+          n:(nameMap[sym]&&nameMap[sym].name)||sym,
+          t:(nameMap[sym]&&nameMap[sym].industry)||'—',
           px:isFinite(px)?px:0,
           dp:isFinite(cp)?cp:0,
           vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
