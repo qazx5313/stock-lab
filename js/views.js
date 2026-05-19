@@ -134,6 +134,9 @@ let MAP_SEL='glassfiber';
 function vMap(){
   const t=DATA.themes.find(x=>x.id===MAP_SEL)||DATA.themes[0];
   const stocks=(t&&Array.isArray(t.stocks))?t.stocks:[];
+  if(!t){
+    return `<div class="card card-pad fade"><h3>股票類股資料尚未建立</h3><p class="muted" style="margin-top:8px">請先在 GitHub Actions 跑 Daily market data pipeline，等 Build stock industry classes 完成後再重新整理。</p></div>`;
+  }
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div style="display:flex;gap:9px;flex-wrap:wrap">
      ${DATA.themeList.map(n=>{const th=DATA.themes.find(x=>x.name===n);

@@ -178,7 +178,7 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v6';
+const REAL_CACHE_KEY='stockLabRealCache:v7';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -345,6 +345,7 @@ async function loadReal(){
         'themes?select=id,theme_name,heat_score,trend_status,description'+
         '&order=heat_score.desc', 200);
       if(Array.isArray(th) && th.length){
+        const seenThemes=new Set();
         DATA.themes = th.map((t,i)=>{
           const mg = String(t.description||'').match(/平均漲幅\s*(-?[\d.]+)%/);
           return {
@@ -354,6 +355,11 @@ async function loadReal(){
             status:t.trend_status||'—',
             desc:t.description||'', chain:'—'
           };
+        }).filter(t=>{
+          const key=normThemeText(t.name);
+          if(!key || seenThemes.has(key)) return false;
+          seenThemes.add(key);
+          return true;
         });
         DATA.themeList = DATA.themes.map(t=>t.name);
         const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 20000);
@@ -369,7 +375,7 @@ async function loadReal(){
           const fallbackName=(DATA.stock&&DATA.stock.c===sym&&DATA.stock.n&&DATA.stock.n!==sym)?DATA.stock.n:'尚無名稱';
           const key=String(r.theme_id);
           const th=themeById[key];
-          if(th && !themeStockMatched(th.name,sm,r)) return;
+          if(!th) return;
           (byTheme[key]=byTheme[key]||[]).push({
             c:sym,n:(sm.name&&sm.name!==sym)?sm.name:fallbackName,role:r.role||'成分',
             level:r.supply_chain_level||sm.industry||'未分類',
@@ -378,6 +384,7 @@ async function loadReal(){
           });
         });
         DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
+        DATA.themes=DATA.themes.filter(t=>Array.isArray(t.stocks)&&t.stocks.length);
         DATA.themeList=DATA.themes.map(t=>t.name);
         if(!DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
       }
