@@ -28,6 +28,12 @@ function fmtTwAmount(v){
 function chunks(arr,size){
   const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out;
 }
+function normMarket(v){
+  const s=String(v||'').trim().toUpperCase();
+  if(s==='TPEX' || s==='OTC' || s.includes('上櫃') || s.includes('櫃買')) return 'TPEX';
+  if(s==='TWSE' || s.includes('上市') || s.includes('證交')) return 'TWSE';
+  return '';
+}
 async function loadNameMap(symbols, dateHint){
   const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
   const map={};
@@ -43,6 +49,19 @@ async function loadNameMap(symbols, dateHint){
       if(sym && wanted.includes(sym)) map[sym]={name:validName(r.name,sym)?String(r.name).trim():'',industry:r.industry};
     });
   }catch(_){}
+  const missingFromAll=wanted.filter(sym=>!map[sym]||!validName(map[sym].name,sym));
+  for(const part of chunks(missingFromAll,40)){
+    try{
+      const rows=await sbGet(
+        `stocks?select=symbol,name,industry&symbol=in.(${part.join(',')})`,2000);
+      (rows||[]).forEach(r=>{
+        const sym=String(r.symbol||'').trim();
+        if(sym && wanted.includes(sym) && validName(r.name,sym)){
+          map[sym]={name:String(r.name).trim(),industry:r.industry};
+        }
+      });
+    }catch(_){}
+  }
   try{
     const q=dateHint
       ? `candidate_pool?select=symbol,name&date=eq.${dateHint}&order=id.desc`
@@ -92,6 +111,16 @@ async function loadLatestPriceMap(symbols, dateHint){
   }
   return map;
 }
+function emptyDist(){return {up:0,down:0,flat:0,limitUp:0,limitDown:0,amount:0,count:0};}
+function addDist(dist,r){
+  const ch=Number(r.change), cp=Number(r.change_percent), amt=Number(r.amount)||0;
+  const mv=isFinite(ch)&&ch!==0?ch:(isFinite(cp)?cp:0);
+  if(mv>0) dist.up++; else if(mv<0) dist.down++; else dist.flat++;
+  if(isFinite(cp)&&cp>=9.5) dist.limitUp++;
+  if(isFinite(cp)&&cp<=-9.5) dist.limitDown++;
+  dist.amount+=amt;
+  dist.count++;
+}
 
 /* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞。
    來源狀態只顯示在「資料更新狀態」頁，避免干擾主畫面。 */
@@ -139,24 +168,25 @@ async function loadReal(){
       const dayRows = await sbGet(
         `daily_prices?select=symbol,change,change_percent,amount,market&date=eq.${d}`, 20000);
       if(Array.isArray(dayRows) && dayRows.length){
-        let up=0,down=0,flat=0,limitUp=0,limitDown=0,amtTwse=0,amtTpex=0;
+        const twse=emptyDist(), tpex=emptyDist(), other=emptyDist();
         dayRows.forEach(r=>{
-          const ch=Number(r.change), cp=Number(r.change_percent), amt=Number(r.amount)||0;
-          const mv=isFinite(ch)&&ch!==0?ch:(isFinite(cp)?cp:0);
-          if(mv>0) up++; else if(mv<0) down++; else flat++;
-          if(cp>=9.5) limitUp++;
-          if(cp<=-9.5) limitDown++;
-          const mk=String(r.market||'').toUpperCase();
-          if(mk==='TPEX' || mk==='OTC') amtTpex+=amt;
-          else amtTwse+=amt;
+          const mk=normMarket(r.market);
+          if(mk==='TPEX') addDist(tpex,r);
+          else if(mk==='TWSE') addDist(twse,r);
+          else addDist(other,r);
         });
+        const up=twse.up+tpex.up+other.up, down=twse.down+tpex.down+other.down, flat=twse.flat+tpex.flat+other.flat;
+        const limitUp=twse.limitUp+tpex.limitUp+other.limitUp, limitDown=twse.limitDown+tpex.limitDown+other.limitDown;
         DATA.market.up=up; DATA.market.down=down; DATA.market.flat=flat;
         DATA.market.limitUp=limitUp; DATA.market.limitDown=limitDown;
-        DATA.market.amtTwse=fmtTwAmount(amtTwse);
-        DATA.market.amtTpex=fmtTwAmount(amtTpex);
+        DATA.market.twseDist=twse;
+        DATA.market.tpexDist=tpex;
+        DATA.market.amtTwse=fmtTwAmount(twse.amount);
+        DATA.market.amtTpex=fmtTwAmount(tpex.amount);
+        DATA.market.amtTotal=fmtTwAmount(twse.amount+tpex.amount+other.amount);
         const breadth=up+down?up/(up+down):0.5;
         DATA.market.status=breadth>=0.58?'偏多格局':(breadth<=0.42?'偏空格局':'多空拉鋸');
-        DATA.market.statusNote=`上漲 ${up} 家、下跌 ${down} 家、平盤 ${flat} 家，漲停 ${limitUp}、跌停 ${limitDown}。`;
+        DATA.market.statusNote=`上市 ${twse.up} 漲 / ${twse.down} 跌；上櫃 ${tpex.up} 漲 / ${tpex.down} 跌。漲停 ${limitUp}、跌停 ${limitDown}。`;
       }
     }catch(e){ console.warn('市場分布彙總略過:',e); }
 
@@ -179,8 +209,8 @@ async function loadReal(){
       `daily_signals?select=symbol,technical_score,chip_score,theme_score,final_score,summary`+
       `&date=eq.${d}&order=final_score.desc&limit=8`);
     if(Array.isArray(sigTop) && sigTop.length){
-      const names = await sbGet('stocks?select=symbol,name,industry', 20000);
-      const nameMap = {}; (names||[]).forEach(s=>nameMap[s.symbol]=s);
+      const sigSymbols=[...new Set(sigTop.map(s=>String(s.symbol||'').trim()).filter(Boolean))];
+      const nameMap = await loadNameMap(sigSymbols,d);
       // 補當日價格/漲跌/量
       const pr = await sbGet(
         `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
@@ -192,8 +222,8 @@ async function loadReal(){
         const vol = parseInt(p.volume);
         return {
           c:sg.symbol,
-          n:(nameMap[sg.symbol]||{}).name||sg.symbol,
-          t:(nameMap[sg.symbol]||{}).industry||'—',
+          n:(nameMap[sg.symbol]&&nameMap[sg.symbol].name)||sg.symbol,
+          t:(nameMap[sg.symbol]&&nameMap[sg.symbol].industry)||'—',
           px:isFinite(px)?px:0,
           dp:isFinite(cp)?cp:0,
           vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',

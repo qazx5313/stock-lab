@@ -1,15 +1,21 @@
 ﻿/* ============ 1. 首頁 ============ */
 function vHome(){
   const m=DATA.market;
+  const idxVal=o=>Number.isFinite(Number(o&&o.v))?fmtPx(o.v):'—';
+  const idxDiff=o=>Number.isFinite(Number(o&&o.d))&&Number.isFinite(Number(o&&o.dp))
+    ? `${sgn(Number(o.d).toFixed(2))} (${sgn(Number(o.dp).toFixed(2))}%)`
+    : '—';
   const ov=[
-    ['加權指數',fmtPx(m.twse.v),m.twse.d,m.twse.dp],
-    ['櫃買指數',fmtPx(m.tpex.v),m.tpex.d,m.tpex.dp],
+    ['加權指數',m.twse],
+    ['櫃買指數',m.tpex],
   ];
   const picks=DATA.picks.slice(0,3);
   const flat=Number(m.flat)||0;
   const total=Math.max(1,m.up+m.down+flat);
   const upw=Math.max(12,Math.round(m.up/total*100))+'%';
   const downw=Math.max(12,Math.round(m.down/total*100))+'%';
+  const tw=m.twseDist||{};
+  const tp=m.tpexDist||{};
   return `<div class="dash fade stagger">
    <div class="dash-head">
      <div>
@@ -52,7 +58,7 @@ function vHome(){
      <div class="card card-pad">
        <div class="sec-title">大盤指數</div>
        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-         ${ov.map(([k,v,d,dp])=>`<div class="stat"><span class="k">${k}</span><span class="v ${dcls(d)}">${v}</span><span class="d ${dcls(d)}">${sgn(d.toFixed(2))} (${sgn(dp.toFixed(2))}%)</span></div>`).join('')}
+         ${ov.map(([k,o])=>`<div class="stat"><span class="k">${k}</span><span class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span><span class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span></div>`).join('')}
        </div>
        <svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
          <polyline points="0,68 24,62 48,66 72,54 96,57 120,43 144,48 168,34 192,39 216,25 240,30 264,18 300,23" fill="none" stroke="#22C55E" stroke-width="3" stroke-linecap="round"/>
@@ -61,22 +67,30 @@ function vHome(){
      </div>
      <div class="card card-pad">
        <div class="sec-title">漲跌分布</div>
-       <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;text-align:center">
-         <div><div class="num up" style="font-size:21px;font-weight:900">${m.up}</div><div class="muted" style="font-size:12px">上漲</div></div>
-         <div><div class="num down" style="font-size:21px;font-weight:900">${m.down}</div><div class="muted" style="font-size:12px">下跌</div></div>
-         <div><div class="num" style="font-size:21px;font-weight:900">${flat}</div><div class="muted" style="font-size:12px">平盤</div></div>
+       <div style="display:grid;grid-template-columns:1fr;gap:10px">
+         ${[
+           ['上市',tw],
+           ['上櫃',tp],
+           ['合計',{up:m.up,down:m.down,flat:flat,limitUp:m.limitUp,limitDown:m.limitDown}]
+         ].map(([k,x])=>`<div style="display:grid;grid-template-columns:46px repeat(3,1fr);align-items:center;gap:8px;font-size:12px">
+           <b>${k}</b>
+           <span class="num up">漲 ${Number(x.up)||0}</span>
+           <span class="num down">跌 ${Number(x.down)||0}</span>
+           <span class="num">平 ${Number(x.flat)||0}</span>
+         </div>`).join('')}
        </div>
        <div class="barline" style="--upw:${upw};--downw:${downw}"><i></i><i></i><i></i></div>
-       <div class="muted" style="font-size:12px;margin-top:12px">漲停 ${m.limitUp} · 跌停 ${m.limitDown}</div>
+       <div class="muted" style="font-size:12px;margin-top:12px">上市漲停 ${tw.limitUp||0} / 跌停 ${tw.limitDown||0} · 上櫃漲停 ${tp.limitUp||0} / 跌停 ${tp.limitDown||0}</div>
      </div>
      <div class="card card-pad">
-       <div class="sec-title">資金動向</div>
+       <div class="sec-title">成交金額</div>
        <div class="flow-list">
          <div class="flow-row"><span>上市</span><span class="up">${m.amtTwse}</span></div>
          <div class="flow-row"><span>上櫃</span><span class="up">${m.amtTpex}</span></div>
+         <div class="flow-row"><span>合計</span><span>${m.amtTotal||'—'}</span></div>
          <div class="flow-row"><span>題材熱度</span><span class="down">${DATA.themes[0].score}</span></div>
        </div>
-       <div class="muted" style="font-size:12px;margin-top:12px">資金偏向 ${DATA.themes.slice(0,3).map(t=>t.name).join('、')}</div>
+       <div class="muted" style="font-size:12px;margin-top:12px">成交金額由 daily_prices 當日 amount 分市場彙總，不代表法人買賣超。</div>
      </div>
    </div>
 
@@ -84,7 +98,7 @@ function vHome(){
      <div class="card">
        <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
        <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
-         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num up">+${s.dp}%</td><td class="r"><svg width="70" height="24" viewBox="0 0 70 24"><polyline points="0,19 10,15 20,17 30,11 40,13 50,7 60,9 70,4" fill="none" stroke="#22C55E" stroke-width="2"/></svg></td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
+         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r"><svg width="70" height="24" viewBox="0 0 70 24"><polyline points="0,19 10,15 20,17 30,11 40,13 50,7 60,9 70,4" fill="none" stroke="#22C55E" stroke-width="2"/></svg></td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
        </tbody></table></div>
      </div>
      <div class="card">
@@ -93,7 +107,7 @@ function vHome(){
          <tr><td>總分</td>${picks.map(s=>`<td class="num ${s.fs>=84?'up':'warn'}"><b>${s.fs}</b></td>`).join('')}</tr>
          <tr><td>基本分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round((s.cs+s.ms)/2))}</td>`).join('')}</tr>
          <tr><td>技術分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round(s.ts/2))}</td>`).join('')}</tr>
-         <tr><td>漲跌幅</td>${picks.map(s=>`<td class="num up">+${s.dp}%</td>`).join('')}</tr>
+         <tr><td>漲跌幅</td>${picks.map(s=>`<td class="num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>`).join('')}</tr>
        </tbody></table></div>
      </div>
    </div>
@@ -314,7 +328,7 @@ function vScreen(){
 function rowsScreen(list){
   return list.map(s=>`<tr><td class="code lnk" data-stock="${s.c}">${s.c}</td><td><b>${s.n}</b></td>
     <td><span class="badge">${s.t}</span></td><td class="r num">${fmtPx(s.px)}</td>
-    <td class="r num up">+${s.dp}%</td><td class="r num muted">${s.vol}</td>
+    <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r num muted">${s.vol}</td>
     <td class="r num">${s.ts}</td><td class="r num">${s.cs}</td><td class="r num">${s.ms}</td>
     <td class="r"><b class="num" style="color:var(--primary);font-size:14px">${s.total}</b></td>
     <td><button class="btn line sm" data-stock="${s.c}">分析</button></td></tr>`).join('');
