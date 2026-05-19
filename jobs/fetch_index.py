@@ -45,6 +45,11 @@ def clean_num(v):
     return float(m.group(0)) if m else None
 
 
+def clean_int(v):
+    n = clean_num(v)
+    return int(n) if n is not None else None
+
+
 def parse_roc_or_ymd(v):
     s = str(v or "").strip().replace("/", "").replace("-", "")
     try:
@@ -88,7 +93,7 @@ def fmtqik_row_to_index(row):
         "value": value,
         "change": change,
         "change_percent": change_percent,
-        "amount": clean_num(row[2]),
+        "amount": clean_int(row[2]),
     }
 
 
