@@ -17,6 +17,43 @@ import requests
 from sb_common import log, mark_status, sb_delete, sb_select, sb_upsert
 
 TIMEOUT = 35
+TWSE_INDUSTRY_CODES = {
+    "01": "水泥工業",
+    "02": "食品工業",
+    "03": "塑膠工業",
+    "04": "紡織纖維",
+    "05": "電機機械",
+    "06": "電器電纜",
+    "08": "玻璃陶瓷",
+    "09": "造紙工業",
+    "10": "鋼鐵工業",
+    "11": "橡膠工業",
+    "12": "汽車工業",
+    "14": "建材營造",
+    "15": "航運業",
+    "16": "觀光事業",
+    "17": "金融保險",
+    "18": "貿易百貨",
+    "20": "其他",
+    "21": "化學工業",
+    "22": "生技醫療業",
+    "23": "油電燃氣業",
+    "24": "半導體業",
+    "25": "電腦及週邊設備業",
+    "26": "光電業",
+    "27": "通信網路業",
+    "28": "電子零組件業",
+    "29": "電子通路業",
+    "30": "資訊服務業",
+    "31": "其他電子業",
+    "32": "文化創意業",
+    "33": "農業科技",
+    "34": "電子商務",
+    "35": "綠能環保",
+    "36": "數位雲端",
+    "37": "運動休閒",
+    "38": "居家生活",
+}
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -67,6 +104,18 @@ def field(row, names):
     return None
 
 
+def industry_name(v):
+    s = clean_industry(v)
+    if s in TWSE_INDUSTRY_CODES:
+        return TWSE_INDUSTRY_CODES[s]
+    if re.fullmatch(r"\d+", s):
+        return ""
+    bad = {"ETF", "ETN", "權證", "指數投資證券", "受益證券", "期貨"}
+    if not s or any(x in s for x in bad):
+        return ""
+    return s
+
+
 def fetch_twse_company_classes():
     data = http_json("https://openapi.twse.com.tw/v1/opendata/t187ap03_L")
     rows = []
@@ -74,9 +123,9 @@ def fetch_twse_company_classes():
         sym = str(field(item, ["公司代號", "出表公司代號", "有價證券代號", "Code"]) or "").strip()
         if not is_symbol(sym):
             continue
-        industry = str(field(item, ["產業別", "Industry"]) or "").strip()
+        industry = industry_name(field(item, ["產業別", "Industry"]))
         name = str(field(item, ["公司簡稱", "公司名稱", "Name"]) or "").strip()
-        if not industry or industry in ("ETF", "ETN", "指數投資證券", "受益證券"):
+        if not industry:
             continue
         rows.append({
             "symbol": sym,
@@ -113,9 +162,9 @@ def stock_rows():
     rows = sb_select("stocks", "select=symbol,name,industry,market,theme_tags", page_size=1000, max_rows=50000)
     for row in rows:
         sym = str(row.get("symbol") or "").strip()
-        industry = str(row.get("industry") or "").strip()
+        industry = industry_name(row.get("industry"))
         if is_symbol(sym) and industry:
-            out[sym] = row
+            out[sym] = {**row, "industry": industry}
     return out
 
 
@@ -130,7 +179,7 @@ def build_class_rows(stocks, prices, latest):
         price = prices.get(sym)
         if not price or price.get("close") is None:
             continue
-        industry = clean_industry(stock.get("industry"))
+        industry = industry_name(stock.get("industry"))
         if not industry:
             continue
         key = (market_label(price.get("market") or stock.get("market")), industry)

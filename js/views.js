@@ -88,9 +88,8 @@ function vHome(){
          <div class="flow-row"><span>上市</span><span class="up">${m.amtTwse}</span></div>
          <div class="flow-row"><span>上櫃</span><span class="up">${m.amtTpex}</span></div>
          <div class="flow-row"><span>合計</span><span>${m.amtTotal||'—'}</span></div>
-         <div class="flow-row"><span>題材熱度</span><span class="down">${DATA.themes[0].score}</span></div>
        </div>
-       <div class="muted" style="font-size:12px;margin-top:12px">成交金額由 daily_prices 當日 amount 分市場彙總，不代表法人買賣超。</div>
+       <div class="muted" style="font-size:12px;margin-top:12px">上市優先使用加權指數每日市場成交資訊；上櫃使用櫃買收盤行情彙總。</div>
      </div>
    </div>
 

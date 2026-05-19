@@ -43,6 +43,9 @@ function normThemeText(v){
 function themeAliases(name){
   const n=normThemeText(name);
   const base=[n];
+  const plain=String(name||'').split('·').pop().replace(/^(上市|上櫃)\s*/,'').trim();
+  const p=normThemeText(plain);
+  if(p && p!==n) base.push(p);
   const groups=[
     ['玻纖布','玻織布','玻璃纖維布','玻璃纖維','玻纖','玻璃玻纖'],
     ['pcb','ccl','銅箔基板','電路板','印刷電路板'],
@@ -175,7 +178,7 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v5';
+const REAL_CACHE_KEY='stockLabRealCache:v6';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -281,7 +284,7 @@ async function loadReal(){
     // 大盤指數（真實，取最新一日）
     try{
       const idx = await sbGet(
-        `market_index?select=market,index_value,change,change_percent&date=eq.${d}`, 10);
+        `market_index?select=market,index_value,change,change_percent,amount&date=eq.${d}`, 10);
       (idx||[]).forEach(r=>{
         const v=Number(r.index_value);
         const ch=r.change!=null?Number(r.change):0;
@@ -296,7 +299,12 @@ async function loadReal(){
         if(r.market==='TWSE') DATA.market.twse=o;
         else if(r.market==='TPEX') DATA.market.tpex=o;
         else if(r.market==='TXF') DATA.market.txFut=o;
+        if(r.market==='TWSE' && r.amount!=null) DATA.market.amtTwse=fmtTwAmount(r.amount);
+        if(r.market==='TPEX' && r.amount!=null) DATA.market.amtTpex=fmtTwAmount(r.amount);
       });
+      const twAmt=(idx||[]).find(r=>r.market==='TWSE'&&r.amount!=null);
+      const tpAmt=(idx||[]).find(r=>r.market==='TPEX'&&r.amount!=null);
+      if(twAmt&&tpAmt) DATA.market.amtTotal=fmtTwAmount(Number(twAmt.amount)+Number(tpAmt.amount));
     }catch(e){ console.warn('指數載入略過:',e); }
 
     // 精選股：以 daily_signals 綜合分前 8（符合「系統綜合評分篩出」）
