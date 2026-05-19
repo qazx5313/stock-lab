@@ -8,6 +8,7 @@ const EDGE_ADMIN_WRITE_URL = `${SB_URL}/functions/v1/admin-write`;
 const ALLOW_DIRECT_BROWSER_WRITES = false;
 let DATA_REAL_READY = false;
 let DATA_LOAD_ERROR = '';
+let DATA_FROM_CACHE = false;
 
 async function sbGet(path, hi){
   const headers = { apikey:SB_ANON, Authorization:`Bearer ${SB_ANON}` };

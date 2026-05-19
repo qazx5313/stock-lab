@@ -121,6 +121,38 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
+const REAL_CACHE_KEY='stockLabRealCache:v2';
+const REAL_CACHE_TTL=1000*60*60*18;
+const REAL_CACHE_FIELDS=[
+  'meta','market','themes','themeList','chain','picks','news','risks','screen',
+  'agents','aiCand','aiBack','aiDeep','aiTrades','aiReviews','aiVersions',
+  'dataStatus','appSettings','realNewsLoaded'
+];
+function saveRealCache(){
+  try{
+    const payload={savedAt:Date.now(),data:{}};
+    REAL_CACHE_FIELDS.forEach(k=>{payload.data[k]=DATA[k];});
+    localStorage.setItem(REAL_CACHE_KEY,JSON.stringify(payload));
+  }catch(e){ console.warn('真實資料快取儲存略過:',e); }
+}
+function restoreRealCache(){
+  try{
+    const raw=localStorage.getItem(REAL_CACHE_KEY);
+    if(!raw) return false;
+    const payload=JSON.parse(raw);
+    if(!payload || !payload.data || !payload.savedAt) return false;
+    if(Date.now()-Number(payload.savedAt)>REAL_CACHE_TTL) return false;
+    Object.keys(payload.data).forEach(k=>{DATA[k]=payload.data[k];});
+    DATA_REAL_READY=true;
+    DATA_FROM_CACHE=true;
+    DATA_LOAD_ERROR='';
+    SRC_STATUS='⚡ 先顯示上次成功載入資料 · 背景更新中';
+    return true;
+  }catch(e){
+    console.warn('真實資料快取載入略過:',e);
+    return false;
+  }
+}
 
 /* 嘗試用真實資料覆蓋 DATA.*；任何錯誤都退回假資料，畫面不壞。
    來源狀態只顯示在「資料更新狀態」頁，避免干擾主畫面。 */
@@ -391,12 +423,19 @@ async function loadReal(){
                  ' · 題材 '+DATA.themes.length+' · 候選 '+DATA.screen.length+
                  ' · AI '+(DATA.agents?DATA.agents.length:0);
     DATA_REAL_READY = true;
+    DATA_FROM_CACHE = false;
     DATA_LOAD_ERROR = '';
+    saveRealCache();
   }catch(e){
     console.warn('Supabase 載入失敗：', e);
-    DATA_REAL_READY = false;
     DATA_LOAD_ERROR = (e&&e.message)||String(e);
-    SRC_STATUS = '⚠️ 連線失敗，未顯示 MOCK 股票資料：'+DATA_LOAD_ERROR;
+    if(DATA_FROM_CACHE){
+      DATA_REAL_READY = true;
+      SRC_STATUS = '⚠️ 使用上次快取資料 · Supabase 更新失敗：'+DATA_LOAD_ERROR;
+    }else{
+      DATA_REAL_READY = false;
+      SRC_STATUS = '⚠️ 連線失敗，未顯示 MOCK 股票資料：'+DATA_LOAD_ERROR;
+    }
   }
 }
 

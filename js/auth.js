@@ -91,7 +91,9 @@ function renderDataFreshness(){
     .filter(t=>t&&t!=='—')
     .sort()
     .slice(-1)[0];
-  el.innerHTML=`<span class="dot"></span>${DATA_REAL_READY?'盤後資料':'資料狀態'} · ${latest||DATA.meta.updated||'—'} 更新`;
+  const label=DATA_FROM_CACHE?'快取資料':(DATA_REAL_READY?'盤後資料':'資料狀態');
+  const tail=DATA_FROM_CACHE?'背景更新中':`${latest||DATA.meta.updated||'—'} 更新`;
+  el.innerHTML=`<span class="dot"></span>${label} · ${tail}`;
 }
 async function loadRemoteActivation(){
   try{

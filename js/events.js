@@ -317,7 +317,13 @@ window.addEventListener('resize',()=>{if(CUR==='stock')drawStockCharts();});
 
 /* ============ 初始化 ============ */
 buildNav();
-document.getElementById('view').innerHTML=vLoading();
+const hadCache=restoreRealCache();
+if(hadCache){
+  buildNav();
+  go(CUR||'home');
+}else{
+  document.getElementById('view').innerHTML=vLoading();
+}
 loadRemoteActivation().then(()=>{ buildNav(); });
 loadRemoteUsers().then(()=>{ if(isAdmin()&&CUR==='admin') go('admin'); });
 /* 背景嘗試載入真實資料，成功後重繪當前頁；失敗時顯示錯誤，不顯示 MOCK 股票資料 */
