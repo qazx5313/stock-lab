@@ -223,15 +223,26 @@ function bindPage(id){
       const saveNote=document.getElementById('saveReportNoteBtn');
       if(saveNote)saveNote.onclick=async()=>{
         const msg=document.getElementById('reportMsg');
-        const note=(document.getElementById('reportNoteInput')||{}).value||'';
+        const draft={
+          content:(document.getElementById('reportContentInput')||{}).value||'',
+          picks:(document.getElementById('reportPicksInput')||{}).value||'',
+          updatedAt:new Date().toISOString()
+        };
+        const note=JSON.stringify(draft);
         setReportNote(note);
         try{
           await adminWrite('save_report_note',{note});
-          if(msg){msg.textContent='已儲存報告備註';msg.style.color='var(--up)';}
+          if(msg){msg.textContent='已儲存報告內容，前台每日報告會顯示修改版';msg.style.color='var(--up)';}
         }catch(e){
           if(msg){msg.textContent='已先儲存在本機；Supabase 儲存失敗：'+(e.message||e);msg.style.color='#92400E';}
         }
       };
+      document.querySelectorAll('[data-report-view]').forEach(btn=>btn.onclick=()=>{
+        const box=document.getElementById('reportEditBox');
+        if(box)box.scrollIntoView({behavior:'smooth',block:'start'});
+      });
+      const preview=document.getElementById('previewReportBtn');
+      if(preview)preview.onclick=()=>go('report');
       const regen=document.getElementById('regenReportBtn');
       if(regen)regen.onclick=()=>{setReportNote('');admBody(3);bindAdminControls();go('report');};
       const memberSelect=document.getElementById('memberSelect');

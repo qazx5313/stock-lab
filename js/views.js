@@ -702,6 +702,44 @@ function drawStockCharts(){
 }
 
 /* ============ 5. 每日報告 ============ */
+function defaultReportText(){
+  const m=DATA.market, topThemes=DATA.themes.slice(0,5), topPicks=DATA.picks.slice(0,5);
+  return [
+    `${DATA.meta.date} 盤後報告`,
+    '',
+    `一、今日市場總結`,
+    `加權指數 ${fmtPx(m.twse.v)}，櫃買指數 ${fmtPx(m.tpex.v)}。上漲 ${m.up} 家、下跌 ${m.down} 家。`,
+    '',
+    `二、今日強勢題材`,
+    topThemes.map((t,i)=>`${i+1}. ${t.name}：熱度 ${t.score}，${t.status}，平均 ${t.gain}`).join('\n') || '尚無題材熱度資料',
+    '',
+    `三、今日精選股票`,
+    topPicks.map((p,i)=>`${i+1}. ${p.c} ${p.n}：綜合分 ${p.fs??p.total??'—'}，${p.ai||'尚無系統摘要'}`).join('\n') || '尚無精選股票資料',
+    '',
+    `四、明日觀察重點`,
+    `觀察 ${topThemes.slice(0,3).map(t=>t.name).join('、')||'主流題材'} 是否延續量價強度。`
+  ].join('\n');
+}
+function defaultReportPicksText(){
+  return DATA.picks.slice(0,5).map(p=>`${p.c},${p.n},${p.t||''},${p.fs??p.total??''},${p.ai||''}`).join('\n');
+}
+function reportDraft(){
+  const raw=reportNote();
+  try{
+    const d=JSON.parse(raw);
+    if(d&&typeof d==='object'&&(d.content||d.picks)) return d;
+  }catch(_){}
+  return {content:raw||'',picks:''};
+}
+function reportPickRows(){
+  const d=reportDraft();
+  const lines=String(d.picks||'').split('\n').map(x=>x.trim()).filter(Boolean);
+  if(!lines.length) return DATA.picks.slice(0,5);
+  return lines.map(line=>{
+    const [c,n,t,fs,...rest]=line.split(',').map(x=>x.trim());
+    return {c,n:n||c,t:t||'—',fs:fs||'—',ai:rest.join(',')||'管理員手動推薦'};
+  }).filter(x=>x.c);
+}
 function vReport(){
   const m=DATA.market;
   const topThemes=DATA.themes.slice(0,5);
@@ -709,7 +747,23 @@ function vReport(){
   const topNews=DATA.realNewsLoaded?(DATA.news||[]).filter(n=>n.c!=='-'||n.title).slice(0,5):[];
   const risks=DATA.realRisksLoaded?(DATA.risks||[]):[];
   const sourceReal=SRC_STATUS.indexOf('✅')===0;
-  const note=reportNote();
+  const draft=reportDraft();
+  const customContent=String(draft.content||'').trim();
+  const customPicks=reportPickRows();
+  if(customContent){
+    return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+      <div class="card">
+        <div class="card-h"><h3>${DATA.meta.date}（${DATA.meta.weekday}）盤後報告</h3><span class="tag">管理員編輯版</span></div>
+        <div class="card-pad" style="line-height:1.85;font-size:14.5px;white-space:pre-wrap">${esc(customContent)}</div>
+      </div>
+      <div class="card"><div class="card-h"><h3>推薦股票</h3><span class="tag">管理員可於後台修改</span></div>
+        <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">分數</th><th>理由</th></tr></thead><tbody>
+        ${customPicks.map(p=>`<tr><td class="code lnk" data-stock="${p.c}">${p.c}</td><td><b>${p.n}</b></td><td><span class="badge">${p.t||'—'}</span></td><td class="r num">${p.fs??'—'}</td><td class="muted" style="white-space:normal">${p.ai||'—'}</td></tr>`).join('')}
+        </tbody></table></div>
+      </div>
+    </div>`;
+  }
+  const note=String(draft.content||'').trim();
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div class="card">
      <div class="card-h"><h3>${DATA.meta.date}（${DATA.meta.weekday}）盤後報告</h3>
@@ -805,7 +859,7 @@ async function loadAIDetailData(agentKey){
         `ai_backtests?select=symbol,matched_conditions,sample_count,win_rate,avg_return_5d,avg_return_3d,avg_return_10d,max_drawdown,profit_factor,passed&agent_id=eq.${aid}&order=id.desc`,200
       ),
       sbGet(
-        `ai_positions?select=symbol,name,buy_price,current_price,quantity,buy_reason,status&agent_id=eq.${aid}&status=eq.持有`,200
+        `ai_positions?select=symbol,name,buy_date,buy_price,current_price,quantity,buy_reason,status&agent_id=eq.${aid}&status=eq.持有`,200
       ),
       sbGet(
         `ai_trades?select=trade_date,symbol,price,quantity,amount,reason,trade_type&agent_id=eq.${aid}&order=id.desc`,200
@@ -828,6 +882,15 @@ async function loadAIDetailData(agentKey){
       const n=String(((nm[s]||{}).name)||fallback||'').trim();
       return n && n!==s && n!=='尚無名稱' ? n : s;
     };
+    const latestPriceRows=syms.length?await sbGet(
+      `daily_prices?select=symbol,date,close&symbol=in.(${syms.join(',')})&order=date.desc&limit=2000`,2000
+    ).catch(()=>[]): [];
+    const prevCloseBySymbol={};
+    (latestPriceRows||[]).forEach(r=>{
+      const sym=String(r.symbol||'').trim();
+      if(!sym) return;
+      (prevCloseBySymbol[sym]=prevCloseBySymbol[sym]||[]).push(r);
+    });
     const parseTradeState=reason=>{
       const m=String(reason||'').match(/STATE=(\{.*\})/);
       if(!m) return {};
@@ -856,7 +919,8 @@ async function loadAIDetailData(agentKey){
       res:b.passed?'通過':'不通過'}));
     DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>({
       c:p.symbol, n:nameOf(p.symbol,p.name), bp:p.buy_price, cp:p.current_price,
-      q:p.quantity, reason:cleanReason(p.buy_reason)}));
+      q:p.quantity, bd:fmtDate(p.buy_date), prev:(prevCloseBySymbol[String(p.symbol)]||[]).find(x=>Number(x.close)!==Number(p.current_price))?.close,
+      reason:cleanReason(p.buy_reason)}));
     DATA.aiBuy=trades.filter(t=>t.trade_type==='買進').slice(0,20).map(t=>({
       d:fmtDate(t.trade_date), c:t.symbol, n:nameOf(t.symbol),
       p:Number(t.price), q:Number(t.quantity)||0, s:'—', reason:cleanReason(t.reason)}));
@@ -873,7 +937,7 @@ async function loadAIDetailData(agentKey){
       return {
         bd:fmtDate(st.buy_date||prior.trade_date),
         d:fmtDate(st.sell_date||t.trade_date),
-        c:t.symbol, n:nameOf(t.symbol), p:sellPrice,
+        c:t.symbol, n:nameOf(t.symbol), bp:buyPrice, p:sellPrice,
         pnl:Number.isFinite(pnl)?sgn(Math.round(pnl).toLocaleString()):'—',
         ret:Number.isFinite(ret)?sgn(ret.toFixed(2))+'%':'—',
         reason:cleanReason(t.reason), early:'—', late:'—'
@@ -935,13 +999,34 @@ function vAIDetail(id){
         ['策略版本',a.ver],['目前狀態',a.status]].map(r=>
        `<div class="stat"><span class="k">${r[0]}</span><span class="v ${r[2]||''}" style="font-size:16px">${r[1]}</span></div>`).join('')}</div>`)}
 
-   ${blk('2 · 候選股票來源','從各板塊取得候選股',tbl(
+   ${blk('2 · 目前持有股票','放在上方方便快速檢查',tbl(
+     [['代號'],['名稱'],['買進日'],['買進價','r'],['現價','r'],['張數','r'],['持股市值','r'],['今日損益','r'],['未實現損益','r'],['報酬率','r']],
+     DATA.aiPos.map(p=>{const pnl=(p.cp-p.bp)*p.q*1000;const ret=((p.cp-p.bp)/p.bp*100);const td=Number(p.prev)?(p.cp-Number(p.prev))*p.q*1000:NaN;
+       return `<tr><td class="code">${p.c}</td><td><b>${p.n}</b></td><td class="code">${p.bd}</td><td class="r num">${fmtPx(p.bp)}</td>
+       <td class="r num">${fmtPx(p.cp)}</td><td class="r num">${p.q}</td><td class="r num">${(p.cp*p.q*1000).toLocaleString()}</td>
+       <td class="r num ${td>=0?'up':'down'}">${Number.isFinite(td)?sgn(Math.round(td).toLocaleString()):'—'}</td>
+       <td class="r num ${pnl>=0?'up':'down'}">${sgn(Math.round(pnl).toLocaleString())}</td>
+       <td class="r num ${ret>=0?'up':'down'}">${sgn(ret.toFixed(1))}%</td></tr>`;}).join('')))}
+
+   <div class="grid" style="grid-template-columns:1fr 1fr">
+     ${blk('3 · 買進紀錄','',tbl([['日期'],['股票'],['價格','r'],['張','r'],['分','r'],['原因']],
+       DATA.aiBuy.map(b=>`<tr><td class="code">${b.d}</td><td><b class="code">${b.c}</b> ${b.n}</td>
+       <td class="r num">${fmtPx(b.p)}</td><td class="r num">${b.q}</td><td class="r num">${b.s}</td>
+       <td class="muted" style="white-space:normal;min-width:120px">${b.reason}</td></tr>`).join('')))}
+     ${blk('4 · 賣出紀錄','',tbl([['買進日'],['賣出日'],['股票'],['買進價','r'],['賣出價','r'],['損益','r'],['報酬','r'],['檢討']],
+       DATA.aiSell.map(s=>`<tr><td class="code">${s.bd}</td><td class="code">${s.d}</td><td><b class="code">${s.c}</b> ${s.n}</td>
+       <td class="r num">${fmtPx(s.bp)}</td><td class="r num">${fmtPx(s.p)}</td><td class="r num ${s.pnl.includes('-')?'down':'up'}">${s.pnl}</td>
+       <td class="r num ${s.ret.includes('-')?'down':'up'}">${s.ret}</td>
+       <td class="muted" style="white-space:normal">${s.reason}（賣早:${s.early}/賣晚:${s.late}）</td></tr>`).join('')))}
+   </div>
+
+   ${blk('5 · 候選股票來源','從各板塊取得候選股',tbl(
      [['代號'],['名稱'],['來源板塊'],['候選原因'],['初篩分','r']],
      DATA.aiCand.map(c=>`<tr><td class="code lnk" data-stock="${c.c}">${c.c}</td><td><b>${c.n}</b></td>
        <td><span class="badge obs">${c.src}</span></td><td class="muted" style="white-space:normal;min-width:200px">${c.reason}</td>
        <td class="r"><b class="num" style="color:var(--primary)">${c.score}</b></td></tr>`).join('')))}
 
-   ${blk('3 · 歷史回測區','使用主系統資料庫回測',tbl(
+   ${blk('6 · 歷史回測區','使用主系統資料庫回測',tbl(
      [['代號'],['名稱'],['相似條件'],['樣本','r'],['勝率','r'],['平均報酬','r'],['3日','r'],['5日','r'],['10日','r'],['最大回撤','r'],['盈虧比','r'],['結果']],
      DATA.aiBack.map(b=>`<tr><td class="code">${b.c}</td><td><b>${b.n}</b></td>
        <td class="muted" style="white-space:normal;min-width:160px">${b.cond}</td><td class="r num">${b.s}</td>
@@ -949,28 +1034,7 @@ function vAIDetail(id){
        <td class="r num ${b.r10.includes('-')?'down':'up'}">${b.r10}</td><td class="r num down">${b.mdd}</td><td class="r num">${b.pf}</td>
        <td><span class="badge ${b.res==='通過'?'good':b.res==='不通過'?'bad':'obs'}">${b.res}</span></td></tr>`).join('')))}
 
-   ${blk('4 · AI 詳細分析區','僅回測通過股票進入此區',deepBody)}
-
-   ${blk('5 · 目前持有股票','',tbl(
-     [['代號'],['名稱'],['買進價','r'],['現價','r'],['張數','r'],['持股市值','r'],['未實現損益','r'],['報酬率','r'],['買進原因']],
-     DATA.aiPos.map(p=>{const pnl=(p.cp-p.bp)*p.q*1000;const ret=((p.cp-p.bp)/p.bp*100);
-       return `<tr><td class="code">${p.c}</td><td><b>${p.n}</b></td><td class="r num">${fmtPx(p.bp)}</td>
-       <td class="r num">${fmtPx(p.cp)}</td><td class="r num">${p.q}</td><td class="r num">${(p.cp*p.q*1000).toLocaleString()}</td>
-       <td class="r num ${pnl>=0?'up':'down'}">${sgn(Math.round(pnl).toLocaleString())}</td>
-       <td class="r num ${ret>=0?'up':'down'}">${sgn(ret.toFixed(1))}%</td>
-       <td class="muted" style="white-space:normal;min-width:160px">${p.reason}</td></tr>`;}).join('')))}
-
-   <div class="grid" style="grid-template-columns:1fr 1fr">
-     ${blk('6 · 買進紀錄','',tbl([['日期'],['股票'],['價格','r'],['張','r'],['分','r'],['原因']],
-       DATA.aiBuy.map(b=>`<tr><td class="code">${b.d}</td><td><b class="code">${b.c}</b> ${b.n}</td>
-       <td class="r num">${fmtPx(b.p)}</td><td class="r num">${b.q}</td><td class="r num">${b.s}</td>
-       <td class="muted" style="white-space:normal;min-width:120px">${b.reason}</td></tr>`).join('')))}
-     ${blk('7 · 賣出紀錄','',tbl([['買進日'],['賣出日'],['股票'],['價格','r'],['損益','r'],['報酬','r'],['檢討']],
-       DATA.aiSell.map(s=>`<tr><td class="code">${s.bd}</td><td class="code">${s.d}</td><td><b class="code">${s.c}</b> ${s.n}</td>
-       <td class="r num">${fmtPx(s.p)}</td><td class="r num ${s.pnl.includes('-')?'down':'up'}">${s.pnl}</td>
-       <td class="r num ${s.ret.includes('-')?'down':'up'}">${s.ret}</td>
-       <td class="muted" style="white-space:normal">${s.reason}（賣早:${s.early}/賣晚:${s.late}）</td></tr>`).join('')))}
-   </div>
+   ${blk('7 · AI 詳細分析區','僅回測通過股票進入此區',deepBody)}
 
    ${blk('8 · AI 自我檢討區','每次交易結束後自動產生',`<div class="card-pad" style="display:flex;flex-direction:column;gap:9px">
      ${DATA.aiReview.map(r=>`<div style="display:flex;gap:14px;align-items:flex-start;padding:9px 0;border-bottom:1px solid var(--border-soft)">
@@ -1086,18 +1150,26 @@ function admBody(i){
       btn.disabled=false;btn.textContent='儲存設定';
     };
   }
-  else if(i===3){b.innerHTML=`<div class="card card-pad"><h3 style="margin-bottom:14px">每日報告管理</h3>
+  else if(i===3){const draft=reportDraft();b.innerHTML=`<div class="card card-pad"><h3 style="margin-bottom:14px">每日報告管理</h3>
     <div style="display:flex;flex-direction:column;gap:11px">
     ${[['自動產出報告','已啟用 · 依 Supabase 當日資料即時組成'],['資料來源',SRC_STATUS],['發布狀態','前台即時顯示，管理員備註可儲存'],['風險提醒','目前讀取系統風險清單，後續可擴充手動風險表']].map(r=>
       `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--border-soft)">
       <b style="font-size:13.5px;width:160px">${r[0]}</b><span class="muted" style="flex:1">${r[1]}</span>
-      <span class="badge obs">檢視</span></div>`).join('')}
-      <div class="field" style="margin-top:14px">
-        <label>管理員手動備註</label>
-        <textarea id="reportNoteInput" style="width:100%;min-height:120px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--sans);font-size:13.5px;outline:none">${esc(reportNote())}</textarea>
+      <button class="btn line sm" data-report-view="${r[0]}">檢視</button></div>`).join('')}
+      <div id="reportEditBox" class="card-pad" style="margin-top:8px;border:1px solid var(--border);border-radius:10px;background:#fff">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px"><b>報告內容編輯</b><span class="tag">會覆蓋前台每日報告顯示</span></div>
+        <div class="field">
+          <label>報告文字內容</label>
+          <textarea id="reportContentInput" style="width:100%;min-height:240px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--sans);font-size:13.5px;outline:none">${esc(draft.content||defaultReportText())}</textarea>
+        </div>
+        <div class="field" style="margin-top:12px">
+          <label>推薦股票，每行：代號,名稱,題材,分數,理由</label>
+          <textarea id="reportPicksInput" style="width:100%;min-height:120px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--mono);font-size:13px;outline:none">${esc(draft.picks||defaultReportPicksText())}</textarea>
+        </div>
       </div>
       <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
-        <button class="btn" id="saveReportNoteBtn">儲存報告備註</button>
+        <button class="btn" id="saveReportNoteBtn">儲存報告內容</button>
+        <button class="btn line sm" id="previewReportBtn">前台預覽</button>
         <button class="btn line sm" id="regenReportBtn">重新產生報告</button>
         <span id="reportMsg" class="muted" style="font-size:13px"></span>
       </div>
