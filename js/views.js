@@ -130,7 +130,7 @@ function vHome(){
   </div>`;
 }
 
-/* ============ 2. 產業題材地圖 ============ */
+/* ============ 2. 股票類股地圖 ============ */
 let MAP_SEL='glassfiber';
 function vMap(){
   const t=DATA.themes.find(x=>x.id===MAP_SEL)||DATA.themes[0];

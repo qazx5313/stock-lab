@@ -7,6 +7,8 @@ const STATUS_LABELS={
   fetch_twse_margin:'TWSE 融資融券',
   fetch_mops_announcements:'MOPS 重大訊息',
   fetch_monthly_revenue:'MOPS 月營收',
+  fetch_mis_daily_prices:'MIS 即時盤後報價',
+  fetch_stock_classes:'股票類股分類',
   fetch_company_info:'公司基本資料',
   fetch_index:'市場指數',
   validate_mis_quotes:'MIS 收盤價校驗',

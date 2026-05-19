@@ -13,7 +13,7 @@ const I={
 };
 const PAGES=[
   {id:'home',t:'今日市場總覽',s:'一眼掌握多空與資金題材',ic:I.home,grp:'每日盤後'},
-  {id:'map',t:'產業題材地圖',s:'市場題材分類與產業鏈',ic:I.map,grp:'每日盤後'},
+  {id:'map',t:'股票類股地圖',s:'上市櫃股票類股分類',ic:I.map,grp:'每日盤後'},
   {id:'watch',t:'自選股',s:'追蹤自己關注的股票清單',ic:I.watch,grp:'每日盤後'},
   {id:'screen',t:'每日篩選',s:'核心選股工具',ic:I.filter,grp:'每日盤後'},
   {id:'stock',t:'個股分析',s:'單一股票完整資訊',ic:I.stock,grp:'每日盤後'},
