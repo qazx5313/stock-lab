@@ -239,6 +239,36 @@ def upsert_known_stocks(symbols, name_map, price_map):
     return rest_upsert("stocks", rows, on_conflict="symbol")
 
 
+def fill_daily_price_markets(latest):
+    prices = rest_get(
+        "daily_prices",
+        f"select=symbol,market&date=eq.{latest}",
+        page_size=1000,
+        max_rows=100000,
+    )
+    missing = sorted({
+        str(r.get("symbol") or "").strip()
+        for r in prices
+        if is_symbol(r.get("symbol")) and not str(r.get("market") or "").strip()
+    })
+    if not missing:
+        return 0
+    market_map = {}
+    for i in range(0, len(missing), 100):
+        part = ",".join(missing[i : i + 100])
+        rows = rest_get("stocks", f"select=symbol,market&symbol=in.({part})", page_size=1000)
+        for row in rows:
+            sym = str(row.get("symbol") or "").strip()
+            market = str(row.get("market") or "").strip().upper()
+            if is_symbol(sym) and market:
+                market_map[sym] = "TPEX" if market in {"TPEX", "OTC"} or "上櫃" in market else "TWSE"
+    fixed = 0
+    for sym, market in market_map.items():
+        rest_patch("daily_prices", f"date=eq.{latest}&symbol=eq.{sym}", {"market": market})
+        fixed += 1
+    return fixed
+
+
 def fill_candidate_names(latest, name_map):
     rows = rest_get(
         "candidate_pool",
@@ -468,6 +498,7 @@ def main():
     all_symbols = sorted(set(candidate_symbols + theme_symbols + signal_symbols))
     price_map = latest_price_by_symbol(all_symbols, latest)
     stock_rows_upserted = upsert_known_stocks(all_symbols, name_map, price_map)
+    daily_market_fixed = fill_daily_price_markets(latest)
 
     candidate_added = top_up_candidates(latest, candidates, name_map, price_map)
     theme_summary = normalize_theme_stocks(latest, name_map, price_map)
@@ -480,6 +511,7 @@ def main():
         f"date={latest}; "
         f"stock_name_fixed={stock_name_fixed}; "
         f"stock_rows_upserted={stock_rows_upserted}; "
+        f"daily_market_fixed={daily_market_fixed}; "
         f"candidate_name_fixed={candidate_name_fixed}; "
         f"candidate_added={candidate_added}; "
         f"missing_candidate_names={missing_candidate_names}; "

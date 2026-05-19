@@ -43,21 +43,21 @@ async function loadNameMap(symbols, dateHint){
   };
   if(!wanted.length) return map;
   try{
-    const rows=await sbGet('stocks?select=symbol,name,industry',20000);
+    const rows=await sbGet('stocks?select=symbol,name,industry,market',20000);
     (rows||[]).forEach(r=>{
       const sym=String(r.symbol||'').trim();
-      if(sym && wanted.includes(sym)) map[sym]={name:validName(r.name,sym)?String(r.name).trim():'',industry:r.industry};
+      if(sym && wanted.includes(sym)) map[sym]={name:validName(r.name,sym)?String(r.name).trim():'',industry:r.industry,market:r.market};
     });
   }catch(_){}
   const missingFromAll=wanted.filter(sym=>!map[sym]||!validName(map[sym].name,sym));
   for(const part of chunks(missingFromAll,40)){
     try{
       const rows=await sbGet(
-        `stocks?select=symbol,name,industry&symbol=in.(${part.join(',')})`,2000);
+        `stocks?select=symbol,name,industry,market&symbol=in.(${part.join(',')})`,2000);
       (rows||[]).forEach(r=>{
         const sym=String(r.symbol||'').trim();
         if(sym && wanted.includes(sym) && validName(r.name,sym)){
-          map[sym]={name:String(r.name).trim(),industry:r.industry};
+          map[sym]={name:String(r.name).trim(),industry:r.industry,market:r.market};
         }
       });
     }catch(_){}
@@ -84,6 +84,22 @@ async function loadNameMap(symbols, dateHint){
         if(sym && wanted.includes(sym) && validName(r.name,sym) && (!map[sym]||!validName(map[sym].name,sym))){
           map[sym]={...(map[sym]||{}),name:String(r.name).trim()};
         }
+      });
+    }catch(_){}
+  }
+  return map;
+}
+async function loadMarketMap(symbols){
+  const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
+  const map={};
+  if(!wanted.length) return map;
+  for(const part of chunks(wanted,80)){
+    try{
+      const rows=await sbGet(`stocks?select=symbol,market&symbol=in.(${part.join(',')})`,4000);
+      (rows||[]).forEach(r=>{
+        const sym=String(r.symbol||'').trim();
+        const mk=normMarket(r.market);
+        if(sym && mk) map[sym]=mk;
       });
     }catch(_){}
   }
@@ -121,7 +137,7 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v2';
+const REAL_CACHE_KEY='stockLabRealCache:v3';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -201,8 +217,10 @@ async function loadReal(){
         `daily_prices?select=symbol,change,change_percent,amount,market&date=eq.${d}`, 20000);
       if(Array.isArray(dayRows) && dayRows.length){
         const twse=emptyDist(), tpex=emptyDist(), other=emptyDist();
+        const marketMap=await loadMarketMap(dayRows.filter(r=>!normMarket(r.market)).map(r=>r.symbol));
         dayRows.forEach(r=>{
-          const mk=normMarket(r.market);
+          const sym=String(r.symbol||'').trim();
+          const mk=normMarket(r.market) || marketMap[sym] || '';
           if(mk==='TPEX') addDist(tpex,r);
           else if(mk==='TWSE') addDist(twse,r);
           else addDist(other,r);
@@ -227,10 +245,16 @@ async function loadReal(){
       const idx = await sbGet(
         `market_index?select=market,index_value,change,change_percent&date=eq.${d}`, 10);
       (idx||[]).forEach(r=>{
+        const v=Number(r.index_value);
+        const ch=r.change!=null?Number(r.change):0;
+        let dp=r.change_percent!=null?Number(r.change_percent):0;
+        if(isFinite(v) && isFinite(ch) && (!isFinite(dp) || Math.abs(dp)<0.001) && Math.abs(ch)>0.001 && Math.abs(v-ch)>0.001){
+          dp=ch/(v-ch)*100;
+        }
         const o={ name:(r.market==='TWSE'?'加權指數':'櫃買指數'),
-          v:Number(r.index_value),
-          d:r.change!=null?Number(r.change):0,
-          dp:r.change_percent!=null?Number(r.change_percent):0 };
+          v,
+          d:ch,
+          dp };
         if(r.market==='TWSE') DATA.market.twse=o;
         else if(r.market==='TPEX') DATA.market.tpex=o;
       });

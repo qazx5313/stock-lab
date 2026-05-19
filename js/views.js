@@ -371,8 +371,8 @@ function vStock(){
      <div class="card-h"><h3>技術分析 · 近 60 日</h3><span class="tag">K 線 + 量 + 5/10/20/60MA</span>
        <div class="seg" style="margin-left:auto"><button class="on">日線</button><button>週線</button></div></div>
      <div class="card-pad">
-       <canvas id="cK" style="width:100%;height:300px;display:block"></canvas>
-       <canvas id="cV" style="width:100%;height:90px;display:block;margin-top:8px"></canvas>
+       <canvas id="cK" style="width:100%;height:340px;display:block"></canvas>
+       <canvas id="cV" style="width:100%;height:96px;display:block;margin-top:8px"></canvas>
        <div style="display:flex;gap:18px;font-size:11.5px;color:var(--ink-2);margin-top:10px;flex-wrap:wrap">
          <span><b style="color:#F59E0B">━</b> 5MA</span><span><b style="color:#2563EB">━</b> 10MA</span>
          <span><b style="color:#7C3AED">━</b> 20MA</span><span><b style="color:#0F172A">━</b> 60MA</span>
@@ -662,6 +662,16 @@ function calcMACDSeries(closes){
 }
 function setupCanvas(id){const c=document.getElementById(id);if(!c)return null;const r=devicePixelRatio||1;
   const w=c.clientWidth,h=c.clientHeight;c.width=w*r;c.height=h*r;const x=c.getContext('2d');x.scale(r,r);return {x,w,h};}
+function shortChartDate(s,withYear=false){
+  const d=new Date(String(s||'').slice(0,10)+'T00:00:00');
+  if(Number.isNaN(d.getTime())) return String(s||'').slice(5).replace('-','/');
+  const mm=d.getMonth()+1, dd=d.getDate();
+  return withYear?`${d.getFullYear()}-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`:`${mm}/${dd}`;
+}
+function weekdayShort(s){
+  const d=new Date(String(s||'').slice(0,10)+'T00:00:00');
+  return Number.isNaN(d.getTime())?'':(['週日','週一','週二','週三','週四','週五','週六'][d.getDay()]||'');
+}
 function drawStockCharts(){
   const D=(DATA.stock&&Array.isArray(DATA.stock.series)&&DATA.stock.series.length>=5)
             ? DATA.stock.series.slice(-60)
@@ -669,21 +679,43 @@ function drawStockCharts(){
   const m5=ma(D,5),m10=ma(D,10),m20=ma(D,20),m60v=D.map(d=>d.c);
   const empty=(g,msg='尚無足夠真實資料')=>{if(!g)return;const{x,w,h}=g;x.fillStyle='#94A3B8';x.font='13px system-ui';x.textAlign='center';x.fillText(msg,w/2,h/2);};
   // K 線
-  let g=setupCanvas('cK');if(g){const{x,w,h}=g;const pad=8;
+  let g=setupCanvas('cK');if(g){const{x,w,h}=g;const L=16,R=12,T=10,B=36;
     if(!D.length){empty(g);return;}
     const all=D.flatMap(d=>[d.h,d.l]);const mx=Math.max(...all)*1.01,mn=Math.min(...all)*.99;
-    const Y=v=>pad+(mx-v)/(mx-mn)*(h-pad*2);const bw=(w-20)/D.length;
-    x.strokeStyle='#F1F5F9';for(let i=0;i<5;i++){const yy=pad+i*(h-pad*2)/4;x.beginPath();x.moveTo(0,yy);x.lineTo(w,yy);x.stroke();}
-    D.forEach((d,i)=>{const cx=10+i*bw+bw/2;const up=d.c>=d.o;x.strokeStyle=x.fillStyle=up?'#DC2626':'#16A34A';
+    const span=Math.max(.001,mx-mn), plotW=w-L-R, plotH=h-T-B;
+    const Y=v=>T+(mx-v)/span*plotH;const bw=plotW/D.length;const X=i=>L+i*bw+bw/2;
+    x.strokeStyle='#F1F5F9';x.lineWidth=1;
+    for(let i=0;i<6;i++){const yy=T+i*plotH/5;x.beginPath();x.moveTo(L,yy);x.lineTo(w-R,yy);x.stroke();}
+    const ticks=[];
+    D.forEach((d,i)=>{
+      const prev=D[i-1], cur=String(d.d||'');
+      const monthChanged=!prev || String(prev.d||'').slice(5,7)!==cur.slice(5,7);
+      if(monthChanged || i===D.length-1 || i%10===0) ticks.push({i,major:monthChanged,label:monthChanged?`${Number(cur.slice(5,7))}月`:shortChartDate(cur)});
+    });
+    ticks.forEach(t=>{
+      const xx=X(t.i);x.strokeStyle=t.major?'#E2E8F0':'#F1F5F9';x.setLineDash(t.i===D.length-1?[4,4]:[]);
+      x.beginPath();x.moveTo(xx,T);x.lineTo(xx,T+plotH);x.stroke();x.setLineDash([]);
+      x.fillStyle=t.i===D.length-1?'#0F172A':'#64748B';x.font='11px system-ui';x.textAlign='center';
+      if(t.i===D.length-1){
+        const label=`${weekdayShort(D[t.i].d)} ${shortChartDate(D[t.i].d,true)}`.trim();
+        const tw=x.measureText(label).width+14, bx=Math.min(Math.max(xx-tw/2,L),w-R-tw);
+        x.fillRect(bx,h-24,tw,20);x.fillStyle='#fff';x.fillText(label,bx+tw/2,h-10);
+      }else x.fillText(t.label,xx,h-12);
+    });
+    const last=D[D.length-1];
+    if(last){
+      const yy=Y(last.c);x.strokeStyle='rgba(220,38,38,.55)';x.setLineDash([3,4]);x.beginPath();x.moveTo(L,yy);x.lineTo(w-R,yy);x.stroke();x.setLineDash([]);
+    }
+    D.forEach((d,i)=>{const cx=X(i);const up=d.c>=d.o;x.strokeStyle=x.fillStyle=up?'#DC2626':'#16A34A';
       x.beginPath();x.moveTo(cx,Y(d.h));x.lineTo(cx,Y(d.l));x.stroke();
-      const yo=Y(d.o),yc=Y(d.c);x.fillRect(cx-bw*.3,Math.min(yo,yc),bw*.6,Math.max(2,Math.abs(yc-yo)));});
+      const yo=Y(d.o),yc=Y(d.c);x.fillRect(cx-bw*.28,Math.min(yo,yc),Math.max(2,bw*.56),Math.max(2,Math.abs(yc-yo)));});
     const line=(arr,col)=>{x.strokeStyle=col;x.lineWidth=1.5;x.beginPath();let st=false;
-      arr.forEach((v,i)=>{if(v==null)return;const cx=10+i*bw+bw/2,cy=Y(v);st?x.lineTo(cx,cy):x.moveTo(cx,cy);st=true;});x.stroke();};
+      arr.forEach((v,i)=>{if(v==null)return;const cx=X(i),cy=Y(v);st?x.lineTo(cx,cy):x.moveTo(cx,cy);st=true;});x.stroke();};
     line(m5,'#F59E0B');line(m10,'#2563EB');line(m20,'#7C3AED');}
   // 量
-  g=setupCanvas('cV');if(g){const{x,w,h}=g;const mv=Math.max(...D.map(d=>d.v));const bw=(w-20)/D.length;
-    D.forEach((d,i)=>{const cx=10+i*bw,bh=d.v/mv*(h-6);x.fillStyle=d.c>=d.o?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';
-      x.fillRect(cx,h-bh,bw*.62,bh);});}
+  g=setupCanvas('cV');if(g){const{x,w,h}=g;const L=16,R=12,B=4;const mv=Math.max(...D.map(d=>d.v),1);const bw=(w-L-R)/Math.max(1,D.length);
+    D.forEach((d,i)=>{const cx=L+i*bw+bw*.18,bh=d.v/mv*(h-B-4);x.fillStyle=d.c>=d.o?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';
+      x.fillRect(cx,h-B-bh,Math.max(2,bw*.62),bh);});}
   // KD
   g=setupCanvas('cKD');if(g){const{x,w,h}=g;const kd=DATA.stock.tech&&DATA.stock.tech.kd;
     if(!kd){empty(g);}else [[kd.k,'#DC2626'],[kd.d,'#2563EB']].forEach(([s,c])=>{x.strokeStyle=c;x.lineWidth=1.5;x.beginPath();let started=false;

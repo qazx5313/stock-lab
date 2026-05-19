@@ -22,7 +22,7 @@ from sb_common import log, mark_status, sb_one, sb_select, sb_upsert
 FINMIND_TOKEN = os.environ.get("FINMIND_TOKEN", "").strip()
 FINMIND_URL = "https://api.finmindtrade.com/api/v4/data"
 TIMEOUT = 45
-REPAIR_MAX_SYMBOLS = int(os.environ.get("REPAIR_MAX_SYMBOLS", "120"))
+REPAIR_MAX_SYMBOLS = int(os.environ.get("REPAIR_MAX_SYMBOLS", "500"))
 SLEEP_SEC = float(os.environ.get("REPAIR_SLEEP_SEC", "0.35"))
 
 
@@ -110,6 +110,30 @@ def existing_latest_symbols(latest):
     }
 
 
+def stock_market_map(symbols):
+    out = {}
+    symbols = sorted({str(s or "").strip() for s in symbols if is_symbol(s)})
+    for i in range(0, len(symbols), 100):
+        part = ",".join(symbols[i : i + 100])
+        if not part:
+            continue
+        try:
+            rows = sb_select(
+                "stocks",
+                f"select=symbol,market&symbol=in.({part})",
+                page_size=1000,
+                max_rows=1000,
+            )
+            for row in rows:
+                sym = str(row.get("symbol") or "").strip()
+                market = str(row.get("market") or "").strip().upper()
+                if sym and market:
+                    out[sym] = "TPEX" if market in {"TPEX", "OTC"} or "上櫃" in market else "TWSE"
+        except Exception as exc:
+            log(f"  stocks market lookup skipped: {exc}")
+    return out
+
+
 def fetch_finmind_price(symbol, target_date):
     headers = {}
     if FINMIND_TOKEN:
@@ -157,6 +181,7 @@ def main():
     targets = collect_target_symbols(latest)
     existing = existing_latest_symbols(latest)
     missing = [s for s in targets if s not in existing]
+    markets = stock_market_map(missing)
 
     if REPAIR_MAX_SYMBOLS > 0:
         missing = missing[:REPAIR_MAX_SYMBOLS]
@@ -167,6 +192,8 @@ def main():
         try:
             row = fetch_finmind_price(sym, latest)
             if row and row.get("close") is not None:
+                if markets.get(sym):
+                    row["market"] = markets[sym]
                 rows.append(row)
                 log(f"  [{i}/{len(missing)}] {sym} 補到 {latest}")
             else:
