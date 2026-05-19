@@ -1,29 +1,30 @@
-name: 每日盤後抓取與計算
+name: Daily market data pipeline
 
 on:
   schedule:
-    # GitHub Actions 用 UTC。台灣 = UTC+8。
-    - cron: "30 6 * * 1-5"   # 台灣 14:30 盤後初抓
-    - cron: "15 8 * * 1-5"   # 台灣 16:15 盤後正式抓
+    # GitHub Actions uses UTC. Taiwan time is UTC+8.
+    - cron: "30 6 * * 1-5"   # 14:30 Taiwan time
+    - cron: "15 8 * * 1-5"   # 16:15 Taiwan time
   workflow_dispatch: {}
 
 jobs:
   pipeline:
     runs-on: ubuntu-latest
     timeout-minutes: 40
+
     steps:
-      - name: 取出程式碼
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: 安裝 Python
+      - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: 安裝套件
+      - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: 1) 抓取盤後資料
+      - name: 1) Fetch daily market data
         working-directory: jobs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
@@ -31,7 +32,7 @@ jobs:
           THROTTLE_SEC: "3"
         run: python fetch_all.py
 
-      - name: 2) 補公司產業別
+      - name: 2) Fetch company info
         if: always()
         working-directory: jobs
         env:
@@ -40,7 +41,7 @@ jobs:
           FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
         run: python fetch_company_info.py
 
-      - name: 2b) 抓大盤指數
+      - name: 3) Fetch market indexes
         if: always()
         working-directory: jobs
         env:
@@ -48,7 +49,18 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python fetch_index.py
 
-      - name: 3) 計算技術指標/題材/候選池
+      - name: 4) Repair missing recent K bars
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
+          REPAIR_MAX_SYMBOLS: "800"
+          REPAIR_LOOKBACK_DAYS: "3"
+        run: python repair_missing_prices.py
+
+      - name: 5) Compute daily signals
         if: always()
         working-directory: jobs
         env:
@@ -56,7 +68,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_signals.py
 
-      - name: 4) AI 量化模擬實驗室
+      - name: 6) Run AI lab
         if: always()
         working-directory: jobs
         env:
@@ -68,7 +80,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_ai_lab.py
 
-      - name: 5) data quality cleanup
+      - name: 7) Data quality cleanup
         if: always()
         working-directory: jobs
         env:
