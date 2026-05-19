@@ -419,6 +419,10 @@ def update_open_positions(agent, strategy, latest, prices_by_sym, name_map):
         px, exit_reason = exit_position(strategy, row, state)
         status = "持有"
         current = row["close"]
+        buy_date = str(pos.get("buy_date") or state.get("entry_date") or "")[:10]
+        same_day_as_buy = bool(buy_date and row["date"] <= buy_date)
+        if same_day_as_buy:
+            px, exit_reason = None, ""
         if px is not None:
             status = "已賣出"
             current = px
@@ -444,16 +448,26 @@ def update_open_positions(agent, strategy, latest, prices_by_sym, name_map):
             }
         )
         if status == "已賣出":
+            sell_state = {
+                **state,
+                "buy_date": buy_date,
+                "sell_date": row["date"],
+                "buy_price": round(bp, 4),
+                "sell_price": round(current, 4),
+                "pnl": pnl,
+                "return_pct": ret,
+                "exit_reason": exit_reason,
+            }
             sells.append(
                 {
                     "agent_id": aid,
                     "symbol": sym,
-                    "trade_date": latest,
+                    "trade_date": row["date"],
                     "trade_type": "賣出",
                     "price": current,
                     "quantity": qty,
                     "amount": mv,
-                    "reason": f"{strategy['name']} {exit_reason}",
+                    "reason": reason_with_state(f"{strategy['name']} {exit_reason}", sell_state),
                     "strategy_version": VERSION,
                 }
             )
@@ -490,6 +504,7 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
     log(f"--- {strategy['name']} 開始 ---")
     updated, sells = update_open_positions(agent, strategy, latest, prices_by_sym, name_map)
     held = {p["symbol"] for p in updated if p.get("status") == "持有"}
+    sold_today = {t["symbol"] for t in sells}
     current_asset_value = sum(int(p.get("market_value") or 0) for p in updated if p.get("status") == "持有")
 
     sb_delete("ai_candidates", f"agent_id=eq.{aid}&date=eq.{latest}")
@@ -560,7 +575,7 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
     cash = int(agent.get("current_cash") if agent.get("current_cash") is not None else INIT_CASH)
     cash += sum(int(t["amount"]) for t in sells)
     signals.sort(key=lambda s: (s.get("carry_from_backtest", False), s.get("volume_lots", 0)), reverse=True)
-    buy_signals = [s for s in signals if s["symbol"] not in held][:MAX_BUY_PER_AGENT]
+    buy_signals = [s for s in signals if s["symbol"] not in held and s["symbol"] not in sold_today][:MAX_BUY_PER_AGENT]
     per = cash // len(buy_signals) if buy_signals else 0
     positions, buys = [], []
     for sig in buy_signals:
