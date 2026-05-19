@@ -32,16 +32,7 @@ jobs:
           THROTTLE_SEC: "3"
         run: python fetch_all.py
 
-      - name: 2) Fetch company info
-        if: always()
-        working-directory: jobs
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
-        run: python fetch_company_info.py
-
-      - name: 3) Fetch market indexes
+      - name: 2) Fetch market indexes
         if: always()
         working-directory: jobs
         env:
@@ -49,18 +40,16 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python fetch_index.py
 
-      - name: 4) Repair missing recent K bars
+      - name: 3) Repair missing recent K bars
         if: always()
         working-directory: jobs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          FINMIND_TOKEN: ${{ secrets.FINMIND_TOKEN }}
-          REPAIR_MAX_SYMBOLS: "800"
           REPAIR_LOOKBACK_DAYS: "3"
         run: python repair_missing_prices.py
 
-      - name: 5) Compute daily signals
+      - name: 4) Compute daily signals
         if: always()
         working-directory: jobs
         env:
@@ -68,7 +57,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_signals.py
 
-      - name: 6) Run AI lab
+      - name: 5) Run AI lab
         if: always()
         working-directory: jobs
         env:
@@ -80,7 +69,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_ai_lab.py
 
-      - name: 7) Data quality cleanup
+      - name: 6) Data quality cleanup
         if: always()
         working-directory: jobs
         env:
