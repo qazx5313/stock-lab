@@ -6,6 +6,13 @@ function bindPage(id){
     go('stock');});
   document.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{
     const t=DATA.themes.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;go('map');}});
+  document.querySelectorAll('[data-map-market]').forEach(el=>el.onclick=()=>{
+    MAP_MARKET=el.dataset.mapMarket==='TPEX'?'TPEX':'TWSE';
+    const label=MAP_MARKET==='TPEX'?'上櫃':'上市';
+    const first=(DATA.themes||[]).find(t=>String(t.name||'').trim().startsWith(label+' ·'));
+    MAP_SEL=first?first.id:'';
+    go('map');
+  });
   const loginBtn=document.getElementById('loginBtn');
   if(loginBtn)loginBtn.onclick=async()=>{
     const account=(document.getElementById('loginAccount')||{}).value?.trim()||'';

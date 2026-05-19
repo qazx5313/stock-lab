@@ -131,15 +131,28 @@ function vHome(){
 
 /* ============ 2. 股票類股地圖 ============ */
 let MAP_SEL='glassfiber';
+let MAP_MARKET='TWSE';
+function mapMarketLabel(){
+  return MAP_MARKET==='TPEX'?'上櫃':'上市';
+}
+function mapMarketThemes(){
+  const label=mapMarketLabel();
+  return (DATA.themes||[]).filter(t=>String(t.name||'').trim().startsWith(label+' ·'));
+}
 function vMap(){
-  const t=DATA.themes.find(x=>x.id===MAP_SEL)||DATA.themes[0];
+  const themes=mapMarketThemes();
+  const t=themes.find(x=>x.id===MAP_SEL)||themes[0];
   const stocks=(t&&Array.isArray(t.stocks))?t.stocks:[];
   if(!t){
     return `<div class="card card-pad fade"><h3>股票類股資料尚未建立</h3><p class="muted" style="margin-top:8px">請先在 GitHub Actions 跑 Daily market data pipeline，等 Build stock industry classes 完成後再重新整理。</p></div>`;
   }
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+   <div class="seg" style="align-self:flex-start">
+     <button class="${MAP_MARKET==='TWSE'?'on':''}" data-map-market="TWSE">上市</button>
+     <button class="${MAP_MARKET==='TPEX'?'on':''}" data-map-market="TPEX">上櫃</button>
+   </div>
    <div style="display:flex;gap:9px;flex-wrap:wrap">
-     ${DATA.themeList.map(n=>{const th=DATA.themes.find(x=>x.name===n);
+     ${themes.map(th=>{const n=th.name;
        const id=th?th.id:'_'+n;const on=th&&th.id===MAP_SEL;
        return `<span class="chip ${on?'on':''}" data-theme="${id}">${n}${th?` · ${th.score}`:''}</span>`;}).join('')}
    </div>
