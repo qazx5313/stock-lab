@@ -84,6 +84,7 @@ function renderTopAuth(){
   if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
 }
 function renderDataFreshness(){
+  renderTxFuture();
   const el=document.getElementById('dataFreshness');
   if(!el) return;
   const latest=(DATA.dataStatus||[])
@@ -94,6 +95,19 @@ function renderDataFreshness(){
   const label=DATA_FROM_CACHE?'快取資料':(DATA_REAL_READY?'盤後資料':'資料狀態');
   const tail=DATA_FROM_CACHE?'背景更新中':`${latest||DATA.meta.updated||'—'} 更新`;
   el.innerHTML=`<span class="dot"></span>${label} · ${tail}`;
+}
+function renderTxFuture(){
+  const el=document.getElementById('txFuturePill');
+  if(!el) return;
+  const f=(DATA.market&&DATA.market.txFut)||{};
+  const v=Number(f.v), d=Number(f.d), dp=Number(f.dp);
+  const hasV=Number.isFinite(v);
+  const hasD=Number.isFinite(d);
+  const cls=hasD && d<0?'down':'up';
+  const ch=hasD
+    ? `<b class="${cls}">${d>0?'+':''}${d.toLocaleString('en-US',{maximumFractionDigits:2})}${Number.isFinite(dp)?` (${dp>0?'+':''}${dp.toFixed(2)}%)`:''}</b>`
+    : '<b>—</b>';
+  el.innerHTML=`<span class="dot"></span>台指期 ${hasV?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—'} ${ch}`;
 }
 async function loadRemoteActivation(){
   try{

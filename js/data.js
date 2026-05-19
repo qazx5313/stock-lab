@@ -6,6 +6,7 @@ const DATA = {
   market:{
     twse:{name:'加權指數',v:21684.32,d:+182.45,dp:+0.85},
     tpex:{name:'櫃買指數',v:248.91,d:+3.12,dp:+1.27},
+    txFut:{name:'台指期',v:null,d:null,dp:null},
     amtTwse:'3,842 億', amtTpex:'986 億', amtTotal:'4,828 億',
     up:842, down:651, limitUp:31, limitDown:4,
     flat:90,

@@ -4,9 +4,11 @@
 Fetch Taiwan market indexes and write them to market_index.
 
 TWSE is read from FMTQIK, the same "每日市場成交資訊" page used on the
-TWSE website. TPEx is read from TPEx indexInfo/inx.
+TWSE website. TPEx is read from TPEx indexInfo/inx. TX futures are read from
+TAIFEX Daily Market Report.
 """
 import datetime as dt
+import html
 import re
 import time
 
@@ -136,6 +138,47 @@ def fetch_tpex_index():
     return sorted(parsed, key=lambda x: x["date"])[-1] if parsed else None
 
 
+def fetch_txf_daily():
+    url = "https://www.taifex.com.tw/enl/eng3/futDailyMarketReport"
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+        time.sleep(1)
+        if r.status_code != 200:
+            log(f"  TAIFEX HTTP {r.status_code}")
+            return None
+    except Exception as exc:
+        log(f"  TAIFEX request failed: {exc}")
+        return None
+    text = html.unescape(re.sub(r"<[^>]+>", " ", r.text))
+    text = re.sub(r"\s+", " ", text)
+    m_date = re.search(r"Date：\s*(\d{4}/\d{2}/\d{2})", text)
+    if not m_date:
+        return None
+    row_date = parse_roc_or_ymd(m_date.group(1))
+    after_date = text[m_date.end():]
+    m = re.search(
+        r"\bTX\s+(\d{6})\s+"
+        r"([-\d,]+)\s+([-\d,]+)\s+([-\d,]+)\s+([-\d,]+)\s+"
+        r"[▲▼]?\s*([+-]?\d+(?:\.\d+)?)\s+"
+        r"[▲▼]?\s*([+-]?\d+(?:\.\d+)?)%",
+        after_date,
+    )
+    if not m or not row_date:
+        return None
+    last = clean_num(m.group(5))
+    change = clean_num(m.group(6))
+    change_percent = clean_num(m.group(7))
+    if last is None:
+        return None
+    return {
+        "date": row_date,
+        "contract": m.group(1),
+        "value": last,
+        "change": change,
+        "change_percent": change_percent,
+    }
+
+
 def main():
     today = last_weekday(dt.date.today())
     log(f"=== fetch_index start ({today}) ===")
@@ -173,8 +216,32 @@ def main():
     else:
         log("  TPEX index not found")
 
+    txf = fetch_txf_daily()
+    if txf:
+        rows.append({
+            "date": txf["date"].isoformat(),
+            "market": "TXF",
+            "index_value": txf["value"],
+            "change": txf.get("change"),
+            "change_percent": txf.get("change_percent"),
+            "amount": None,
+            "up_count": None,
+            "down_count": None,
+        })
+        log(f"  TAIFEX TX {txf['contract']} {txf['date']} last={txf['value']} change={txf.get('change')}")
+    else:
+        log("  TAIFEX TX futures not found")
+
     if rows:
-        sb_upsert("market_index", rows, on_conflict="date,market")
+        core_rows = [r for r in rows if r.get("market") != "TXF"]
+        txf_rows = [r for r in rows if r.get("market") == "TXF"]
+        if core_rows:
+            sb_upsert("market_index", core_rows, on_conflict="date,market")
+        if txf_rows:
+            try:
+                sb_upsert("market_index", txf_rows, on_conflict="date,market")
+            except Exception as exc:
+                log(f"  TXF write skipped: {exc}")
     ok = len(rows) > 0
     mark_status("fetch_index", ok, "" if ok else "index endpoints returned no data")
     log("=== fetch_index done ===")

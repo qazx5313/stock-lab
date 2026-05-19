@@ -9,6 +9,7 @@ const STATUS_LABELS={
   fetch_monthly_revenue:'MOPS 月營收',
   fetch_company_info:'公司基本資料',
   fetch_index:'市場指數',
+  validate_mis_quotes:'MIS 收盤價校驗',
   compute_signals:'每日訊號計算',
   run_ai_lab:'AI 實驗室'
 };
@@ -172,7 +173,7 @@ function addDist(dist,r){
   dist.amount+=amt;
   dist.count++;
 }
-const REAL_CACHE_KEY='stockLabRealCache:v4';
+const REAL_CACHE_KEY='stockLabRealCache:v5';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -286,12 +287,13 @@ async function loadReal(){
         if(isFinite(v) && isFinite(ch) && (!isFinite(dp) || Math.abs(dp)<0.001) && Math.abs(ch)>0.001 && Math.abs(v-ch)>0.001){
           dp=ch/(v-ch)*100;
         }
-        const o={ name:(r.market==='TWSE'?'加權指數':'櫃買指數'),
+        const o={ name:(r.market==='TWSE'?'加權指數':(r.market==='TXF'?'台指期':'櫃買指數')),
           v,
           d:ch,
           dp };
         if(r.market==='TWSE') DATA.market.twse=o;
         else if(r.market==='TPEX') DATA.market.tpex=o;
+        else if(r.market==='TXF') DATA.market.txFut=o;
       });
     }catch(e){ console.warn('指數載入略過:',e); }
 
