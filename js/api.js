@@ -367,23 +367,31 @@ async function loadReal(){
           'ai_reviews?select=agent_id,review_date,self_review,improvement_suggestion'+
           '&order=review_date.desc', 200);
         const bts = await sbGet(
-          'ai_backtests?select=agent_id,passed', 2000);
+          'ai_backtests?select=agent_id,passed,win_rate,avg_return_5d,max_drawdown', 2000);
         const trs = await sbGet(
           'ai_trades?select=agent_id,trade_type', 2000);
-        const passCnt={}, buyCnt={}, lastRev={};
-        (bts||[]).forEach(b=>{ if(b.passed){passCnt[b.agent_id]=(passCnt[b.agent_id]||0)+1;} });
+        const passCnt={}, buyCnt={}, lastRev={}, statRows={};
+        (bts||[]).forEach(b=>{
+          if(b.passed){passCnt[b.agent_id]=(passCnt[b.agent_id]||0)+1;}
+          (statRows[b.agent_id]=statRows[b.agent_id]||[]).push(b);
+        });
         (trs||[]).forEach(t=>{ if(t.trade_type==='買進'){buyCnt[t.agent_id]=(buyCnt[t.agent_id]||0)+1;} });
         (revs||[]).forEach(r=>{ if(!lastRev[r.agent_id]) lastRev[r.agent_id]=r; });
 
         DATA.agents = ags.map(a=>{
           const init=a.initial_cash||1000000, cash=a.current_cash!=null?a.current_cash:init;
           const hold=a.current_asset_value||0;
+          const stats=statRows[a.id]||[];
+          const avg=(key)=>stats.length?stats.reduce((s,x)=>s+(Number(x[key])||0),0)/stats.length:NaN;
+          const wr=avg('win_rate'), ar=avg('avg_return_5d'), mdd=avg('max_drawdown');
           return {
             id:'ai'+a.id, _id:a.id, name:a.name, type:a.strategy_type||'—',
             pre:0, passed:passCnt[a.id]||0, buy:buyCnt[a.id]||0,
-            wr:'—', pos:buyCnt[a.id]||0,
+            wr:Number.isFinite(wr)?wr.toFixed(1)+'%':'—', pos:buyCnt[a.id]||0,
             cum:(((cash+hold-init)/init*100).toFixed(1))+'%',
-            mon:'—', win:'—', mdd:'—',
+            mon:Number.isFinite(ar)?(ar>=0?'+':'')+ar.toFixed(1)+'%':'—',
+            win:Number.isFinite(wr)?wr.toFixed(1)+'%':'—',
+            mdd:Number.isFinite(mdd)?mdd.toFixed(1)+'%':'—',
             ver:a.strategy_version||'v1.0', status:a.status||'運行中',
             init:init, cash:cash, hold:hold,
             desc:a.description||''

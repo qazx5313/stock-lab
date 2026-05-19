@@ -808,7 +808,7 @@ async function loadAIDetailData(agentKey){
         `ai_positions?select=symbol,name,buy_price,current_price,quantity,buy_reason,status&agent_id=eq.${aid}&status=eq.持有`,200
       ),
       sbGet(
-        `ai_trades?select=trade_date,symbol,price,quantity,reason,trade_type&agent_id=eq.${aid}&order=id.desc`,200
+        `ai_trades?select=trade_date,symbol,price,quantity,amount,reason,trade_type&agent_id=eq.${aid}&order=id.desc`,200
       ),
       sbGet(
         `ai_deep_analysis?select=symbol,technical_summary,chip_summary,fundamental_summary,risk_summary,final_score,decision,decision_reason&agent_id=eq.${aid}&order=id.desc`,80
@@ -828,10 +828,26 @@ async function loadAIDetailData(agentKey){
       const n=String(((nm[s]||{}).name)||fallback||'').trim();
       return n && n!==s && n!=='尚無名稱' ? n : s;
     };
+    const parseTradeState=reason=>{
+      const m=String(reason||'').match(/STATE=(\{.*\})/);
+      if(!m) return {};
+      try{return JSON.parse(m[1]);}catch(_){return {};}
+    };
+    const cleanReason=reason=>String(reason||'—').replace(/\s*STATE=\{.*\}\s*$/,'').trim()||'—';
+    const fmtDate=d=>String(d||'').slice(5).replace('-','/')||'—';
+    const trades=Array.isArray(tb)?tb:[];
+    const buyBySymbol={};
+    trades.slice().sort((a,b)=>String(a.trade_date).localeCompare(String(b.trade_date))).forEach(t=>{
+      const sym=String(t.symbol||'').trim();
+      if(!sym) return;
+      if(t.trade_type==='買進'){
+        (buyBySymbol[sym]=buyBySymbol[sym]||[]).push(t);
+      }
+    });
     DATA.aiCand=(Array.isArray(cs)?cs:[]).filter(c=>c.accepted_by_agent).slice(0,20).map(c=>({
-      c:c.symbol, n:nameOf(c.symbol), src:'候選池', reason:c.agent_reason||'—', score:'—'}));
+      c:c.symbol, n:nameOf(c.symbol), src:'候選池', reason:cleanReason(c.agent_reason), score:'—'}));
     DATA.aiBack=(Array.isArray(bk)?bk:[]).slice(0,30).map(b=>({
-      c:b.symbol, n:nameOf(b.symbol), cond:b.matched_conditions||'—',
+      c:b.symbol, n:nameOf(b.symbol), cond:cleanReason(b.matched_conditions),
       s:b.sample_count, wr:b.win_rate+'%', ar:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
       r3:(b.avg_return_3d>0?'+':'')+b.avg_return_3d+'%',
       r5:(b.avg_return_5d>0?'+':'')+b.avg_return_5d+'%',
@@ -840,18 +856,34 @@ async function loadAIDetailData(agentKey){
       res:b.passed?'通過':'不通過'}));
     DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>({
       c:p.symbol, n:nameOf(p.symbol,p.name), bp:p.buy_price, cp:p.current_price,
-      q:p.quantity, reason:p.buy_reason||'—'}));
-    DATA.aiBuy=(Array.isArray(tb)?tb:[]).filter(t=>t.trade_type==='買進').slice(0,20).map(t=>({
-      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:nameOf(t.symbol),
-      p:t.price, q:t.quantity, s:'—', reason:t.reason||'—'}));
-    DATA.aiSell=(Array.isArray(tb)?tb:[]).filter(t=>t.trade_type==='賣出').slice(0,20).map(t=>({
-      d:String(t.trade_date).slice(5).replace('-','/'), c:t.symbol, n:nameOf(t.symbol),
-      p:t.price, pnl:'—', ret:'—', reason:t.reason||'—', early:'—', late:'—'}));
+      q:p.quantity, reason:cleanReason(p.buy_reason)}));
+    DATA.aiBuy=trades.filter(t=>t.trade_type==='買進').slice(0,20).map(t=>({
+      d:fmtDate(t.trade_date), c:t.symbol, n:nameOf(t.symbol),
+      p:Number(t.price), q:Number(t.quantity)||0, s:'—', reason:cleanReason(t.reason)}));
+    DATA.aiSell=trades.filter(t=>t.trade_type==='賣出').map(t=>{
+      const st=parseTradeState(t.reason);
+      const sym=String(t.symbol||'').trim();
+      const sellDate=String(t.trade_date||'').slice(0,10);
+      const prior=(buyBySymbol[sym]||[]).filter(b=>String(b.trade_date||'').slice(0,10)<=sellDate).slice(-1)[0]||{};
+      const buyPrice=Number(st.buy_price||prior.price)||0;
+      const sellPrice=Number(st.sell_price||t.price)||0;
+      const qty=Number(t.quantity||prior.quantity)||0;
+      const pnl=Number.isFinite(Number(st.pnl))?Number(st.pnl):((sellPrice-buyPrice)*qty*1000);
+      const ret=Number.isFinite(Number(st.return_pct))?Number(st.return_pct):(buyPrice?((sellPrice-buyPrice)/buyPrice*100):NaN);
+      return {
+        bd:fmtDate(st.buy_date||prior.trade_date),
+        d:fmtDate(st.sell_date||t.trade_date),
+        c:t.symbol, n:nameOf(t.symbol), p:sellPrice,
+        pnl:Number.isFinite(pnl)?sgn(Math.round(pnl).toLocaleString()):'—',
+        ret:Number.isFinite(ret)?sgn(ret.toFixed(2))+'%':'—',
+        reason:cleanReason(t.reason), early:'—', late:'—'
+      };
+    }).filter(s=>s.bd==='—' || s.bd!==s.d).slice(0,20);
     DATA.aiDeep=(Array.isArray(dp)?dp:[]).slice(0,8).map(d=>({
       c:d.symbol, n:nameOf(d.symbol), score:d.final_score||'—', decision:d.decision||'—',
       tech:d.technical_summary||'—', chip:d.chip_summary||'—',
       fund:d.fundamental_summary||'—', risk:d.risk_summary||'—',
-      reason:d.decision_reason||'—'
+      reason:cleanReason(d.decision_reason)
     }));
     const rv=await sbGet(
       `ai_reviews?select=review_date,self_review,improvement_suggestion&agent_id=eq.${aid}&order=id.desc`,20);
@@ -933,8 +965,8 @@ function vAIDetail(id){
        DATA.aiBuy.map(b=>`<tr><td class="code">${b.d}</td><td><b class="code">${b.c}</b> ${b.n}</td>
        <td class="r num">${fmtPx(b.p)}</td><td class="r num">${b.q}</td><td class="r num">${b.s}</td>
        <td class="muted" style="white-space:normal;min-width:120px">${b.reason}</td></tr>`).join('')))}
-     ${blk('7 · 賣出紀錄','',tbl([['日期'],['股票'],['價格','r'],['損益','r'],['報酬','r'],['檢討']],
-       DATA.aiSell.map(s=>`<tr><td class="code">${s.d}</td><td><b class="code">${s.c}</b> ${s.n}</td>
+     ${blk('7 · 賣出紀錄','',tbl([['買進日'],['賣出日'],['股票'],['價格','r'],['損益','r'],['報酬','r'],['檢討']],
+       DATA.aiSell.map(s=>`<tr><td class="code">${s.bd}</td><td class="code">${s.d}</td><td><b class="code">${s.c}</b> ${s.n}</td>
        <td class="r num">${fmtPx(s.p)}</td><td class="r num ${s.pnl.includes('-')?'down':'up'}">${s.pnl}</td>
        <td class="r num ${s.ret.includes('-')?'down':'up'}">${s.ret}</td>
        <td class="muted" style="white-space:normal">${s.reason}（賣早:${s.early}/賣晚:${s.late}）</td></tr>`).join('')))}
