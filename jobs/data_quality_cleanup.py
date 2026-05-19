@@ -137,6 +137,58 @@ def to_float(v):
         return None
 
 
+def norm_theme_text(v):
+    return re.sub(r"[ \t\r\n/／、,，()（）\[\]【】・·\-＿_]", "", str(v or "").lower())
+
+
+def theme_aliases(name):
+    n = norm_theme_text(name)
+    out = {n} if n else set()
+    groups = [
+        ["玻纖布", "玻織布", "玻璃纖維布", "玻璃纖維", "玻纖", "玻璃玻纖"],
+        ["pcb", "ccl", "銅箔基板", "電路板", "印刷電路板"],
+        ["玻璃基板", "玻璃載板", "先進封裝玻璃"],
+        ["ai伺服器", "伺服器", "aiserver", "ai"],
+        ["散熱", "熱傳", "液冷", "散熱模組"],
+        ["面板", "顯示器", "lcd"],
+        ["營建", "建設", "營造", "建材"],
+        ["航運", "貨櫃", "散裝", "航空"],
+        ["生技醫療", "生技", "醫療", "製藥"],
+        ["油電燃氣", "油電", "燃氣", "電力"],
+        ["食品", "食物", "飲料"],
+        ["半導體", "ic", "晶圓", "封測"],
+    ]
+    for group in ([norm_theme_text(x) for x in g] for g in groups):
+        if any(x and (x in n or n in x) for x in group):
+            out.update(x for x in group if x)
+    return out
+
+
+def theme_stock_matched(theme_name, stock_info, link_info):
+    if not theme_name or theme_name == "其他":
+        return True
+    tags = stock_info.get("theme_tags") or []
+    if isinstance(tags, list):
+        tags_text = " ".join(str(x) for x in tags)
+    else:
+        tags_text = str(tags or "")
+    hay = norm_theme_text(
+        " ".join(
+            str(x or "")
+            for x in [
+                stock_info.get("industry"),
+                tags_text,
+                link_info.get("role"),
+                link_info.get("supply_chain_level"),
+                link_info.get("note"),
+            ]
+        )
+    )
+    if not hay:
+        return False
+    return any(a and (a in hay or hay in a) for a in theme_aliases(theme_name))
+
+
 def latest_price_by_symbol(symbols, latest_date):
     if not symbols:
         return {}
@@ -170,7 +222,7 @@ def latest_price_by_symbol(symbols, latest_date):
 
 def build_name_map():
     names = {}
-    stocks = rest_get("stocks", "select=symbol,name,industry,market", page_size=1000)
+    stocks = rest_get("stocks", "select=symbol,name,industry,market,theme_tags", page_size=1000)
     for row in stocks:
         sym = str(row.get("symbol") or "").strip()
         if is_symbol(sym) and not bad_name(row.get("name"), sym):
@@ -178,6 +230,7 @@ def build_name_map():
                 "name": str(row.get("name")).strip(),
                 "industry": row.get("industry"),
                 "market": row.get("market"),
+                "theme_tags": row.get("theme_tags"),
             }
 
     for table, query, name_col in [
@@ -356,7 +409,16 @@ def normalize_theme_stocks(latest, name_map, price_map):
     theme_updates = []
     for theme in themes:
         tid = theme.get("id")
-        members = by_theme.get(tid, [])
+        raw_members = by_theme.get(tid, [])
+        members = [
+            m
+            for m in raw_members
+            if theme_stock_matched(
+                str(theme.get("theme_name") or ""),
+                name_map.get(str(m.get("symbol") or "")) or {},
+                m,
+            )
+        ]
         priced = [m for m in members if str(m.get("symbol") or "") in price_map]
         cps = []
         amounts = []
@@ -379,6 +441,8 @@ def normalize_theme_stocks(latest, name_map, price_map):
             f"{theme.get('theme_name')}：成分 {len(members)} 檔，"
             f"有收盤價 {len(priced)} 檔"
         )
+        if len(raw_members) != len(members):
+            desc += f"，排除不相符 {len(raw_members) - len(members)} 檔"
         if avg_cp is not None:
             desc += f"，平均漲幅 {avg_cp}%"
         if total_amt is not None:
