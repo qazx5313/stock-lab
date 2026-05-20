@@ -239,6 +239,7 @@ function applyRealtimeQuotes(rows, options={}){
       change_percent:Number(r.change_percent),
       volume:Number(r.volume),
       amount:Number(r.amount),
+      source:r.source,
       date:r.quote_date,
       quote_time:r.quote_time,
       updated_at:r.updated_at
@@ -266,7 +267,7 @@ function applyRealtimeQuotes(rows, options={}){
       return;
     }
     if(market==='TAIFEX'){
-      DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:'TAIFEX_MIS_RT',updated_at:r.updated_at};
+      DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:r.source||'TAIFEX_MIS_RT',quote_time:r.quote_time,updated_at:r.updated_at};
       return;
     }
     if(/^[1-9]\d{3}$/.test(sym)){
@@ -728,12 +729,56 @@ async function refreshLiveEdge(){
       DATA.stock.dp=Number(q.change_percent);
     }
     if(typeof renderTxFuture==='function') renderTxFuture();
-    if(['home','watch','stock','ai'].includes(CUR)) go(CUR);
+    if(typeof updateLiveDom==='function') updateLiveDom();
     return true;
   }catch(e){
     console.warn('前台即時報價略過:',e);
     LIVE_EDGE_DISABLED_UNTIL=Date.now()+60000;
     return false;
+  }
+}
+
+function liveText(sel,text,cls=''){
+  const el=document.querySelector(sel);
+  if(!el) return;
+  el.textContent=text;
+  if(cls) el.className=cls;
+}
+function updateLiveDom(){
+  if(CUR==='home'){
+    const m=DATA.market||{};
+    const fmt=o=>Number.isFinite(Number(o&&o.v))?fmtPx(o.v):'—';
+    const diff=o=>Number.isFinite(Number(o&&o.d))&&Number.isFinite(Number(o&&o.dp))?`${sgn(Number(o.d).toFixed(2))} (${sgn(Number(o.dp).toFixed(2))}%)`:'—';
+    liveText('[data-live="twse-v"]',fmt(m.twse),`v ${dcls(Number(m.twse&&m.twse.d))}`);
+    liveText('[data-live="twse-d"]',diff(m.twse),`d ${dcls(Number(m.twse&&m.twse.d))}`);
+    liveText('[data-live="tpex-v"]',fmt(m.tpex),`v ${dcls(Number(m.tpex&&m.tpex.d))}`);
+    liveText('[data-live="tpex-d"]',diff(m.tpex),`d ${dcls(Number(m.tpex&&m.tpex.d))}`);
+    liveText('[data-live="amt-twse"]',m.amtTwse||'—','up');
+    liveText('[data-live="amt-tpex"]',m.amtTpex||'—','up');
+    liveText('[data-live="amt-total"]',m.amtTotal||'—','');
+    const tx=document.querySelector('[data-live-card="txf"]');
+    if(tx && typeof txFuturePanel==='function') tx.innerHTML=txFuturePanel();
+    (DATA.picks||[]).slice(0,5).forEach(s=>{
+      const row=document.querySelector(`[data-live-row="${s.c}"]`);
+      if(!row) return;
+      const info=typeof stockKnownInfo==='function'?stockKnownInfo(s.c):s;
+      const px=row.querySelector('[data-live-cell="px"]');
+      const dp=row.querySelector('[data-live-cell="dp"]');
+      if(px) px.textContent=fmtPx(info.px);
+      if(dp){dp.textContent=isFinite(Number(info.dp))?sgn(Number(info.dp).toFixed(2))+'%':'—';dp.className=`r num ${dcls(Number(info.dp))}`;}
+    });
+  }
+  if(CUR==='watch' && typeof watchRows==='function'){
+    watchRows().forEach(s=>{
+      const row=document.querySelector(`[data-live-row="${s.c}"]`);
+      if(!row) return;
+      const px=row.querySelector('[data-live-cell="px"]');
+      const dp=row.querySelector('[data-live-cell="dp"]');
+      const vol=row.querySelector('[data-live-cell="vol"]');
+      if(px) px.textContent=fmtPx(s.px);
+      if(dp){dp.textContent=isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—';dp.className=`r num ${dcls(Number(s.dp))}`;}
+      if(vol) vol.textContent=`${fmtLots(s.vol)} 張`;
+    });
   }
 }
 

@@ -41,6 +41,38 @@ function fmtLots(v){
   const lots=n>=1000000?Math.round(n/1000):Math.round(n);
   return lots.toLocaleString('en-US');
 }
+function txfSession(f){
+  const txt=String([f&&f.name,f&&f.source,f&&f.quote_time].filter(Boolean).join(' '));
+  if(/-M|AfterHours|night|夜/i.test(txt)) return 'night';
+  if(/-F|Regular|day|早/i.test(txt)) return 'day';
+  const p=typeof taipeiNowParts==='function'?taipeiNowParts():{total:0};
+  return p.total>=15*60 || p.total<8*60+45 ? 'night':'day';
+}
+function txFuturePanel(){
+  const f=(DATA.market&&DATA.market.txFut)||{};
+  const v=Number(f.v), d=Number(f.d), dp=Number(f.dp);
+  const sess=txfSession(f);
+  const cls=dcls(d);
+  return `<div class="card-h"><h3>台指期</h3><span class="tag">TAIFEX Futures</span></div>
+    <div class="card-pad">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
+        <div style="display:flex;gap:8px;align-items:center">
+          <span class="session-tag ${sess==='day'?'on':''}">早盤</span>
+          <span class="session-tag ${sess==='night'?'on':''}">夜盤</span>
+        </div>
+        <span class="muted code" style="font-size:12px">${f.quote_time||'—'}</span>
+      </div>
+      <div class="stat">
+        <span class="k">${f.name||'台指期'}</span>
+        <span class="v ${cls}" style="font-size:28px">${Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—'}</span>
+        <span class="d ${cls}">${Number.isFinite(d)?`${d>0?'+':''}${d.toLocaleString('en-US',{maximumFractionDigits:2})}${Number.isFinite(dp)?` (${dp>0?'+':''}${dp.toFixed(2)}%)`:''}`:'—'}</span>
+      </div>
+      <div class="flow-list" style="margin-top:16px">
+        <div class="flow-row"><span>資料來源</span><span>${String(f.source||'—').replace('TAIFEX_MIS_RT','TAIFEX 即時').replace('TAIFEX_EDGE_RT','TAIFEX 即時')}</span></div>
+        <div class="flow-row"><span>更新</span><span>${f.updated_at?fmtDoneTime(f.updated_at):'—'}</span></div>
+      </div>
+    </div>`;
+}
 function trendMini(title,o,color){
   return `<div class="card card-pad">
     <div class="sec-title">${title}今日走勢圖</div>
@@ -111,8 +143,8 @@ function vHome(){
        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
          ${ov.map(([k,o])=>`<div class="stat">
            <span class="k">${k}</span>
-           <span class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span>
-           <span class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span>
+           <span data-live="${k==='加權指數'?'twse-v':'tpex-v'}" class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span>
+           <span data-live="${k==='加權指數'?'twse-d':'tpex-d'}" class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span>
            ${marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E',k==='加權指數'?m.twseChart:m.tpexChart)}
          </div>`).join('')}
        </div>
@@ -137,9 +169,9 @@ function vHome(){
      <div class="card card-pad">
        <div class="sec-title">成交金額</div>
        <div class="flow-list">
-         <div class="flow-row"><span>上市</span><span class="up">${m.amtTwse}</span></div>
-         <div class="flow-row"><span>上櫃</span><span class="up">${m.amtTpex}</span></div>
-         <div class="flow-row"><span>合計</span><span>${m.amtTotal||'—'}</span></div>
+         <div class="flow-row"><span>上市</span><span data-live="amt-twse" class="up">${m.amtTwse}</span></div>
+         <div class="flow-row"><span>上櫃</span><span data-live="amt-tpex" class="up">${m.amtTpex}</span></div>
+         <div class="flow-row"><span>合計</span><span data-live="amt-total">${m.amtTotal||'—'}</span></div>
        </div>
      </div>
    </div>
@@ -148,17 +180,11 @@ function vHome(){
      <div class="card">
        <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
        <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
-         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r">${miniTrendForStock(s)}</td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
+         ${DATA.picks.slice(0,5).map(s=>`<tr data-live-row="${s.c}"><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td data-live-cell="px" class="r num">${fmtPx(s.px)}</td><td data-live-cell="dp" class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r">${miniTrendForStock(s)}</td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
        </tbody></table></div>
      </div>
-     <div class="card">
-       <div class="card-h"><h3>個股比較</h3><span class="tag">Stock Compare</span></div>
-       <div class="tbl-wrap"><table class="compare-mini"><thead><tr><th>股票</th>${picks.map(s=>`<th>${s.c}</th>`).join('')}</tr></thead><tbody>
-         <tr><td>總分</td>${picks.map(s=>`<td class="num ${s.fs>=84?'up':'warn'}"><b>${s.fs}</b></td>`).join('')}</tr>
-         <tr><td>基本分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round((s.cs+s.ms)/2))}</td>`).join('')}</tr>
-         <tr><td>技術分</td>${picks.map(s=>`<td class="num">${Math.max(35,Math.round(s.ts/2))}</td>`).join('')}</tr>
-         <tr><td>漲跌幅</td>${picks.map(s=>`<td class="num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>`).join('')}</tr>
-       </tbody></table></div>
+     <div class="card" data-live-card="txf">
+       ${txFuturePanel()}
      </div>
    </div>
 
@@ -366,13 +392,13 @@ function vWatch(){
    <div class="card">
      <div class="card-h"><h3>追蹤列表</h3><span class="tag">${rows.length} 檔 · 點分析可查看完整個股資料</span></div>
      ${rows.length?`<div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">收盤</th><th class="r">漲跌</th><th class="r">成交量</th><th>加入時間</th><th>操作</th></tr></thead>
-       <tbody>${rows.map(s=>`<tr>
+       <tbody>${rows.map(s=>`<tr data-live-row="${s.c}">
          <td class="code lnk" data-stock="${s.c}">${s.c}</td>
          <td><b>${esc(s.n||s.c)}</b></td>
          <td><span class="badge">${esc(s.t||s.theme||s.industry||'—')}</span></td>
-         <td class="r num">${fmtPx(s.px)}</td>
-         <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>
-         <td class="r num muted">${fmtLots(s.vol)} 張</td>
+         <td data-live-cell="px" class="r num">${fmtPx(s.px)}</td>
+         <td data-live-cell="dp" class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>
+         <td data-live-cell="vol" class="r num muted">${fmtLots(s.vol)} 張</td>
          <td class="muted" style="font-size:12px">${String(s.addedAt||'').slice(0,10)||'—'}</td>
          <td style="display:flex;gap:8px;flex-wrap:wrap">
            <button class="btn line sm" data-stock="${s.c}">分析</button>
