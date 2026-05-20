@@ -27,6 +27,10 @@ HEADERS = {
 }
 MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 MIS_BOOT = "https://mis.twse.com.tw/stock/index?lang=zhHant"
+MIS_CHART_URLS = {
+    "TWSE_CHART": "https://mis.twse.com.tw/stock/data/mis_ohlc_TSE.txt",
+    "TPEX_CHART": "https://mis.twse.com.tw/stock/data/mis_ohlc_OTC.txt",
+}
 TAIFEX_AFTER_HOURS = "https://mis.taifex.com.tw/futures/AfterHoursSession/EquityIndices/FuturesDomestic/"
 TAIFEX_REGULAR = "https://mis.taifex.com.tw/futures/RegularSession/EquityIndices/FuturesDomestic/"
 TAIFEX_SEARCH = "https://mis.taifex.com.tw/futures/api/getSearchResult"
@@ -144,6 +148,63 @@ def fetch_mis(tokens, chunk_size=45, sleep_sec=0.38):
             log(f"  MIS chunk {i // chunk_size + 1} skipped: {exc}")
         time.sleep(sleep_sec)
     return quotes
+
+
+def fetch_mis_index_charts(session=None):
+    sess = session or requests.Session()
+    rows = []
+    for market, url in MIS_CHART_URLS.items():
+        try:
+            r = sess.get(
+                url,
+                params={"_": str(int(time.time() * 1000))},
+                headers=HEADERS,
+                timeout=TIMEOUT,
+            )
+            if r.status_code != 200:
+                raise RuntimeError(f"HTTP {r.status_code}")
+            data = json.loads((r.text or "").strip())
+            points = []
+            for p in data.get("ohlcArray") or []:
+                price = to_float(p.get("c"))
+                ts = str(p.get("ts") or "").strip()
+                amount_e = to_float(p.get("s"))
+                if price is None or not ts:
+                    continue
+                points.append({
+                    "t": ts,
+                    "p": price,
+                    "a": round(amount_e / 100, 2) if amount_e is not None else None,
+                })
+            if not points:
+                continue
+            static = data.get("staticObj") or {}
+            qdate = parse_date(str(static.get("key") or "").split("_")[-1]) or dt.datetime.now(dt.timezone(dt.timedelta(hours=8))).date().isoformat()
+            amount = to_int(static.get("tz"))
+            volume = to_int(static.get("tv"))
+            last = points[-1]
+            rows.append({
+                "symbol": "T00_CHART" if market == "TWSE_CHART" else "O00_CHART",
+                "name": "加權指數今日走勢" if market == "TWSE_CHART" else "櫃買指數今日走勢",
+                "market": market,
+                "quote_date": qdate,
+                "quote_time": parse_taifex_time(last.get("t")),
+                "open": points[0].get("p"),
+                "high": max(p["p"] for p in points),
+                "low": min(p["p"] for p in points),
+                "price": last.get("p"),
+                "prev_close": None,
+                "change": None,
+                "change_percent": None,
+                "volume": volume,
+                "amount": amount,
+                "source": json.dumps({"points": points[-260:], "static": static}, ensure_ascii=False, separators=(",", ":")),
+                "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+            })
+            log(f"  {market}: chart_points={len(points)} amount={amount}")
+        except Exception as exc:
+            log(f"  {market} chart skipped: {exc}")
+    return rows
 
 
 def quote_row(q, fallback=None):
@@ -404,6 +465,8 @@ def main():
         rows.append(r)
         if r["market"] in ("TWSE", "TPEX"):
             stock_rows.append({"symbol": r["symbol"], "name": r["name"], "market": r["market"], "updated_at": r["updated_at"]})
+    chart_rows = fetch_mis_index_charts()
+    rows.extend(chart_rows)
     txf = fetch_taifex_txf(now_tw) or latest_txf_fallback()
     if txf and txf.get("price") is not None:
         rows.append(txf)
