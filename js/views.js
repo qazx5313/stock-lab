@@ -41,6 +41,16 @@ function fmtLots(v){
   const lots=n>=1000000?Math.round(n/1000):Math.round(n);
   return lots.toLocaleString('en-US');
 }
+function fmtRevenue(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return '—';
+  return (n/100000).toLocaleString('zh-TW',{maximumFractionDigits:2})+' 億';
+}
+function fmtPct(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return '—';
+  return `${n>0?'+':''}${n.toFixed(2)}%`;
+}
 function quoteStockCard(s,opts={}){
   const side=String(s.market||s.m||'').toUpperCase()==='TPEX'?'櫃':'市';
   const px=Number(s.px), dp=Number(s.dp), ch=Number(s.chg||s.change);
@@ -461,6 +471,8 @@ function rowsScreen(list){
 function vStock(){
   const s=DATA.stock;
   const fc=s.foreignCost||{};
+  const revenue=Array.isArray(s.revenue)?s.revenue:[];
+  const latestRevenue=revenue[0]||null;
   const fcRows=[
     ['外資推估成本',fc.cost,''],
     ['站穩起飛價 ×1.04',fc.launch,'cool'],
@@ -537,6 +549,30 @@ function vStock(){
      </div>`:`<div class="card-pad muted" style="font-size:13px">目前外資買超資料不足，無法推估成本。${fc.note||''}</div>`}
    </div>
 
+   <div class="card"><div class="card-h"><h3>營收狀況</h3><span class="tag">MOPS 月營收</span></div>
+     ${latestRevenue?`<div class="card-pad">
+       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px">
+         ${[
+           ['最新月份',latestRevenue.year_month||'—',''],
+           ['單月營收',fmtRevenue(latestRevenue.revenue),''],
+           ['月增率',fmtPct(latestRevenue.mom_percent),Number(latestRevenue.mom_percent)>=0?'up':'down'],
+           ['年增率',fmtPct(latestRevenue.yoy_percent),Number(latestRevenue.yoy_percent)>=0?'up':'down'],
+           ['累計營收',fmtRevenue(latestRevenue.accumulated_revenue),''],
+           ['累計年增率',fmtPct(latestRevenue.accumulated_yoy_percent),Number(latestRevenue.accumulated_yoy_percent)>=0?'up':'down']
+         ].map(r=>`<div style="background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:10px;padding:12px 14px">
+           <div style="font-size:11px;color:var(--ink-2);font-weight:700">${r[0]}</div>
+           <div class="num ${r[2]||''}" style="font-size:18px;font-weight:850;margin-top:5px">${r[1]}</div>
+         </div>`).join('')}
+       </div>
+       <div class="tbl-wrap" style="margin-top:14px"><table><thead><tr><th>月份</th><th class="r">營收</th><th class="r">月增</th><th class="r">年增</th><th class="r">累計年增</th></tr></thead><tbody>
+         ${revenue.slice(0,6).map(r=>`<tr><td class="code">${r.year_month||'—'}</td><td class="r num">${fmtRevenue(r.revenue)}</td>
+           <td class="r num ${Number(r.mom_percent)>=0?'up':'down'}">${fmtPct(r.mom_percent)}</td>
+           <td class="r num ${Number(r.yoy_percent)>=0?'up':'down'}">${fmtPct(r.yoy_percent)}</td>
+           <td class="r num ${Number(r.accumulated_yoy_percent)>=0?'up':'down'}">${fmtPct(r.accumulated_yoy_percent)}</td></tr>`).join('')}
+       </tbody></table></div>
+     </div>`:`<div class="card-pad muted" style="font-size:13px">目前還沒有此股票的 MOPS 月營收資料，請先執行每日資料更新。</div>`}
+   </div>
+
    <div class="grid" style="grid-template-columns:1.2fr 1fr">
      <div class="card"><div class="card-h"><h3>AI 操盤判斷</h3></div>
        <div class="card-pad" style="display:flex;flex-direction:column;gap:11px">
@@ -569,6 +605,7 @@ async function loadStockSeries(sym){
     DATA.stock.margin={mb:'—',sb:'—',mc:'—',sc:'—'};
     DATA.stock.inst3='尚無近期籌碼資料';
     DATA.stock.foreignCost={ready:false,note:''};
+    DATA.stock.revenue=[];
     const rows = await sbGet(
       `daily_prices?select=date,open,high,low,close,volume,amount&symbol=eq.${sym}`+
       `&order=date.asc`, 5000);
@@ -685,6 +722,13 @@ async function loadStockRealDetails(sym){
       t:[a.category,a.title].filter(Boolean).join(' · ')||'公告'
     }));
   }catch(e){ console.warn('公告載入略過:',e); DATA.stock.ann=[]; }
+  try{
+    const rev=await sbGet(
+      `monthly_revenue?select=year_month,revenue,mom_percent,yoy_percent,accumulated_revenue,accumulated_yoy_percent&symbol=eq.${sym}&order=year_month.desc&limit=12`,
+      12
+    );
+    DATA.stock.revenue=Array.isArray(rev)?rev:[];
+  }catch(e){ console.warn('月營收載入略過:',e); DATA.stock.revenue=[]; }
 }
 
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
