@@ -564,33 +564,47 @@ def fetch_monthly_revenue():
     first = TODAY.replace(day=1)
     last_month = first - dt.timedelta(days=1)
     ym = f"{last_month.year}-{last_month.month:02d}"
-    url = "https://mopsov.twse.com.tw/nas/t21/sii/t21sc03_{}_{}_0.html".format(
-        last_month.year - 1911, last_month.month
-    )
-    try:
-        txt = http_get(url, expect="text")
-    except Exception as e:  # noqa
-        raise RuntimeError(f"月營收頁抓取失敗（可能該月尚未公布）：{e}")
     import re
 
     rows = []
-    for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S):
-        cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
-        cells = [re.sub(r"<[^>]+>", "", c).replace("&nbsp;", "").strip() for c in cells]
-        if len(cells) >= 8 and re.match(r"^\d{4}$", cells[0]):
-            rows.append(
-                {
-                    "year_month": ym,
-                    "symbol": cells[0],
-                    "revenue": to_int(cells[2]),
-                    "mom_percent": num(cells[5]) if len(cells) > 5 else None,
-                    "yoy_percent": num(cells[6]) if len(cells) > 6 else None,
-                    "accumulated_revenue": to_int(cells[7]) if len(cells) > 7 else None,
-                    "accumulated_yoy_percent": num(cells[9])
-                    if len(cells) > 9
-                    else None,
-                }
-            )
+    for market in ("sii", "otc", "rotc"):
+        url = "https://mopsov.twse.com.tw/nas/t21/{}/t21sc03_{}_{}_0.html".format(
+            market, last_month.year - 1911, last_month.month
+        )
+        try:
+            txt = http_get(url, expect="text")
+        except Exception as e:  # noqa
+            log(f"  MOPS 月營收 {market} skipped: {e}")
+            continue
+        before = len(rows)
+        for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S):
+            cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S)
+            cells = [
+                re.sub(r"\s+", " ", re.sub(r"<[^>]+>", "", c).replace("&nbsp;", " ")).strip()
+                for c in cells
+            ]
+            if len(cells) >= 8 and re.match(r"^\d{4}$", cells[0]):
+                revenue = to_int(cells[2])
+                last_year_revenue = num(cells[4]) if len(cells) > 4 else None
+                yoy = (
+                    round((revenue - last_year_revenue) / last_year_revenue * 100, 2)
+                    if revenue is not None and last_year_revenue
+                    else None
+                )
+                rows.append(
+                    {
+                        "year_month": ym,
+                        "symbol": cells[0],
+                        "revenue": revenue,
+                        "mom_percent": num(cells[5]) if len(cells) > 5 else None,
+                        "yoy_percent": yoy,
+                        "accumulated_revenue": to_int(cells[6]) if len(cells) > 6 else None,
+                        "accumulated_yoy_percent": num(cells[8])
+                        if len(cells) > 8
+                        else None,
+                    }
+                )
+        log(f"  MOPS 月營收 {market}: {len(rows)-before} 筆")
     sb_upsert("monthly_revenue", rows, on_conflict="year_month,symbol")
     return len(rows)
 
