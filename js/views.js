@@ -150,17 +150,19 @@ function marketSummaryCard(title,o,extra='',chart=null){
 }
 function fearIndexPanel(){
   const m=DATA.market||{};
+  const vix=Number(m.vix&&m.vix.v);
   const up=Number(m.up)||0, down=Number(m.down)||0;
   const total=Math.max(1,up+down+(Number(m.flat)||0));
-  const fear=Math.max(0,Math.min(100,Math.round((down/total)*100)));
+  const fallback=Math.round((down/total)*100);
+  const fear=Math.max(0,Math.min(100,Math.round(Number.isFinite(vix)?vix:fallback)));
   const label=fear>=70?'恐慌':fear>=55?'偏恐慌':fear>=40?'中性震盪':'偏樂觀';
-  return `<div class="card card-pad">
-    <div class="sec-title">恐慌指數</div>
-    <div class="meter"><div class="meter-arc"><div class="needle" style="transform:rotate(${Math.round(-55+fear*1.1)}deg)"></div></div></div>
-    <b style="font-size:22px">${fear}</b>
-    <div style="font-size:20px;font-weight:900;margin-top:4px">${label}</div>
-    <div class="muted" style="font-size:12.5px;margin-top:8px">依上市櫃漲跌家數、跌停家數與市場強弱估算。</div>
-  </div>`;
+  return `<div class="card card-pad fear-panel">
+     <div class="sec-title">恐慌指數</div>
+     <div class="meter"><div class="meter-arc"><div class="needle" style="transform:rotate(${Math.round(-90+fear*1.8)}deg)"></div></div></div>
+     <b style="font-size:22px">${fear}</b>
+     <div style="font-size:20px;font-weight:900;margin-top:4px">${label}</div>
+     ${Number.isFinite(vix)?`<div class="muted" style="font-size:12.5px;margin-top:8px">TAIFEX 波動率 ${fmtPx(vix)}</div>`:''}
+   </div>`;
 }
 function capitalFlowPanel(){
   const themes=(DATA.themes||[]).slice(0,8);
@@ -236,6 +238,11 @@ function vMap(){
   const themes=mapMarketThemes();
   const t=themes.find(x=>x.id===MAP_SEL)||themes[0];
   const stocks=(t&&Array.isArray(t.stocks))?t.stocks:[];
+  const marketStocks=stocks.filter(s=>{
+    const st=(DATA.stockMap||{})[String(s.c||'')];
+    const mk=normMarket((st&&st.market)||s.market);
+    return !mk || mk===MAP_MARKET;
+  });
   if(!t){
     return `<div class="card card-pad fade"><h3>股票類股資料尚未建立</h3><p class="muted" style="margin-top:8px">請先在 GitHub Actions 跑 Daily market data pipeline，等 Build stock industry classes 完成後再重新整理。</p></div>`;
   }
@@ -265,10 +272,10 @@ function vMap(){
      </div>
    </div>
    <div class="card">
-     <div class="card-h"><h3>相關個股資料</h3><span class="tag">${stocks.length} 檔 · 點卡片可進個股分析</span></div>
+     <div class="card-h"><h3>相關個股資料</h3><span class="tag">${marketStocks.length} 檔 · 點卡片可進個股分析</span></div>
      <div class="card-pad">
-       ${stocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
-       ${stocks.map(s=>quoteStockCard({...s,market:s.market||MAP_MARKET,t:s.level||s.t||themeDisplayName(t.name),theme:themeDisplayName(t.name)}, {compact:true,hideMarketSide:true})).join('')}
+       ${marketStocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+       ${marketStocks.map(s=>{const st=(DATA.stockMap||{})[String(s.c||'')]||{};return quoteStockCard({...s,market:normMarket(st.market||s.market)||MAP_MARKET,t:s.level||s.t||themeDisplayName(t.name),theme:themeDisplayName(t.name)}, {compact:true,hideMarketSide:true});}).join('')}
        </div>`:`<div class="muted" style="font-size:13px">此題材尚未有 Supabase 成分股資料。</div>`}
      </div>
    </div>
@@ -353,11 +360,10 @@ async function syncWatchlistFromRemote(force=false){
     WATCH_SYNC_STATUS='無法連線 Supabase，自選股暫存在此瀏覽器';
     return false;
   }
-  const merged=mergeWatchlists(watchlist(),remote);
-  setWatchlist(merged);
+  const remoteOnly=mergeWatchlists([],remote);
+  setWatchlist(remoteOnly);
   WATCH_REMOTE_LOADED=true;
-  const saved=await saveRemoteWatchlist(merged);
-  WATCH_SYNC_STATUS=saved?'已同步 Supabase 會員自選股':'已讀取 Supabase，但儲存同步失敗';
+  WATCH_SYNC_STATUS='已同步 Supabase 會員自選股';
   return true;
 }
 async function persistWatchlist(){
@@ -1227,7 +1233,12 @@ function atrCard(r){
   const stop=Number(r.stop||Number(r.entry)-atr*Number(r.stopMult||1));
   const take=Number(r.take||Number(r.entry)+atr*Number(r.takeMult||1.5));
   const trailBase=Math.max(Number(r.high||0),px,Number(r.entry||0));
-  const trail=Math.max(stop,trailBase-atr*Number(r.trailAtr||0.5),trailBase*(1-Number(r.trailPct||5)/100));
+  const stopByAtr=trailBase-atr*Number(r.stopMult||1);
+  const movingStop=Math.max(stop,stopByAtr);
+  const takeActive=trailBase>=take;
+  const takeTrailByAtr=trailBase-atr*Number(r.trailAtr||0.5);
+  const takeTrailByPct=trailBase*(1-Number(r.trailPct||5)/100);
+  const movingTake=takeActive?Math.max(take,takeTrailByAtr,takeTrailByPct):take;
   const rr=(take-Number(r.entry))/(Number(r.entry)-stop);
   return `<div class="card atr-card">
     <div class="card-h"><h3><span class="code">${r.c}</span> ${esc(s.n||r.n||r.c)}</h3><span class="badge ${r.dir==='short'?'bad':'good'}">${r.dir==='short'?'做空':'做多'} ▲</span></div>
@@ -1236,11 +1247,11 @@ function atrCard(r){
         ${[['現價',fmtPx(px),''],['ATR 值',fmtPx(atr),'cool'],['買入價',fmtPx(r.entry),''],['風險報酬比',Number.isFinite(rr)?`1 : ${rr.toFixed(2)}`:'—','']].map(x=>`<div class="mini-tile"><span>${x[0]}</span><b class="num ${x[2]}">${x[1]}</b></div>`).join('')}
       </div>
       <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px">
-        <div class="mini-tile danger"><span>固定停利停損</span><b class="num down">${fmtPx(stop)}</b><small>初始停損</small></div>
-        <div class="mini-tile success"><span>固定停利價</span><b class="num up">${fmtPx(take)}</b><small>目標獲利</small></div>
-        <div class="mini-tile cool"><span>移動停利停損</span><b class="num up">${fmtPx(trail)}</b><small>只升不降，股價創高自動上移</small></div>
+        <div class="mini-tile danger"><span>移動停損</span><b class="num down">${fmtPx(movingStop)}</b><small>包含初始買入停損價；股價創高後只往上調整</small></div>
+        <div class="mini-tile success"><span>移動停利</span><b class="num up">${fmtPx(movingTake)}</b><small>${takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
+        <div class="mini-tile cool"><span>追蹤最高價</span><b class="num">${fmtPx(trailBase)}</b><small>移動停損與停利皆依此價格往上調整</small></div>
       </div>
-      <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 停利 ${r.takeMult||1.5} 倍 · 移動停利 ${r.trailAtr||0.5} ATR 或 ${r.trailPct||5}%</div>
+      <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 初始停利 ${r.takeMult||1.5} 倍 · 停利啟動後用 ${r.trailAtr||0.5} ATR 或 ${r.trailPct||5}% 追蹤 · 出場看移動停損或已啟動後的移動停利</div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn line sm" data-atr-remove="${r.c}">移除觀察</button></div>
     </div>
   </div>`;
@@ -1255,9 +1266,9 @@ function vATR(){
         <div class="field"><label>買入價</label><input id="atrEntry" type="number" step="0.01" placeholder="買入價"></div>
         <div class="field"><label>ATR 週期</label><input id="atrPeriod" type="number" value="14"></div>
         <div class="field"><label>停損倍數</label><input id="atrStopMult" type="number" step="0.1" value="1"></div>
-        <div class="field"><label>停利倍數</label><input id="atrTakeMult" type="number" step="0.1" value="1.5"></div>
-        <div class="field"><label>移動停利倍數 ATR</label><input id="atrTrailAtr" type="number" step="0.1" value="0.5"></div>
-        <div class="field"><label>移動停利 %</label><input id="atrTrailPct" type="number" step="0.1" value="5"></div>
+        <div class="field"><label>目標停利倍數</label><input id="atrTakeMult" type="number" step="0.1" value="1.5"></div>
+        <div class="field"><label>移動停損倍數 ATR</label><input id="atrTrailAtr" type="number" step="0.1" value="0.5"></div>
+        <div class="field"><label>移動停損 %</label><input id="atrTrailPct" type="number" step="0.1" value="5"></div>
         <button class="btn" id="atrAddBtn">加入觀察</button>
       </div>
       <div id="atrMsg" class="muted" style="font-size:13px;margin-top:10px"></div>

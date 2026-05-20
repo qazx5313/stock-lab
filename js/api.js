@@ -192,7 +192,7 @@ function buildClassThemesFromCaches(){
   Object.keys(priceMap).forEach(sym=>{
     const st=stockMap[sym]||{}, px=priceMap[sym]||{};
     const industry=String(st.industry||'').trim();
-    const market=normMarket(px.market||st.market);
+    const market=normMarket(st.market||px.market);
     if(!/^[1-9]\d{3}$/.test(sym) || !industry || !market) return;
     const label=market==='TPEX'?'上櫃':'上市';
     const name=`${label} · ${industry}`;
@@ -267,7 +267,20 @@ function applyRealtimeQuotes(rows, options={}){
       return;
     }
     if(market==='TAIFEX'){
-      DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:r.source||'TAIFEX_MIS_RT',quote_time:r.quote_time,updated_at:r.updated_at};
+      if(sym==='TAIWANVIX' || /VIX|波動率/i.test(String(r.name||''))){
+        DATA.market.vix={
+          name:r.name||'臺指選擇權波動率指數',
+          v:price,
+          d:q.change,
+          dp:q.change_percent,
+          source:r.source||'TAIFEX_VIX_RT',
+          quote_time:r.quote_time,
+          updated_at:r.updated_at
+        };
+        DATA.realtimeMap.TAIWANVIX=q;
+      }else{
+        DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:r.source||'TAIFEX_MIS_RT',quote_time:r.quote_time,updated_at:r.updated_at};
+      }
       return;
     }
     if(/^[1-9]\d{3}$/.test(sym)){
@@ -563,15 +576,18 @@ async function loadReal(){
         const nmap = await loadNameMap(cpSymbols,d);
         DATA.screen = cp.map(r=>{
           const p = pm[r.symbol]||{}; const s = sm[r.symbol]||{};
+          const info = nmap[r.symbol]||{};
           const cpv = parseFloat(p.change_percent);
           const px = parseFloat(p.close);
           const vol = parseInt(p.volume);
+          const lots = isFinite(vol)?(vol>=1000000?Math.round(vol/1000):Math.round(vol)).toLocaleString('en-US')+' 張':'—';
+          const theme = (Array.isArray(info.theme_tags)&&info.theme_tags.length?info.theme_tags[0]:'') || info.industry || '—';
           return {
-            c:r.symbol, n:(nmap[r.symbol]&&nmap[r.symbol].name)||r.name||'尚無名稱',
-            t:(r.reason||'').slice(0,10)||'—',
+            c:r.symbol, n:info.name||r.name||'尚無名稱',
+            t:theme,
             px:isFinite(px)?px:'—',
             dp:isFinite(cpv)?cpv:0,
-            vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
+            vol:lots,
             reason:r.reason||'成交量 >= 1000 張；站上 MA20/MA60；均線結構轉強；20MA 上升',
             ts:s.technical_score!=null?s.technical_score:'—',
             cs:s.chip_score!=null?s.chip_score:'—',
