@@ -67,9 +67,7 @@ function go(id){
   if(!PAGES.some(x=>x.id===id)) id='home';
   CUR=id;const p=PAGES.find(x=>x.id===id);
   document.getElementById('pgTitle').textContent=p.t;
-  document.getElementById('pgSub').textContent=DATA_REAL_READY
-    ? `${DATA.meta.date}（${DATA.meta.weekday}）盤後${DATA_FROM_CACHE?' · 快取先顯示，背景更新中':''} · ${p.s}`
-    : `等待真實資料 · ${p.s}`;
+  document.getElementById('pgSub').textContent='';
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   document.querySelectorAll('.mob-nav a').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   const v=document.getElementById('view');

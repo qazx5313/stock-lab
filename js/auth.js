@@ -103,6 +103,8 @@ function renderDataFreshness(){
   renderTxFuture();
   const el=document.getElementById('dataFreshness');
   if(!el) return;
+  el.style.display='none';
+  return;
   const latest=(DATA.dataStatus||[])
     .map(d=>d.t)
     .filter(t=>t&&t!=='—')

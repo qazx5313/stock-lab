@@ -1,5 +1,23 @@
 ﻿/* ============ 1. 首頁 ============ */
-function marketTrendSvg(o,color='#22C55E'){
+function chartPointsSvg(points,color='#22C55E'){
+  const rows=(points||[]).map(p=>({p:Number(p.p),a:Number(p.a)})).filter(p=>Number.isFinite(p.p));
+  if(rows.length<2) return '';
+  const sample=rows.filter((_,i)=>i%Math.max(1,Math.floor(rows.length/90))===0).slice(-110);
+  const vals=sample.map(p=>p.p);
+  const min=Math.min(...vals), max=Math.max(...vals), span=max-min||1;
+  const pts=sample.map((p,i)=>{
+    const x=(i/(sample.length-1))*300;
+    const y=66-((p.p-min)/span)*52;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
+    <polyline points="0,70 300,70" fill="none" stroke="#E2E8F0" stroke-width="1"/>
+  </svg>`;
+}
+function marketTrendSvg(o,color='#22C55E',chart=null){
+  const real=chartPointsSvg(chart&&chart.points,color);
+  if(real) return real;
   const d=Number(o&&o.d);
   const pts=Number.isFinite(d)&&d<0
     ? '0,22 36,18 72,30 108,24 144,38 180,34 216,48 252,44 300,58'
@@ -8,6 +26,20 @@ function marketTrendSvg(o,color='#22C55E'){
     <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
     <polyline points="0,70 300,70" fill="none" stroke="#E2E8F0" stroke-width="1"/>
   </svg>`;
+}
+function miniTrendForStock(s){
+  const dp=Number(s&&s.dp);
+  const up=Number.isFinite(dp)&&dp>=0;
+  const seed=String(s&&s.c||'0').split('').reduce((a,b)=>a+Number(b||0),0);
+  const base=up?[18,16,19,13,15,9,11,6]:[6,10,8,14,12,18,16,21];
+  const pts=base.map((y,i)=>`${i*12},${Math.max(3,Math.min(22,y+((seed+i)%3-1)*2))}`).join(' ');
+  return `<svg width="70" height="24" viewBox="0 0 72 24"><polyline points="${pts}" fill="none" stroke="${up?'#22C55E':'#EF4444'}" stroke-width="2"/></svg>`;
+}
+function fmtLots(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return '—';
+  const lots=n>=1000000?Math.round(n/1000):Math.round(n);
+  return lots.toLocaleString('en-US');
 }
 function trendMini(title,o,color){
   return `<div class="card card-pad">
@@ -81,7 +113,7 @@ function vHome(){
            <span class="k">${k}</span>
            <span class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span>
            <span class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span>
-           ${marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E')}
+           ${marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E',k==='加權指數'?m.twseChart:m.tpexChart)}
          </div>`).join('')}
        </div>
      </div>
@@ -116,7 +148,7 @@ function vHome(){
      <div class="card">
        <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
        <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
-         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r"><svg width="70" height="24" viewBox="0 0 70 24"><polyline points="0,19 10,15 20,17 30,11 40,13 50,7 60,9 70,4" fill="none" stroke="#22C55E" stroke-width="2"/></svg></td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
+         ${DATA.picks.slice(0,5).map(s=>`<tr><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td class="r num">${fmtPx(s.px)}</td><td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r">${miniTrendForStock(s)}</td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
        </tbody></table></div>
      </div>
      <div class="card">
@@ -255,9 +287,9 @@ function stockKnownInfo(sym){
     n:(hit&&hit.n&&hit.n!==c&&hit.n!=='尚無名稱')?hit.n:(base.name||c),
     t:(hit&&hit.t)||(hit&&hit.level)||base.industry||'—',
     industry:base.industry||hit&&hit.industry,
-    px:(hit&&isFinite(Number(hit.px)))?Number(hit.px):Number(price.close),
-    dp:(hit&&isFinite(Number(hit.dp)))?Number(hit.dp):Number(price.change_percent),
-    vol:(hit&&hit.vol)||price.volume
+    px:isFinite(Number(price.close))?Number(price.close):((hit&&isFinite(Number(hit.px)))?Number(hit.px):NaN),
+    dp:isFinite(Number(price.change_percent))?Number(price.change_percent):((hit&&isFinite(Number(hit.dp)))?Number(hit.dp):NaN),
+    vol:isFinite(Number(price.volume))?Number(price.volume):(hit&&hit.vol)
   };
 }
 function addWatchStock(stock){
@@ -340,7 +372,7 @@ function vWatch(){
          <td><span class="badge">${esc(s.t||s.theme||s.industry||'—')}</span></td>
          <td class="r num">${fmtPx(s.px)}</td>
          <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>
-         <td class="r num muted">${s.vol??'—'}</td>
+         <td class="r num muted">${fmtLots(s.vol)} 張</td>
          <td class="muted" style="font-size:12px">${String(s.addedAt||'').slice(0,10)||'—'}</td>
          <td style="display:flex;gap:8px;flex-wrap:wrap">
            <button class="btn line sm" data-stock="${s.c}">分析</button>

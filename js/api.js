@@ -222,9 +222,10 @@ function buildClassThemesFromCaches(){
     return am-bm || b.score-a.score;
   });
 }
-function applyRealtimeQuotes(rows){
+function applyRealtimeQuotes(rows, options={}){
   if(!Array.isArray(rows)||!rows.length) return;
-  DATA.realtimeMap={};
+  const merge=options.merge===true;
+  if(!merge) DATA.realtimeMap={};
   const newest=rows.slice().sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')))[0];
   rows.forEach(r=>{
     const sym=String(r.symbol||'').trim();
@@ -281,7 +282,7 @@ function applyRealtimeQuotes(rows){
     DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
   }
 }
-const REAL_CACHE_KEY='stockLabRealCache:v14';
+const REAL_CACHE_KEY='stockLabRealCache:v15';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -656,6 +657,83 @@ async function loadReal(){
       DATA_REAL_READY = false;
       SRC_STATUS = '⚠️ 連線失敗，未顯示 MOCK 股票資料：'+DATA_LOAD_ERROR;
     }
+  }
+}
+
+async function refreshRealtimeOnly(){
+  try{
+    const rq=await sbGet('realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&order=updated_at.desc',20000);
+    applyRealtimeQuotes(rq);
+    saveRealCache();
+    if(typeof renderTxFuture==='function') renderTxFuture();
+    if(['home','watch','stock','ai'].includes(CUR)){
+      go(CUR);
+    }
+    return true;
+  }catch(e){
+    console.warn('即時資料自動刷新略過:',e);
+    return false;
+  }
+}
+
+function taipeiNowParts(){
+  const parts=new Intl.DateTimeFormat('en-US',{
+    timeZone:'Asia/Taipei',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false
+  }).formatToParts(new Date()).reduce((a,p)=>{a[p.type]=p.value;return a;},{});
+  const hh=Number(parts.hour), mm=Number(parts.minute);
+  return {weekday:parts.weekday,hour:hh,minute:mm,total:hh*60+mm};
+}
+function isTaiwanMarketOpenNow(){
+  const p=taipeiNowParts();
+  if(['Sat','Sun'].includes(p.weekday)) return false;
+  return p.total>=9*60 && p.total<=13*60+35;
+}
+function liveSymbolRows(){
+  const out=new Map();
+  const add=(s,market='')=>{
+    const c=String(s&&s.c||s&&s.symbol||s||'').trim();
+    if(!/^[1-9]\d{3}$/.test(c)) return;
+    const st=(DATA.stockMap&&DATA.stockMap[c])||{};
+    out.set(c,{symbol:c,market:market||normMarket(st.market)||''});
+  };
+  (typeof watchlist==='function'?watchlist():[]).forEach(add);
+  (DATA.picks||[]).slice(0,12).forEach(add);
+  (DATA.screen||[]).slice(0,20).forEach(add);
+  (DATA.aiCand||[]).slice(0,20).forEach(add);
+  (DATA.aiPos||[]).slice(0,20).forEach(add);
+  if(DATA.stock&&DATA.stock.c) add(DATA.stock.c);
+  return [...out.values()].slice(0,90);
+}
+let LIVE_EDGE_DISABLED_UNTIL=0;
+async function refreshLiveEdge(){
+  if(typeof EDGE_REALTIME_QUOTE_URL==='undefined' || !isTaiwanMarketOpenNow() || document.hidden) return false;
+  if(Date.now()<LIVE_EDGE_DISABLED_UNTIL) return false;
+  const symbols=liveSymbolRows();
+  try{
+    const r=await fetch(EDGE_REALTIME_QUOTE_URL,{
+      method:'POST',
+      headers:{apikey:SB_ANON,Authorization:`Bearer ${SB_ANON}`,'Content-Type':'application/json'},
+      body:JSON.stringify({symbols})
+    });
+    const text=await r.text();
+    let data={};
+    try{data=text?JSON.parse(text):{};}catch(_){data={error:text};}
+    if(!r.ok || data.ok===false) throw new Error(data.error||`HTTP ${r.status}`);
+    applyRealtimeQuotes(data.rows||[],{merge:true});
+    DATA.meta.realtimeUpdated=fmtDoneTime(new Date().toISOString());
+    if(data.sourceTime) DATA.meta.realtimeUpdated=data.sourceTime;
+    if(DATA.stock&&DATA.stock.c&&DATA.priceMap&&DATA.priceMap[DATA.stock.c]){
+      const q=DATA.priceMap[DATA.stock.c];
+      DATA.stock.px=Number(q.close)||DATA.stock.px;
+      DATA.stock.dp=Number(q.change_percent);
+    }
+    if(typeof renderTxFuture==='function') renderTxFuture();
+    if(['home','watch','stock','ai'].includes(CUR)) go(CUR);
+    return true;
+  }catch(e){
+    console.warn('前台即時報價略過:',e);
+    LIVE_EDGE_DISABLED_UNTIL=Date.now()+60000;
+    return false;
   }
 }
 

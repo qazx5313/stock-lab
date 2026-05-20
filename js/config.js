@@ -5,6 +5,7 @@ const SB_URL  = 'https://wgyumblfupaspzywiwzc.supabase.co';
 const SB_ANON = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6IndneXVtYmxmdXBhc3B6eXdpd3pjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzkwMDg5NjksImV4cCI6MjA5NDU4NDk2OX0.pUur9c40B76uOsI4LphE2cwtE_oqBWUMOwIT-L8qu9g';
 const EDGE_RUN_DAILY_URL = `${SB_URL}/functions/v1/trigger-github-action`;
 const EDGE_ADMIN_WRITE_URL = `${SB_URL}/functions/v1/admin-write`;
+const EDGE_REALTIME_QUOTE_URL = `${SB_URL}/functions/v1/realtime-quote`;
 const ALLOW_DIRECT_BROWSER_WRITES = false;
 let DATA_REAL_READY = false;
 let DATA_LOAD_ERROR = '';
