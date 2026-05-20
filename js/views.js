@@ -56,8 +56,8 @@ function quoteStockCard(s,opts={}){
   const px=Number(s.px), dp=Number(s.dp), ch=Number(s.chg||s.change);
   const vol=Number(s.vol);
   const actions=opts.actions||'';
-  return `<div class="quote-card ${opts.compact?'compact':''}" data-live-row="${s.c}">
-    <div class="quote-side">${side}</div>
+  return `<div class="quote-card ${opts.compact?'compact':''} ${opts.hideMarketSide?'no-side':''}" data-live-row="${s.c}">
+    ${opts.hideMarketSide?'':`<div class="quote-side">${side}</div>`}
     <div class="quote-main">
       <div class="quote-title lnk" data-stock="${s.c}"><span class="code">${s.c}</span> <b>${esc(s.n||s.c)}</b></div>
       <div class="quote-stats">
@@ -260,6 +260,9 @@ let MAP_MARKET='TWSE';
 function mapMarketLabel(){
   return MAP_MARKET==='TPEX'?'上櫃':'上市';
 }
+function themeDisplayName(name){
+  return String(name||'').replace(/^(上市|上櫃)\s*[·・]\s*/,'');
+}
 function mapMarketThemes(){
   const label=mapMarketLabel();
   const rows=(DATA.themes||[]).filter(t=>{
@@ -267,7 +270,7 @@ function mapMarketThemes(){
     if(label==='上市') return n.includes('上市') && !n.includes('上櫃');
     return n.includes('上櫃');
   });
-  return rows.length?rows:(DATA.themes||[]);
+  return rows;
 }
 function vMap(){
   const themes=mapMarketThemes();
@@ -282,7 +285,7 @@ function vMap(){
      <button class="${MAP_MARKET==='TPEX'?'on':''}" data-map-market="TPEX">上櫃</button>
    </div>
    <div style="display:flex;gap:9px;flex-wrap:wrap">
-     ${themes.map(th=>{const n=th.name;
+     ${themes.map(th=>{const n=themeDisplayName(th.name);
        const id=th?th.id:'_'+n;const on=th&&th.id===MAP_SEL;
        return `<span class="chip ${on?'on':''}" data-theme="${id}">${n}${th?` · ${th.score}`:''}</span>`;}).join('')}
    </div>
@@ -291,8 +294,8 @@ function vMap(){
      <div style="padding:20px 22px;display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start;border-bottom:1px solid var(--border-soft)">
        <div style="flex:1;min-width:240px">
          <div style="display:flex;align-items:center;gap:10px">
-           <h2 style="font-size:21px;font-weight:800;letter-spacing:-.4px">${t.name}</h2>${thBadge(t.status)}</div>
-         <p style="color:var(--ink-2);font-size:13.5px;margin-top:8px;line-height:1.55">${t.desc}</p>
+           <h2 style="font-size:21px;font-weight:800;letter-spacing:-.4px">${themeDisplayName(t.name)}</h2>${thBadge(t.status)}</div>
+         <p style="color:var(--ink-2);font-size:13.5px;margin-top:8px;line-height:1.55">${String(t.desc||'').replaceAll(t.name,themeDisplayName(t.name))}</p>
        </div>
        <div class="grid" style="grid-template-columns:repeat(3,auto);gap:24px">
          <div class="stat"><span class="k">熱度分數</span><span class="v" style="color:var(--primary)">${t.score}</span></div>
@@ -304,8 +307,8 @@ function vMap(){
    <div class="card">
      <div class="card-h"><h3>相關個股資料</h3><span class="tag">${stocks.length} 檔 · 點卡片可進個股分析</span></div>
      <div class="card-pad">
-       ${stocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
-       ${stocks.map(s=>quoteStockCard({...s,market:s.market||MAP_MARKET,t:s.level||s.t||t.name,theme:t.name}, {compact:true})).join('')}
+       ${stocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:12px">
+       ${stocks.map(s=>quoteStockCard({...s,market:s.market||MAP_MARKET,t:s.level||s.t||themeDisplayName(t.name),theme:themeDisplayName(t.name)}, {compact:true,hideMarketSide:true})).join('')}
        </div>`:`<div class="muted" style="font-size:13px">此題材尚未有 Supabase 成分股資料。</div>`}
      </div>
    </div>
