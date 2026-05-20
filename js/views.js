@@ -41,6 +41,47 @@ function fmtLots(v){
   const lots=n>=1000000?Math.round(n/1000):Math.round(n);
   return lots.toLocaleString('en-US');
 }
+function quoteStockCard(s,opts={}){
+  const side=String(s.market||s.m||'').toUpperCase()==='TPEX'?'櫃':'市';
+  const px=Number(s.px), dp=Number(s.dp), ch=Number(s.chg||s.change);
+  const vol=Number(s.vol);
+  const actions=opts.actions||'';
+  return `<div class="quote-card ${opts.compact?'compact':''}" data-live-row="${s.c}">
+    <div class="quote-side">${side}</div>
+    <div class="quote-main">
+      <div class="quote-title lnk" data-stock="${s.c}"><span class="code">${s.c}</span> <b>${esc(s.n||s.c)}</b></div>
+      <div class="quote-stats">
+        <div><span>收盤價</span><b data-live-cell="px" class="num ${dcls(dp)}">${Number.isFinite(px)?fmtPx(px):'—'}</b></div>
+        <div><span>漲跌</span><b class="num ${dcls(dp)}">${Number.isFinite(ch)?sgn(ch.toFixed(2)):'—'}</b></div>
+        <div><span>漲跌幅</span><b data-live-cell="dp" class="num ${dcls(dp)}">${Number.isFinite(dp)?sgn(dp.toFixed(2))+'%':'—'}</b></div>
+        <div><span>成交量(張)</span><b data-live-cell="vol" class="num">${Number.isFinite(vol)?fmtLots(vol):'—'}</b></div>
+      </div>
+      ${s.t||s.theme||s.industry?`<div class="quote-tags"><span class="badge">${esc(s.t||s.theme||s.industry)}</span>${s.role?`<span class="badge obs">${esc(s.role)}</span>`:''}</div>`:''}
+    </div>
+    ${actions?`<div class="quote-actions">${actions}</div>`:''}
+  </div>`;
+}
+function mopsNewsPanel(){
+  const news=(DATA.realNewsLoaded?DATA.news:[]).slice(0,8);
+  if(!news.length) return `<div class="card-pad muted" style="font-size:13.5px">尚無真實重大公告資料。</div>`;
+  const cats=['全部','澄清回應','財務數據','公司治理','重大事件'];
+  const counts=Object.fromEntries(cats.map(c=>[c,c==='全部'?news.length:news.filter(n=>n.cat===c).length]));
+  const dates=[...new Set(news.map(n=>n.date).filter(Boolean))].slice(0,7);
+  return `<div class="mops-panel">
+    <div class="mops-chips">
+      ${cats.filter(c=>counts[c]).map((c,i)=>`<span class="mops-chip ${i===0?'on':''}">${c} ${counts[c]}</span>`).join('')}
+    </div>
+    <div class="mops-dates">
+      <span class="mops-date on">今天</span>${dates.slice(1).map(d=>`<span class="mops-date">${d.slice(5).replace('-','/')}</span>`).join('')}
+    </div>
+    <div class="mops-list">
+      ${news.slice(0,5).map(n=>`<div class="mops-item">
+        <span class="mops-label ${n.cat==='重大事件'?'bad':n.cat==='財務數據'?'good':n.cat==='公司治理'?'gov':'info'}">${esc(n.cat||'公告')}</span>
+        <div><b>${esc(n.title)}</b><div class="muted code">${n.c!=='-'?`${n.c} ${n.n}`:''}　${String(n.date||'').replaceAll('-','/')} ${n.time||''}</div></div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
 function txfSession(f){
   const txt=String([f&&f.name,f&&f.source,f&&f.quote_time].filter(Boolean).join(' '));
   if(/-M|AfterHours|night|夜/i.test(txt)) return 'night';
@@ -197,9 +238,7 @@ function vHome(){
      </div>
      <div class="card">
        <div class="card-h"><h3>今日重大公告 / 風險提醒</h3><span class="tag">News & Risk</span></div>
-       <div style="padding:6px 0">
-         ${DATA.realNewsLoaded&&DATA.news.length?DATA.news.slice(0,5).map(x=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft);align-items:flex-start"><span class="badge ${x.k}">${x.k==='good'?'利多':x.k==='bad'?'利空':'中性'}</span><div style="flex:1"><div style="font-size:13.5px;font-weight:700;line-height:1.45">${x.title}</div><div style="font-size:11.5px;color:var(--ink-3);margin-top:3px">${x.c!=='-'?x.c+' '+x.n+' · ':''}${x.time}</div></div></div>`).join(''):`<div class="card-pad muted" style="font-size:13.5px">尚無真實重大公告資料。</div>`}
-       </div>
+       ${mopsNewsPanel()}
      </div>
    </div>
   </div>`;
@@ -256,22 +295,7 @@ function vMap(){
      <div class="card-h"><h3>相關個股資料</h3><span class="tag">${stocks.length} 檔 · 點卡片可進個股分析</span></div>
      <div class="card-pad">
        ${stocks.length?`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:12px">
-       ${stocks.map(s=>`<div class="activation-card lnk" data-stock="${s.c}" style="min-height:142px">
-         <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start">
-           <div><div class="code" style="font-size:13px;color:var(--ink-3)">${s.c}</div>
-           <b style="font-size:18px">${s.n}</b></div>
-           <span class="badge">${s.role||'成分'}</span>
-         </div>
-         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-           <span class="tag">${s.level||'未分類'}</span>
-           <span class="tag">關聯 ${s.score||0}</span>
-         </div>
-         <div style="display:flex;align-items:flex-end;justify-content:space-between;margin-top:14px">
-           <div><div class="muted" style="font-size:11px">收盤</div><div class="num" style="font-weight:800;font-size:18px">${isFinite(s.px)?fmtPx(s.px):'—'}</div></div>
-           <div class="num ${dcls(s.dp)}" style="font-weight:800">${isFinite(s.dp)?sgn(s.dp.toFixed(2))+'%':'—'}</div>
-         </div>
-         <div class="muted" style="font-size:12px;margin-top:8px">${s.note||'尚無補充說明'}</div>
-       </div>`).join('')}
+       ${stocks.map(s=>quoteStockCard({...s,market:s.market||MAP_MARKET,t:s.level||s.t||t.name,theme:t.name}, {compact:true})).join('')}
        </div>`:`<div class="muted" style="font-size:13px">此題材尚未有 Supabase 成分股資料。</div>`}
      </div>
    </div>
@@ -314,6 +338,7 @@ function stockKnownInfo(sym){
     t:(hit&&hit.t)||(hit&&hit.level)||base.industry||'—',
     industry:base.industry||hit&&hit.industry,
     px:isFinite(Number(price.close))?Number(price.close):((hit&&isFinite(Number(hit.px)))?Number(hit.px):NaN),
+    chg:isFinite(Number(price.change))?Number(price.change):((hit&&isFinite(Number(hit.chg)))?Number(hit.chg):NaN),
     dp:isFinite(Number(price.change_percent))?Number(price.change_percent):((hit&&isFinite(Number(hit.dp)))?Number(hit.dp):NaN),
     vol:isFinite(Number(price.volume))?Number(price.volume):(hit&&hit.vol)
   };
@@ -391,20 +416,11 @@ function vWatch(){
    </div>
    <div class="card">
      <div class="card-h"><h3>追蹤列表</h3><span class="tag">${rows.length} 檔 · 點分析可查看完整個股資料</span></div>
-     ${rows.length?`<div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">收盤</th><th class="r">漲跌</th><th class="r">成交量</th><th>加入時間</th><th>操作</th></tr></thead>
-       <tbody>${rows.map(s=>`<tr data-live-row="${s.c}">
-         <td class="code lnk" data-stock="${s.c}">${s.c}</td>
-         <td><b>${esc(s.n||s.c)}</b></td>
-         <td><span class="badge">${esc(s.t||s.theme||s.industry||'—')}</span></td>
-         <td data-live-cell="px" class="r num">${fmtPx(s.px)}</td>
-         <td data-live-cell="dp" class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td>
-         <td data-live-cell="vol" class="r num muted">${fmtLots(s.vol)} 張</td>
-         <td class="muted" style="font-size:12px">${String(s.addedAt||'').slice(0,10)||'—'}</td>
-         <td style="display:flex;gap:8px;flex-wrap:wrap">
-           <button class="btn line sm" data-stock="${s.c}">分析</button>
-           <button class="btn ghost sm" data-watch-remove="${s.c}">移除</button>
-         </td>
-       </tr>`).join('')}</tbody></table></div>`:
+     ${rows.length?`<div class="quote-list">
+       ${rows.map(s=>quoteStockCard(s,{
+         actions:`<button class="btn line sm" data-stock="${s.c}">分析</button><button class="btn ghost sm" data-watch-remove="${s.c}">移除</button><span class="muted" style="font-size:12px">${String(s.addedAt||'').slice(0,10)||'—'}</span>`
+       })).join('')}
+     </div>`:
        `<div class="card-pad"><div class="muted" style="font-size:13.5px">目前還沒有自選股。輸入股票代號後加入，或到個股分析頁把正在看的股票加入自選。</div></div>`}
    </div>
   </div>`;
@@ -896,9 +912,7 @@ function vReport(){
         <div class="card-pad" style="line-height:1.85;font-size:14.5px;white-space:pre-wrap">${esc(customContent)}</div>
       </div>
       <div class="card"><div class="card-h"><h3>推薦股票</h3><span class="tag">管理員可於後台修改</span></div>
-        <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">分數</th><th>理由</th></tr></thead><tbody>
-        ${customPicks.map(p=>`<tr><td class="code lnk" data-stock="${p.c}">${p.c}</td><td><b>${p.n}</b></td><td><span class="badge">${p.t||'—'}</span></td><td class="r num">${p.fs??'—'}</td><td class="muted" style="white-space:normal">${p.ai||'—'}</td></tr>`).join('')}
-        </tbody></table></div>
+        <div class="quote-list">${customPicks.map(p=>quoteStockCard({...stockKnownInfo(p.c),...p,theme:p.t}, {actions:`<span class="badge hot">分數 ${p.fs??'—'}</span><span class="muted" style="font-size:12px">${esc(p.ai||'')}</span>`})).join('')}</div>
       </div>
     </div>`;
   }
@@ -919,12 +933,7 @@ function vReport(){
        </ol>
 
        <p style="margin-top:14px"><b>三、今日精選股票</b></p>
-       ${topPicks.length?topPicks.map(p=>`<div style="background:var(--blue-tint);border:1px solid var(--blue-soft);border-radius:12px;padding:13px 16px;margin-top:8px">
-         <b style="font-size:15px"><span class="code">${p.c}</span> ${p.n}</b> <span class="badge hot" style="margin-left:6px">${p.t||'—'}</span>
-         <div style="margin-top:7px;font-size:13.5px;color:var(--ink-2);line-height:1.7">
-         綜合分 ${p.fs??p.total??'—'} · 技術分 ${p.ts??'—'} · 籌碼分 ${p.cs??'—'} · 題材分 ${p.ms??'—'}<br>
-         ${p.ai||'尚無系統摘要'}</div>
-       </div>`).join(''):'<div class="muted" style="margin-top:8px">尚無精選股票資料</div>'}
+       ${topPicks.length?`<div class="quote-list" style="margin-top:8px">${topPicks.map(p=>quoteStockCard(p,{actions:`<span class="badge hot">總分 ${p.fs??p.total??'—'}</span><span class="muted" style="font-size:12px">${esc(p.ai||'')}</span>`})).join('')}</div>`:'<div class="muted" style="margin-top:8px">尚無精選股票資料</div>'}
 
        <p style="margin-top:14px"><b>四、今日風險股票</b><br>
        ${risks.length?risks.map(r=>`${r.c} ${r.n}（${r.type}）`).join('、'):'尚無真實風險清單資料'}。</p>
@@ -1227,7 +1236,9 @@ function vAdmin(){
        「開通設定」可設定板塊是否開通與使用天數。</div>
    </div>
    <div class="seg" style="flex-wrap:wrap" id="admSeg">
-     ${['股票資料','題材分類','篩選參數','每日報告','開通設定','維修狀態','AI 機器人'].map((t,i)=>`<button class="${i===0?'on':''}" data-tab="${i}">${t}</button>`).join('')}
+     ${[
+       ['開通設定',4],['維修狀態',5],['股票資料',0],['題材分類',1],['篩選參數',2],['每日報告',3],['AI 機器人',6]
+     ].map((r,i)=>`<button class="${i===0?'on':''}" data-tab="${r[1]}">${r[0]}</button>`).join('')}
    </div>
    <div id="admBody"></div>
   </div>`;

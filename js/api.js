@@ -522,13 +522,27 @@ async function loadReal(){
         'mops_announcements?select=date,symbol,company_name,title,category'+
         '&order=date.desc&limit=20', 20);
       if(Array.isArray(anns) && anns.length){
+        const classify=(a)=>{
+          const title=String(a.title||'');
+          if(/財報|營收|盈餘|損益|除權|除息|股利|現金增資|減資/i.test(title)) return {cat:'財務數據',k:'good'};
+          if(/董事會|股東會|董監|委員|改選|法人說明會|審計|薪酬/i.test(title)) return {cat:'公司治理',k:'neu'};
+          if(/重大|併購|收購|處分|投資|訴訟|違約|停工|停業|終止|藥證|臨床|新藥|庫藏股|全額交割|變更交易/i.test(title)) return {cat:'重大事件',k:'bad'};
+          if(/澄清|說明|媒體|傳聞/i.test(title)) return {cat:'澄清回應',k:'neu'};
+          return {cat:'全部',k:'neu'};
+        };
         DATA.news = anns.map(a=>({
+          date:String(a.date||'').slice(0,10),
           c:a.symbol||'-',
           n:a.company_name||'',
-          title:[a.category,a.title].filter(Boolean).join(' · ')||'公告',
+          title:a.title||'公告',
+          sourceCat:a.category||'',
+          cat:classify(a).cat,
           time:String(a.date||'').slice(5).replace('-','/'),
-          k:'neu'
-        }));
+          k:classify(a).k
+        })).sort((a,b)=>{
+          const rank=x=>x.cat==='重大事件'?0:x.cat==='財務數據'?1:x.cat==='公司治理'?2:x.cat==='澄清回應'?3:4;
+          return rank(a)-rank(b) || String(b.date).localeCompare(String(a.date));
+        });
         DATA.realNewsLoaded = true;
       }else{
         DATA.realNewsLoaded = false;

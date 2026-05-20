@@ -155,7 +155,7 @@ function bindPage(id){
     };
   }
   if(id==='admin'){
-    admBody(0);
+    admBody(4);
     const bindAdminControls=()=>{
       const editor=document.getElementById('adminEditor');
       const clearEditor=()=>{if(editor)editor.innerHTML='';};
