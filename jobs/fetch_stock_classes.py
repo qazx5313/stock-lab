@@ -3,9 +3,9 @@
 """
 Build the map page from stock industry classes instead of hand-made themes.
 
-Listed-stock classes come from the official TWSE company profile OpenAPI. The
-result is written into themes/theme_stocks so the existing front end can render
-the same card layout without mock topic data.
+Listed/OTC stock classes come from the official company profile OpenAPI mirrors
+for MOPS disclosures. The result is written into themes/theme_stocks so the
+existing front end can render the same card layout without mock topic data.
 """
 import datetime as dt
 import re
@@ -13,6 +13,7 @@ import time
 from collections import defaultdict
 
 import requests
+from requests.exceptions import SSLError
 
 from sb_common import log, mark_status, sb_delete, sb_select, sb_upsert
 
@@ -90,7 +91,13 @@ def to_float(v):
 
 
 def http_json(url):
-    r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    try:
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    except SSLError:
+        if "tpex.org.tw" not in url:
+            raise
+        requests.packages.urllib3.disable_warnings()  # official TPEx endpoint, Windows cert fallback
+        r = requests.get(url, headers=HEADERS, timeout=TIMEOUT, verify=False)
     time.sleep(0.8)
     if r.status_code != 200:
         raise RuntimeError(f"HTTP {r.status_code}: {url}")
@@ -132,6 +139,33 @@ def fetch_twse_company_classes():
             "name": name or None,
             "industry": industry,
             "market": "TWSE",
+            "theme_tags": [industry],
+        })
+    return rows
+
+
+def fetch_tpex_company_classes():
+    data = http_json("https://www.tpex.org.tw/openapi/v1/mopsfin_t187ap03_O")
+    rows = []
+    for item in data if isinstance(data, list) else []:
+        sym = str(field(item, [
+            "SecuritiesCompanyCode", "公司代號", "出表公司代號", "有價證券代號", "Code"
+        ]) or "").strip()
+        if not is_symbol(sym):
+            continue
+        industry = industry_name(field(item, [
+            "SecuritiesIndustryCode", "產業別", "Industry"
+        ]))
+        name = str(field(item, [
+            "CompanyAbbreviation", "CompanyName", "公司簡稱", "公司名稱", "Name"
+        ]) or "").strip()
+        if not industry:
+            continue
+        rows.append({
+            "symbol": sym,
+            "name": name or None,
+            "industry": industry,
+            "market": "TPEX",
             "theme_tags": [industry],
         })
     return rows
@@ -202,8 +236,7 @@ def build_class_rows(stocks, prices, latest):
             "theme_name": theme_name,
             "description": (
                 f"{theme_name}：成分 {len(members)} 檔，"
-                f"平均漲幅 {avg:.2f}% ，成交金額 {amount / 100000000:.2f} 億；"
-                f"來源 TWSE MIS 股票類股 / 官方公司產業別，交易日 {latest}。"
+                f"平均漲幅 {avg:.2f}% ，成交金額 {amount / 100000000:.2f} 億。"
             ),
             "heat_score": heat,
             "trend_status": status,
@@ -226,20 +259,28 @@ def build_class_rows(stocks, prices, latest):
 def main():
     log("=== fetch_stock_classes start ===")
     twse_rows = fetch_twse_company_classes()
-    sb_upsert("stocks", twse_rows, on_conflict="symbol")
+    tpex_rows = fetch_tpex_company_classes()
+    profile_rows = twse_rows + tpex_rows
+    sb_upsert("stocks", profile_rows, on_conflict="symbol")
     latest = latest_date()
     prices = latest_prices(latest)
     stocks = stock_rows()
     theme_rows, link_rows = build_class_rows(stocks, prices, latest)
     if not theme_rows or not link_rows:
-        msg = f"no class rows built; twse_profiles={len(twse_rows)}; prices={len(prices)}"
+        msg = (
+            f"no class rows built; twse_profiles={len(twse_rows)}; "
+            f"tpex_profiles={len(tpex_rows)}; prices={len(prices)}"
+        )
         mark_status("fetch_stock_classes", False, msg)
         raise RuntimeError(msg)
     sb_delete("theme_stocks", "theme_id=gte.0")
     sb_delete("themes", "id=gte.0")
     tw = sb_upsert("themes", theme_rows, on_conflict="id")
     lw = sb_upsert("theme_stocks", link_rows, on_conflict="theme_id,symbol")
-    msg = f"twse_profiles={len(twse_rows)}; classes={tw}; class_stocks={lw}; latest={latest}"
+    msg = (
+        f"twse_profiles={len(twse_rows)}; tpex_profiles={len(tpex_rows)}; "
+        f"classes={tw}; class_stocks={lw}; latest={latest}"
+    )
     mark_status("fetch_stock_classes", True, msg)
     log("  " + msg)
     log("=== fetch_stock_classes done ===")
