@@ -469,59 +469,68 @@ def fetch_twse_margin():
 
 # ==================================================================
 # 5. MOPS 重大訊息（當日）
-#    來源：新版公開資訊觀測站首頁；資料查詢使用同站重大訊息表格端點。
+#    來源：新版公開資訊觀測站首頁 API。
 # ==================================================================
 def fetch_mops_announcements():
-    import re
-
     log("MOPS 重大訊息…")
     home_url = "https://mops.twse.com.tw/mops/#/web/home"
-    endpoints = [
-        "https://mops.twse.com.tw/mops/web/ajax_t05sr01_1",
-        "https://mopsov.twse.com.tw/mops/web/ajax_t05sr01_1",
-    ]
+    api_url = "https://mops.twse.com.tw/mops/api/home_page/t05sr01_1"
     markets = [
+        ("", "全部"),
         ("sii", "上市"),
         ("otc", "上櫃"),
-        ("rotc", "興櫃"),
-        ("pub", "公發"),
     ]
     rows, seen = [], set()
-    target_days = [TODAY - dt.timedelta(days=i) for i in range(0, 3)]
 
-    def clean_cell(v):
-        text = re.sub(r"<script.*?</script>", "", v, flags=re.S | re.I)
-        text = re.sub(r"<style.*?</style>", "", text, flags=re.S | re.I)
-        text = re.sub(r"<[^>]+>", "", text)
-        return (
-            text.replace("&nbsp;", " ")
-            .replace("&amp;", "&")
-            .replace("&lt;", "<")
-            .replace("&gt;", ">")
-            .strip()
+    def post_home(market_kind):
+        payload = {"count": 20, "marketKind": market_kind}
+        headers = dict(HEADERS_BROWSER)
+        headers.update(
+            {
+                "Content-Type": "application/json",
+                "Referer": home_url,
+                "Origin": "https://mops.twse.com.tw",
+            }
         )
+        last_err = None
+        for attempt in range(1, RETRY + 1):
+            try:
+                r = requests.post(
+                    api_url, headers=headers, data=json.dumps(payload), timeout=TIMEOUT
+                )
+                time.sleep(THROTTLE_SEC)
+                if r.status_code == 200:
+                    return r.json()
+                last_err = f"HTTP {r.status_code}: {r.text[:120]}"
+            except Exception as exc:  # noqa
+                last_err = f"{type(exc).__name__}: {exc}"
+            time.sleep(THROTTLE_SEC * attempt)
+        raise RuntimeError(f"MOPS home_page/t05sr01_1 失敗 ({last_err})")
 
-    def parse_rows(txt, row_date, label):
-        out = []
-        for m in re.finditer(r"<tr[^>]*>(.*?)</tr>", txt, re.S | re.I):
-            cells = re.findall(r"<td[^>]*>(.*?)</td>", m.group(1), re.S | re.I)
-            cells = [clean_cell(c) for c in cells]
-            cells = [c for c in cells if c]
-            if len(cells) < 3:
+    for market_kind, label in markets:
+        data = post_home(market_kind)
+        if int(data.get("code", 0) or 0) != 200:
+            log(f"  MOPS {label}: API code={data.get('code')} message={data.get('message')}")
+            continue
+        items = ((data.get("result") or {}).get("data") or [])
+        for item in items:
+            row_date = parse_roc_or_ymd(item.get("date"))
+            if not row_date:
                 continue
-            code_idx = next((i for i, c in enumerate(cells) if re.fullmatch(r"[1-9]\d{3}", c)), None)
-            if code_idx is None:
+            symbol = str(item.get("companyId") or "").strip()
+            if not symbol.isdigit():
+                symbol = "".join(ch for ch in symbol if ch.isdigit())
+            if len(symbol) != 4:
                 continue
-            symbol = cells[code_idx]
-            company = cells[code_idx + 1] if len(cells) > code_idx + 1 else ""
-            title = cells[-1]
-            if not title or title == company:
+            title = " ".join(str(item.get("subject") or "").split())
+            company = str(item.get("companyAbbreviation") or "").strip()
+            if not title:
                 continue
             key = (row_date.isoformat(), symbol, title)
             if key in seen:
                 continue
             seen.add(key)
-            out.append(
+            rows.append(
                 {
                     "date": row_date.isoformat(),
                     "symbol": symbol,
@@ -532,32 +541,11 @@ def fetch_mops_announcements():
                     "source_url": home_url,
                 }
             )
-        return out
-
-    for day in target_days:
-        if day.weekday() >= 5:
-            continue
-        for typek, label in markets:
-            txt = None
-            params = {
-                "step": "1",
-                "TYPEK": typek,
-                "year": str(day.year - 1911),
-                "month": f"{day.month:02d}",
-                "day": f"{day.day:02d}",
-            }
-            for url in endpoints:
-                try:
-                    txt = http_get(url, params=params, expect="text")
-                    if txt:
-                        break
-                except Exception as exc:
-                    log(f"  MOPS {label} {day} endpoint skipped: {exc}")
-            if txt:
-                rows.extend(parse_rows(txt, day, label))
 
     # Re-running Actions should replace the recent MOPS window, not duplicate it.
-    for day in target_days:
+    target_days = {TODAY - dt.timedelta(days=i) for i in range(0, 7)}
+    target_days.update(parse_roc_or_ymd(r.get("date")) for r in rows)
+    for day in sorted(d for d in target_days if d):
         try:
             sb_delete("mops_announcements", f"date=eq.{day.isoformat()}")
         except Exception as exc:
