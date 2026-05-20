@@ -687,6 +687,14 @@ function isTaiwanMarketOpenNow(){
   if(['Sat','Sun'].includes(p.weekday)) return false;
   return p.total>=9*60 && p.total<=13*60+35;
 }
+function isRealtimeQuoteTimeNow(){
+  const p=taipeiNowParts();
+  const daySession=p.total>=8*60+45 && p.total<=13*60+45;
+  const nightSession=p.total>=15*60 || p.total<=5*60+5;
+  if(p.weekday==='Sun') return false;
+  if(p.weekday==='Sat') return p.total<=5*60+5;
+  return daySession || nightSession;
+}
 function liveSymbolRows(){
   const out=new Map();
   const add=(s,market='')=>{
@@ -705,7 +713,7 @@ function liveSymbolRows(){
 }
 let LIVE_EDGE_DISABLED_UNTIL=0;
 async function refreshLiveEdge(){
-  if(typeof EDGE_REALTIME_QUOTE_URL==='undefined' || !isTaiwanMarketOpenNow() || document.hidden) return false;
+  if(typeof EDGE_REALTIME_QUOTE_URL==='undefined' || !isRealtimeQuoteTimeNow() || document.hidden) return false;
   if(Date.now()<LIVE_EDGE_DISABLED_UNTIL) return false;
   const symbols=liveSymbolRows();
   try{
