@@ -8,6 +8,9 @@ This job is intentionally separated from daily_prices:
   - runs at/after 13:30 Taiwan time also upsert daily_prices as the close snapshot.
 """
 import datetime as dt
+import json
+import random
+import string
 import time
 
 import requests
@@ -24,6 +27,10 @@ HEADERS = {
 }
 MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 MIS_BOOT = "https://mis.twse.com.tw/stock/index?lang=zhHant"
+TAIFEX_AFTER_HOURS = "https://mis.taifex.com.tw/futures/AfterHoursSession/EquityIndices/FuturesDomestic/"
+TAIFEX_REGULAR = "https://mis.taifex.com.tw/futures/RegularSession/EquityIndices/FuturesDomestic/"
+TAIFEX_SEARCH = "https://mis.taifex.com.tw/futures/api/getSearchResult"
+TAIFEX_WS_BASE = "wss://mis.taifex.com.tw/futures/rt"
 REALTIME_KEYS = [
     "symbol", "name", "market", "quote_date", "quote_time",
     "open", "high", "low", "price", "prev_close", "change",
@@ -61,6 +68,13 @@ def parse_date(v):
     return None
 
 
+def parse_taifex_time(v):
+    s = str(v or "").strip()
+    if len(s) == 6 and s.isdigit():
+        return f"{s[:2]}:{s[2:4]}:{s[4:]}"
+    return s or None
+
+
 def norm_market(v):
     s = str(v or "").upper()
     if s in ("TPEX", "OTC") or "上櫃" in s or "櫃買" in s:
@@ -76,6 +90,15 @@ def http_json(url, params=None, session=None):
     if r.status_code != 200:
         raise RuntimeError(f"HTTP {r.status_code}: {url}")
     return r.json()
+
+
+def taifex_headers(referer):
+    return {
+        "User-Agent": HEADERS["User-Agent"],
+        "Referer": referer,
+        "Origin": "https://mis.taifex.com.tw",
+        "Content-Type": "application/json; charset=utf-8",
+    }
 
 
 def collect_symbols():
@@ -192,6 +215,146 @@ def normalize_realtime_row(row):
     return {k: row.get(k) for k in REALTIME_KEYS}
 
 
+def is_taifex_day_session(now_tw):
+    hm = now_tw.hour * 100 + now_tw.minute
+    return 845 <= hm <= 1345
+
+
+def taifex_search_txf(session, referer):
+    session.get(referer, timeout=TIMEOUT)
+    body = json.dumps({"KeyWord": "\u81fa\u6307\u671f"}, ensure_ascii=False).encode("utf-8")
+    r = session.post(TAIFEX_SEARCH, data=body, headers=taifex_headers(referer), timeout=TIMEOUT)
+    if r.status_code != 200:
+        raise RuntimeError(f"TAIFEX search HTTP {r.status_code}")
+    data = r.json()
+    if str(data.get("RtCode")) != "0":
+        raise RuntimeError(f"TAIFEX search {data.get('RtMsg')}")
+    return data.get("RtData") or []
+
+
+def taifex_sockjs_messages(symbols, referer, timeout_sec=9):
+    import websocket
+
+    session_id = "".join(random.choice(string.ascii_letters + string.digits) for _ in range(8))
+    url = f"{TAIFEX_WS_BASE}/000/{session_id}/websocket"
+    ws = websocket.create_connection(
+        url,
+        timeout=timeout_sec,
+        origin="https://mis.taifex.com.tw",
+        header=[f"Referer: {referer}"],
+    )
+    try:
+        first = ws.recv()
+        if first != "o":
+            log(f"  TAIFEX unexpected open frame: {first[:80]}")
+        payload = json.dumps({"type": "subscribe", "symbols": symbols}, separators=(",", ":"))
+        ws.send(json.dumps([payload], separators=(",", ":")))
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline:
+            try:
+                raw = ws.recv()
+            except Exception:
+                break
+            if not raw or raw == "h":
+                continue
+            if raw.startswith("a"):
+                try:
+                    for item in json.loads(raw[1:]):
+                        yield json.loads(item)
+                except Exception as exc:
+                    log(f"  TAIFEX frame parse skipped: {exc}")
+    finally:
+        try:
+            ws.close()
+        except Exception:
+            pass
+
+
+def taifex_quote_score(values):
+    return (
+        to_int(values.get("404")) or to_int(values.get("258")) or 0,
+        to_float(values.get("125")) or to_float(values.get("257")) or 0,
+    )
+
+
+def taifex_quote_to_row(symbol, values):
+    qdate = parse_date(values.get("144"))
+    price = to_float(values.get("125")) or to_float(values.get("257"))
+    ref = to_float(values.get("129"))
+    if not qdate or price is None:
+        return None
+    change = round(price - ref, 2) if ref is not None else None
+    change_percent = round(change / ref * 100, 2) if ref not in (None, 0) and change is not None else None
+    return {
+        "symbol": "TXF",
+        "name": f"台指期 {symbol}",
+        "market": "TAIFEX",
+        "quote_date": qdate,
+        "quote_time": parse_taifex_time(values.get("143") or values.get("880")),
+        "open": to_float(values.get("126")),
+        "high": to_float(values.get("130")),
+        "low": to_float(values.get("131")),
+        "price": price,
+        "prev_close": ref,
+        "change": change,
+        "change_percent": change_percent,
+        "volume": to_int(values.get("404")) or to_int(values.get("258")),
+        "amount": None,
+        "source": "TAIFEX_MIS_RT",
+        "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
+
+
+def fetch_taifex_txf(now_tw):
+    try:
+        sess = requests.Session()
+        sess.headers.update({"User-Agent": HEADERS["User-Agent"]})
+        prefer_day = is_taifex_day_session(now_tw)
+        session_plan = [
+            ("0", "-F", TAIFEX_REGULAR),
+            ("1", "-M", TAIFEX_AFTER_HOURS),
+        ]
+        if not prefer_day:
+            session_plan.reverse()
+        rows = taifex_search_txf(sess, session_plan[0][2])
+        for level_id, suffix, referer in session_plan:
+            symbols = [
+                r.get("SymbolID")
+                for r in rows
+                if r.get("Level1ID") == level_id
+                and r.get("KindID") == "1"
+                and r.get("SymbolType") == "F"
+                and r.get("CID") == "TXF"
+                and str(r.get("SymbolID") or "").endswith(suffix)
+            ]
+            symbols = [s for s in symbols if s and s not in ("TXF-S", "TXF-P")][:8]
+            if not symbols:
+                continue
+            by_symbol = {s: {} for s in symbols}
+            for msg in taifex_sockjs_messages(symbols, referer):
+                if msg.get("type") != "quote":
+                    continue
+                quote = msg.get("quote") or {}
+                symbol = quote.get("symbol")
+                if symbol in by_symbol:
+                    by_symbol[symbol].update(quote.get("values") or {})
+            best_symbol, best_values = None, None
+            for symbol, values in by_symbol.items():
+                row = taifex_quote_to_row(symbol, values)
+                if not row:
+                    continue
+                if best_values is None or taifex_quote_score(values) > taifex_quote_score(best_values):
+                    best_symbol, best_values = symbol, values
+            if best_symbol and best_values:
+                row = taifex_quote_to_row(best_symbol, best_values)
+                log(f"  TAIFEX TXF {best_symbol} price={row.get('price')} change={row.get('change')} vol={row.get('volume')}")
+                return row
+        return None
+    except Exception as exc:
+        log(f"  TAIFEX TXF realtime skipped: {exc}")
+        return None
+
+
 def latest_txf_fallback():
     try:
         rows = sb_select(
@@ -241,7 +404,7 @@ def main():
         rows.append(r)
         if r["market"] in ("TWSE", "TPEX"):
             stock_rows.append({"symbol": r["symbol"], "name": r["name"], "market": r["market"], "updated_at": r["updated_at"]})
-    txf = latest_txf_fallback()
+    txf = fetch_taifex_txf(now_tw) or latest_txf_fallback()
     if txf and txf.get("price") is not None:
         rows.append(txf)
     rows = [normalize_realtime_row(r) for r in rows]
