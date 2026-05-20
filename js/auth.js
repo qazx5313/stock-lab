@@ -142,8 +142,8 @@ async function saveRemoteMaintenance(rows){
     await adminWrite('save_page_maintenance',rows);
     DATA.maintenance={};
     rows.forEach(r=>{DATA.maintenance[r.id]={id:r.id,name:r.name,maintenance:!!r.maintenance,message:r.message||''};});
-    return true;
-  }catch(e){ console.warn('app_page_maintenance 儲存略過:',e); return false; }
+    return {ok:true};
+  }catch(e){ console.warn('app_page_maintenance 儲存略過:',e); return {ok:false,error:e&&e.message?e.message:String(e)}; }
 }
 async function loadRemoteUsers(){
   try{

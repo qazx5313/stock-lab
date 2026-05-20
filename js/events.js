@@ -345,8 +345,11 @@ function bindPage(id){
           message:(document.getElementById('maint_msg_'+a.id)||{}).value||a.message
         }));
         saveMaintenance.disabled=true;saveMaintenance.textContent='儲存中…';
-        const ok=await saveRemoteMaintenance(rows);
-        if(msg){msg.textContent=ok?'已儲存板塊維修狀態':'儲存失敗，請確認 Edge Function 與資料表';msg.style.color=ok?'var(--up)':'#92400E';}
+        const result=await saveRemoteMaintenance(rows);
+        if(msg){
+          msg.textContent=result.ok?'已儲存板塊維修狀態':'儲存失敗：'+(result.error||'請確認 Edge Function 與資料表');
+          msg.style.color=result.ok?'var(--up)':'#92400E';
+        }
         saveMaintenance.disabled=false;saveMaintenance.textContent='儲存維修狀態';
         buildNav();
       };
