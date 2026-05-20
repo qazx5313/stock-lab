@@ -30,6 +30,12 @@ function fmtTwAmount(v){
   if(Math.abs(n)>=1e4) return `${(n/1e4).toLocaleString('en-US',{maximumFractionDigits:0})} 萬`;
   return Math.round(n).toLocaleString('en-US');
 }
+function parseMarketChartSource(v){
+  try{
+    const data=JSON.parse(String(v||'{}'));
+    return Array.isArray(data.points)?data:null;
+  }catch(_){return null;}
+}
 function chunks(arr,size){
   const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out;
 }
@@ -236,6 +242,20 @@ function applyRealtimeQuotes(rows){
       quote_time:r.quote_time,
       updated_at:r.updated_at
     };
+    if(market==='TWSE_CHART' || market==='TPEX_CHART'){
+      const chart=parseMarketChartSource(r.source);
+      const target=market==='TWSE_CHART'?'twse':'tpex';
+      const amount=Number(r.amount);
+      DATA.market[target+'Chart']=chart;
+      if(Number.isFinite(amount) && amount>0){
+        if(target==='twse') DATA.market.amtTwse=fmtTwAmount(amount);
+        else DATA.market.amtTpex=fmtTwAmount(amount);
+        const tw=Number(String(DATA.market.amtTwse||'').replace(/[^\d.-]/g,''))||0;
+        const tp=Number(String(DATA.market.amtTpex||'').replace(/[^\d.-]/g,''))||0;
+        if(tw||tp) DATA.market.amtTotal=`${(tw+tp).toLocaleString('en-US',{maximumFractionDigits:0})} 億`;
+      }
+      return;
+    }
     if(market==='TWSE_INDEX'){
       DATA.market.twse={name:'加權指數',v:price,d:q.change,dp:q.change_percent};
       return;
@@ -261,7 +281,7 @@ function applyRealtimeQuotes(rows){
     DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
   }
 }
-const REAL_CACHE_KEY='stockLabRealCache:v13';
+const REAL_CACHE_KEY='stockLabRealCache:v14';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -374,7 +394,7 @@ async function loadReal(){
       });
     }catch(e){ console.warn('股票基本資料快取略過:',e); }
     try{
-      const rq=await sbGet('realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,updated_at&order=updated_at.desc',20000);
+      const rq=await sbGet('realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&order=updated_at.desc',20000);
       applyRealtimeQuotes(rq);
     }catch(e){ console.warn('即時報價載入略過:',e); }
 
@@ -396,12 +416,12 @@ async function loadReal(){
         if(r.market==='TWSE') DATA.market.twse=o;
         else if(r.market==='TPEX') DATA.market.tpex=o;
         else if(r.market==='TXF' && DATA.market.txFut?.source!=='TAIFEX_MIS_RT') DATA.market.txFut=o;
-        if(r.market==='TWSE' && r.amount!=null) DATA.market.amtTwse=fmtTwAmount(r.amount);
-        if(r.market==='TPEX' && r.amount!=null) DATA.market.amtTpex=fmtTwAmount(r.amount);
+        if(r.market==='TWSE' && Number(r.amount)>0 && !DATA.market.twseChart) DATA.market.amtTwse=fmtTwAmount(r.amount);
+        if(r.market==='TPEX' && Number(r.amount)>0 && !DATA.market.tpexChart) DATA.market.amtTpex=fmtTwAmount(r.amount);
       });
       const twAmt=(idx||[]).find(r=>r.market==='TWSE'&&r.amount!=null);
       const tpAmt=(idx||[]).find(r=>r.market==='TPEX'&&r.amount!=null);
-      if(twAmt&&tpAmt) DATA.market.amtTotal=fmtTwAmount(Number(twAmt.amount)+Number(tpAmt.amount));
+      if(twAmt&&tpAmt && Number(twAmt.amount)>0 && Number(tpAmt.amount)>0 && !DATA.market.twseChart && !DATA.market.tpexChart) DATA.market.amtTotal=fmtTwAmount(Number(twAmt.amount)+Number(tpAmt.amount));
     }catch(e){ console.warn('指數載入略過:',e); }
 
     // 精選股：以 daily_signals 綜合分前 8（符合「系統綜合評分篩出」）
