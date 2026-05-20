@@ -1,0 +1,41 @@
+name: Realtime intraday market pipeline
+
+on:
+  schedule:
+    # GitHub Actions uses UTC. Taiwan time is UTC+8.
+    - cron: "15 1 * * 1-5"   # 09:15 Taiwan time, first full-market scan
+    - cron: "0 2-5 * * 1-5"   # 10:00 / 11:00 / 12:00 / 13:00 Taiwan time
+    - cron: "30 5 * * 1-5"    # 13:30 Taiwan time, close snapshot
+  workflow_dispatch: {}
+
+jobs:
+  realtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: 1) Fetch TWSE MIS realtime quotes
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python fetch_realtime_quotes.py
+
+      - name: 2) Refresh AI intraday candidates and positions
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python run_ai_intraday.py
