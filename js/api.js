@@ -245,7 +245,7 @@ function applyRealtimeQuotes(rows){
       return;
     }
     if(market==='TAIFEX'){
-      DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent};
+      DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:'TAIFEX_MIS_RT',updated_at:r.updated_at};
       return;
     }
     if(/^[1-9]\d{3}$/.test(sym)){
@@ -261,7 +261,7 @@ function applyRealtimeQuotes(rows){
     DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
   }
 }
-const REAL_CACHE_KEY='stockLabRealCache:v12';
+const REAL_CACHE_KEY='stockLabRealCache:v13';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -395,7 +395,7 @@ async function loadReal(){
           dp };
         if(r.market==='TWSE') DATA.market.twse=o;
         else if(r.market==='TPEX') DATA.market.tpex=o;
-        else if(r.market==='TXF') DATA.market.txFut=o;
+        else if(r.market==='TXF' && DATA.market.txFut?.source!=='TAIFEX_MIS_RT') DATA.market.txFut=o;
         if(r.market==='TWSE' && r.amount!=null) DATA.market.amtTwse=fmtTwAmount(r.amount);
         if(r.market==='TPEX' && r.amount!=null) DATA.market.amtTpex=fmtTwAmount(r.amount);
       });
