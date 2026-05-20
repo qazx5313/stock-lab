@@ -1169,7 +1169,7 @@ function vAdmin(){
        「開通設定」可設定板塊是否開通與使用天數。</div>
    </div>
    <div class="seg" style="flex-wrap:wrap" id="admSeg">
-     ${['股票資料','題材分類','篩選參數','每日報告','開通設定','AI 機器人'].map((t,i)=>`<button class="${i===0?'on':''}" data-tab="${i}">${t}</button>`).join('')}
+     ${['股票資料','題材分類','篩選參數','每日報告','開通設定','維修狀態','AI 機器人'].map((t,i)=>`<button class="${i===0?'on':''}" data-tab="${i}">${t}</button>`).join('')}
    </div>
    <div id="admBody"></div>
   </div>`;
@@ -1302,6 +1302,29 @@ function admBody(i){
         <span id="activationMsg" class="muted" style="font-size:13px"></span>
       </div>
     </div>`;}
+  else if(i===5){
+    const rows=maintenanceSettings();
+    b.innerHTML=`<div class="card">
+      <div class="card-h"><h3>板塊維修狀態</h3><span class="tag">管理員仍可進入測試，一般會員會看到維修中</span></div>
+      <div class="card-pad activation-grid">
+        ${rows.map(a=>`<div class="activation-card" data-maint="${a.id}">
+          <div class="toggle-row">
+            <div><b>${a.name}</b><div class="muted" style="font-size:12px;margin-top:2px">${a.id}</div></div>
+            <button class="toggle ${a.maintenance?'on':''}" data-maint-toggle="${a.id}" aria-label="切換 ${a.name} 維修狀態"></button>
+          </div>
+          <div class="field" style="margin-top:12px">
+            <label>會員看到的提示</label>
+            <input id="maint_msg_${a.id}" value="${esc(a.message||'此板塊正在維修更新，完成後會重新開放。')}">
+          </div>
+          <div class="muted" style="font-size:12px;margin-top:8px">${a.maintenance?'目前：維修中':'目前：開放'}</div>
+        </div>`).join('')}
+      </div>
+      <div class="card-pad" style="border-top:1px solid var(--border-soft);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <button class="btn" id="saveMaintenanceBtn">儲存維修狀態</button>
+        <span id="maintenanceMsg" class="muted" style="font-size:13px"></span>
+      </div>
+    </div>`;
+  }
   else{b.innerHTML=`<div class="card"><div class="card-h"><h3>AI 機器人管理</h3></div>
     <div class="tbl-wrap"><table><thead><tr><th>AI 名稱</th><th>策略</th><th>初始資金</th><th>持股上限</th><th>單檔上限</th><th>停損</th><th>停利</th><th>版本</th><th>啟用</th></tr></thead><tbody>
     ${DATA.agents.map(a=>`<tr><td><b>${a.name}</b></td><td class="muted">${a.type}</td>

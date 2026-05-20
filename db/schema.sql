@@ -36,6 +36,31 @@ create table if not exists daily_prices(
 create index if not exists idx_daily_prices_symbol on daily_prices(symbol);
 create index if not exists idx_daily_prices_date on daily_prices(date);
 
+-- ---------- 即時盤中報價 ----------
+-- 盤中資料獨立存放，避免 09:15 / 整點資料覆蓋正式日 K。
+-- 收盤後的 MIS job 仍會寫入 daily_prices。
+create table if not exists realtime_quotes(
+  symbol text,
+  name text,
+  market text,                 -- TWSE / TPEX / TWSE_INDEX / TPEX_INDEX / TAIFEX
+  quote_date date,
+  quote_time text,
+  open numeric,
+  high numeric,
+  low numeric,
+  price numeric,
+  prev_close numeric,
+  change numeric,
+  change_percent numeric,
+  volume bigint,
+  amount bigint,
+  source text default 'TWSE_MIS',
+  updated_at timestamptz default now(),
+  primary key(symbol,market)
+);
+create index if not exists idx_realtime_quotes_updated on realtime_quotes(updated_at desc);
+create index if not exists idx_realtime_quotes_symbol on realtime_quotes(symbol);
+
 create table if not exists institutional_trades(
   date date,
   symbol text,
@@ -259,6 +284,30 @@ create table if not exists data_status(
   run_date date
 );
 
+-- ---------- 會員自選股 ----------
+create table if not exists app_watchlist(
+  account text not null,
+  symbol text not null,
+  name text,
+  note text,
+  sort_order int default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  primary key(account,symbol)
+);
+create index if not exists idx_app_watchlist_account on app_watchlist(account,sort_order,updated_at desc);
+alter table app_watchlist enable row level security;
+drop policy if exists "public_read" on app_watchlist;
+
+-- ---------- 前台板塊維修狀態 ----------
+create table if not exists app_page_maintenance(
+  page_id text primary key,
+  name text,
+  maintenance bool default false,
+  message text,
+  updated_at timestamptz default now()
+);
+
 -- ============================================================
 -- RLS（Row Level Security）權限設定
 -- 目標：anon key 只能「讀」，寫入只能用 service_role（繞過 RLS）
@@ -271,7 +320,8 @@ begin
     'mops_announcements','monthly_revenue','themes','theme_stocks',
     'daily_signals','candidate_pool','ai_agents','ai_candidates',
     'ai_backtests','ai_deep_analysis','ai_positions','ai_trades',
-    'ai_reviews','ai_strategy_versions','data_status'
+    'ai_reviews','ai_strategy_versions','data_status',
+    'realtime_quotes','app_page_maintenance'
   ]
   loop
     execute format('alter table %I enable row level security;', t);

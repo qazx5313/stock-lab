@@ -8,12 +8,14 @@ const STATUS_LABELS={
   fetch_mops_announcements:'MOPS 重大訊息',
   fetch_monthly_revenue:'MOPS 月營收',
   fetch_mis_daily_prices:'MIS 即時盤後報價',
+  fetch_realtime_quotes:'MIS 即時盤中報價',
   fetch_stock_classes:'股票類股分類',
   fetch_company_info:'公司基本資料',
   fetch_index:'市場指數',
   validate_mis_quotes:'MIS 收盤價校驗',
   compute_signals:'每日訊號計算',
-  run_ai_lab:'AI 實驗室'
+  run_ai_lab:'AI 實驗室',
+  run_ai_intraday:'AI 即時候選 / 持股'
 };
 function fmtDoneTime(v){
   if(!v) return '—';
@@ -214,12 +216,57 @@ function buildClassThemesFromCaches(){
     return am-bm || b.score-a.score;
   });
 }
-const REAL_CACHE_KEY='stockLabRealCache:v11';
+function applyRealtimeQuotes(rows){
+  if(!Array.isArray(rows)||!rows.length) return;
+  DATA.realtimeMap={};
+  const newest=rows.slice().sort((a,b)=>String(b.updated_at||'').localeCompare(String(a.updated_at||'')))[0];
+  rows.forEach(r=>{
+    const sym=String(r.symbol||'').trim();
+    const market=String(r.market||'').trim();
+    const price=Number(r.price);
+    if(!sym || !Number.isFinite(price)) return;
+    const q={
+      symbol:sym,name:r.name,market,
+      close:price,price,
+      change:Number(r.change),
+      change_percent:Number(r.change_percent),
+      volume:Number(r.volume),
+      amount:Number(r.amount),
+      date:r.quote_date,
+      quote_time:r.quote_time,
+      updated_at:r.updated_at
+    };
+    if(market==='TWSE_INDEX'){
+      DATA.market.twse={name:'加權指數',v:price,d:q.change,dp:q.change_percent};
+      return;
+    }
+    if(market==='TPEX_INDEX'){
+      DATA.market.tpex={name:'櫃買指數',v:price,d:q.change,dp:q.change_percent};
+      return;
+    }
+    if(market==='TAIFEX'){
+      DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent};
+      return;
+    }
+    if(/^[1-9]\d{3}$/.test(sym)){
+      DATA.realtimeMap[sym]=q;
+      DATA.priceMap=DATA.priceMap||{};
+      DATA.priceMap[sym]={...(DATA.priceMap[sym]||{}),...q};
+      DATA.stockMap=DATA.stockMap||{};
+      DATA.stockMap[sym]={...(DATA.stockMap[sym]||{}),symbol:sym,name:r.name||DATA.stockMap[sym]?.name,market:market||DATA.stockMap[sym]?.market};
+    }
+  });
+  if(newest){
+    DATA.meta.updated=fmtDoneTime(newest.updated_at);
+    DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
+  }
+}
+const REAL_CACHE_KEY='stockLabRealCache:v12';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
   'agents','aiCand','aiBack','aiDeep','aiTrades','aiReviews','aiVersions',
-  'dataStatus','appSettings','realNewsLoaded','stockMap','priceMap'
+  'dataStatus','appSettings','realNewsLoaded','stockMap','priceMap','realtimeMap','maintenance'
 ];
 function saveRealCache(){
   try{
@@ -326,6 +373,10 @@ async function loadReal(){
         if(sym) DATA.stockMap[sym]=r;
       });
     }catch(e){ console.warn('股票基本資料快取略過:',e); }
+    try{
+      const rq=await sbGet('realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,updated_at&order=updated_at.desc',20000);
+      applyRealtimeQuotes(rq);
+    }catch(e){ console.warn('即時報價載入略過:',e); }
 
     // 大盤指數（真實，取最新一日）
     try{
@@ -546,6 +597,11 @@ async function loadReal(){
         if(DATA.appSettings.daily_report_note) setReportNote(DATA.appSettings.daily_report_note);
       }
     }catch(e){ console.warn('app_settings 載入略過:',e); }
+    try{
+      const pm=await sbGet('app_page_maintenance?select=page_id,name,maintenance,message,updated_at&order=page_id.asc',100);
+      DATA.maintenance={};
+      (pm||[]).forEach(r=>{DATA.maintenance[r.page_id]={id:r.page_id,name:r.name,maintenance:!!r.maintenance,message:r.message||'',updated_at:r.updated_at};});
+    }catch(e){ console.warn('app_page_maintenance 載入略過:',e); }
 
     // ---- 資料來源狀態：讀每個 job 最新一筆完成紀錄 ----
     try{

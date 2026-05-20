@@ -46,6 +46,20 @@ function setMemberEntitlements(account, rows){
 function reportNote(){return localStorage.getItem('stockLabReportNote')||'';}
 function setReportNote(v){v?localStorage.setItem('stockLabReportNote',v):localStorage.removeItem('stockLabReportNote');}
 function isAdmin(){const u=authUser();return u&&u.role==='admin';}
+function maintenanceSettings(){
+  const remote=DATA.maintenance||{};
+  return PAGES.filter(p=>!p.topOnly).map(p=>({
+    id:p.id,
+    name:p.t,
+    maintenance:!!(remote[p.id]&&remote[p.id].maintenance),
+    message:(remote[p.id]&&remote[p.id].message)||'此板塊正在維修更新，完成後會重新開放。'
+  }));
+}
+function isPageMaintenance(id){
+  if(isAdmin()) return false;
+  const m=(DATA.maintenance||{})[id];
+  return !!(m&&m.maintenance);
+}
 function hasAccess(id){
   if(isAdmin()) return true;
   const u=authUser();
@@ -122,6 +136,14 @@ async function saveRemoteActivation(acts){
     await adminWrite('save_activation_settings',acts);
     return true;
   }catch(e){ console.warn('app_activation_settings 儲存略過:',e); return false; }
+}
+async function saveRemoteMaintenance(rows){
+  try{
+    await adminWrite('save_page_maintenance',rows);
+    DATA.maintenance={};
+    rows.forEach(r=>{DATA.maintenance[r.id]={id:r.id,name:r.name,maintenance:!!r.maintenance,message:r.message||''};});
+    return true;
+  }catch(e){ console.warn('app_page_maintenance 儲存略過:',e); return false; }
 }
 async function loadRemoteUsers(){
   try{

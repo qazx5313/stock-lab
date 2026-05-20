@@ -74,7 +74,9 @@ function go(id){
   document.querySelectorAll('.mob-nav a').forEach(n=>n.classList.toggle('active',n.dataset.go===id));
   const v=document.getElementById('view');
   try{
-    if(!isPageAllowed(id)){
+    if(isPageMaintenance(id)){
+      v.innerHTML=vMaintenance(id);
+    }else if(!isPageAllowed(id)){
       v.innerHTML=vLoginRequired(id);
     }else if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
       v.innerHTML=vDataUnavailable();
@@ -117,6 +119,16 @@ function vLoginRequired(id){
       這個板塊可以預覽入口，但內容需要登入帳號並完成開通後才會顯示。
     </div>
     <div style="margin-top:14px"><button class="btn" data-go="account">登入 / 申請帳號</button></div>
+  </div>`;
+}
+function vMaintenance(id){
+  const p=PAGES.find(x=>x.id===id)||{};
+  const m=(DATA.maintenance||{})[id]||{};
+  return `<div class="card card-pad" style="max-width:760px;margin:24px auto;border-color:#FDE68A;background:#FFFBEB">
+    <h3 style="font-size:18px;margin-bottom:8px">${p.t||'此板塊'}維修更新中</h3>
+    <div style="font-size:13.5px;line-height:1.75;color:#92400E">
+      ${esc(m.message||'管理員正在測試新版內容，完成後會重新開放。')}
+    </div>
   </div>`;
 }
 

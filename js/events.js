@@ -327,6 +327,29 @@ function bindPage(id){
         const msg=document.getElementById('activationMsg');
         if(msg){msg.textContent='已儲存 '+account+' 的板塊開通與天數';msg.style.color='var(--up)';}
       };
+      document.querySelectorAll('[data-maint-toggle]').forEach(btn=>btn.onclick=()=>{
+        const rows=maintenanceSettings();
+        const item=rows.find(a=>a.id===btn.dataset.maintToggle);
+        if(item){
+          item.maintenance=!item.maintenance;
+          DATA.maintenance=DATA.maintenance||{};
+          rows.forEach(r=>{DATA.maintenance[r.id]={id:r.id,name:r.name,maintenance:!!r.maintenance,message:(document.getElementById('maint_msg_'+r.id)||{}).value||r.message};});
+          admBody(5);bindAdminControls();
+        }
+      });
+      const saveMaintenance=document.getElementById('saveMaintenanceBtn');
+      if(saveMaintenance)saveMaintenance.onclick=async()=>{
+        const msg=document.getElementById('maintenanceMsg');
+        const rows=maintenanceSettings().map(a=>({
+          ...a,
+          message:(document.getElementById('maint_msg_'+a.id)||{}).value||a.message
+        }));
+        saveMaintenance.disabled=true;saveMaintenance.textContent='儲存中…';
+        const ok=await saveRemoteMaintenance(rows);
+        if(msg){msg.textContent=ok?'已儲存板塊維修狀態':'儲存失敗，請確認 Edge Function 與資料表';msg.style.color=ok?'var(--up)':'#92400E';}
+        saveMaintenance.disabled=false;saveMaintenance.textContent='儲存維修狀態';
+        buildNav();
+      };
     };
     document.querySelectorAll('#admSeg button').forEach(btn=>btn.onclick=()=>{
       document.querySelectorAll('#admSeg button').forEach(b=>b.classList.remove('on'));

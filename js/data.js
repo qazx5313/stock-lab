@@ -2,6 +2,8 @@
    注意：正式畫面會等 Supabase 載入成功才顯示資料頁；載入失敗時不渲染下列舊占位資料。 */
 const DATA = {
   meta:{date:'載入中',weekday:'',updated:'—'},
+  realtimeMap:{},
+  maintenance:{},
 
   market:{
     twse:{name:'加權指數',v:21684.32,d:+182.45,dp:+0.85},
