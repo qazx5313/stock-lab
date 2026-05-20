@@ -433,6 +433,12 @@ if(hadCache){
 }
 loadRemoteActivation().then(()=>{ buildNav(); });
 loadRemoteUsers().then(()=>{ if(isAdmin()&&CUR==='admin') go('admin'); });
+if(authUser()){
+  loadRemoteEntitlements(authUser().account).then(()=>{
+    buildNav();
+    go(CUR||'home');
+  });
+}
 /* 背景嘗試載入真實資料，成功後重繪當前頁；失敗時顯示錯誤，不顯示 MOCK 股票資料 */
 loadReal().then(()=>{ go(CUR||'home'); });
 

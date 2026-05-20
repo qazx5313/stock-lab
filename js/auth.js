@@ -63,6 +63,7 @@ function isPageMaintenance(id){
   return !!(m&&m.maintenance);
 }
 function hasAccess(id){
+  if(id==='home' || id==='map') return true;
   if(isAdmin()) return true;
   const u=authUser();
   if(!u) return false;
@@ -74,11 +75,9 @@ function isPageAllowed(id){
   if(!p || p.topOnly) return id==='account';
   if(id==='home' || id==='map') return true;
   if(!authUser()) return false;
-  if(id==='status') return isAdmin();
+  if(id==='admin' || id==='status') return isAdmin();
   if(isAdmin()) return true;
-  if(['watch','atr','screen','stock','observe','report'].includes(id)) return true;
-  if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(id);
-  return true;
+  return hasAccess(id);
 }
 function remainingDays(){
   if(isAdmin()) return '無限制';
@@ -168,10 +167,12 @@ async function loadRemoteEntitlements(account){
   if(!account) return;
   try{
     const rows=await sbGet(`app_user_entitlements?select=account,page_id,name,enabled,days&account=eq.${encodeURIComponent(account)}`,500);
-    if(Array.isArray(rows)&&rows.length){
-      setMemberEntitlements(account, rows.map(r=>({id:r.page_id,name:r.name||r.page_id,enabled:!!r.enabled,days:Number(r.days)||0})));
-    }
+    setMemberEntitlements(account, Array.isArray(rows)
+      ? rows.map(r=>({id:r.page_id,name:r.name||r.page_id,enabled:!!r.enabled,days:Number(r.days)||0}))
+      : []);
+    return true;
   }catch(e){ console.warn('app_user_entitlements 載入略過:',e); }
+  return false;
 }
 async function saveRemoteEntitlements(account, rows){
   try{

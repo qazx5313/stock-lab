@@ -33,10 +33,9 @@ function visiblePages(){
     if(p.topOnly) return false;
     if(['home','map','watch','atr','screen','stock','observe','report'].includes(p.id)) return true;
     if(!authUser()) return false;
-    if(p.id==='status') return isAdmin();
+    if(p.id==='admin' || p.id==='status') return isAdmin();
     if(isAdmin()) return true;
-    if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(p.id);
-    return true;
+    return hasAccess(p.id);
   });
 }
 function buildNav(){
