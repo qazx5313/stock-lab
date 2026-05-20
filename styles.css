@@ -135,6 +135,7 @@
     box-shadow:var(--shadow);overflow:hidden;min-height:94px;
   }
   .quote-card.compact{grid-template-columns:30px minmax(0,1fr);min-height:118px}
+  .quote-card.no-side,.quote-card.compact.no-side{grid-template-columns:minmax(0,1fr) auto}
   .quote-side{
     background:#8B5CF6;color:#fff;font-weight:900;font-size:14px;
     display:flex;align-items:flex-start;justify-content:center;padding-top:9px;
@@ -151,6 +152,10 @@
   .quote-stats div:last-child{border-right:0}
   .quote-stats span{display:block;color:var(--ink-2);font-size:12px;font-weight:700;margin-bottom:3px}
   .quote-stats b{font-size:15px;font-weight:900}
+  .quote-card.compact .quote-stats{grid-template-columns:repeat(4,minmax(58px,1fr))}
+  .quote-card.compact .quote-stats div{padding:10px 8px 0}
+  .quote-card.compact .quote-stats span{font-size:11px}
+  .quote-card.compact .quote-stats b{font-size:13px}
   .quote-tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
   .quote-actions{display:flex;flex-direction:column;gap:8px;align-items:flex-end;justify-content:center;padding:12px;border-left:1px solid var(--border-soft);min-width:132px}
   .mops-panel{padding:10px 0 0}
@@ -190,6 +195,15 @@
   .top-user span{font-size:12px;color:var(--ink-2);font-weight:700}
   .activation-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
   .activation-card{border:1px solid var(--border);border-radius:12px;padding:13px 14px;background:#fff}
+  .mini-tile{border:1px solid var(--border-soft);border-radius:10px;background:#F8FAFC;padding:12px 14px;display:flex;flex-direction:column;gap:5px;min-width:0}
+  .mini-tile span{font-size:11px;color:var(--ink-2);font-weight:800}
+  .mini-tile b{font-size:19px;font-weight:900}
+  .mini-tile small{font-size:11px;color:var(--ink-3);line-height:1.4}
+  .mini-tile.danger{background:#FEF2F2;border-color:#FECACA}
+  .mini-tile.success{background:#F0FDF4;border-color:#BBF7D0}
+  .mini-tile.cool{background:var(--blue-tint);border-color:var(--blue-soft)}
+  .atr-card .card-h{align-items:center}
+  .observe-card{align-items:stretch}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .toggle{width:42px;height:24px;border-radius:999px;background:#CBD5E1;position:relative;flex-shrink:0}
   .toggle:after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;left:3px;top:3px;transition:.15s;box-shadow:var(--shadow)}

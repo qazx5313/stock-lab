@@ -52,6 +52,15 @@ async function rest(path: string, init: RequestInit = {}) {
   return body;
 }
 
+async function restOptional(path: string, init: RequestInit = {}) {
+  try {
+    return await rest(path, init);
+  } catch (e) {
+    if (String((e as Error).message ?? e).includes("PGRST205")) return null;
+    throw e;
+  }
+}
+
 async function authAdmin(path: string, init: RequestInit = {}) {
   const r = await fetch(`${SUPABASE_URL}/auth/v1/${path}`, {
     ...init,
@@ -214,6 +223,16 @@ Deno.serve(async (req) => {
       return json({ ok: true, data });
     }
 
+    if (action === "heartbeat_online") {
+      const account = await getCurrentAccount(req);
+      if (!account) return json({ ok: false, error: "Login required" }, 401);
+      const data = await rest("app_online_sessions?on_conflict=account", {
+        method: "POST",
+        body: JSON.stringify({ account, last_seen: new Date().toISOString() }),
+      });
+      return json({ ok: true, data });
+    }
+
     if (!(await isAdminUser(req))) {
       return json({ ok: false, error: "Admin only" }, 403);
     }
@@ -280,8 +299,8 @@ Deno.serve(async (req) => {
       }) as { users?: Array<{ id: string; email?: string }> };
       const user = found.users?.find((u) => u.email === authEmail);
       if (user?.id) await authAdmin(`admin/users/${user.id}`, { method: "DELETE" });
-      await rest(`app_user_entitlements?account=eq.${encodeURIComponent(account)}`, { method: "DELETE" });
-      await rest(`app_watchlist?account=eq.${encodeURIComponent(account)}`, { method: "DELETE" });
+      await restOptional(`app_user_entitlements?account=eq.${encodeURIComponent(account)}`, { method: "DELETE" });
+      await restOptional(`app_watchlist?account=eq.${encodeURIComponent(account)}`, { method: "DELETE" });
       await rest(`app_users?account=eq.${encodeURIComponent(account)}`, { method: "DELETE" });
       return json({ ok: true });
     }
@@ -371,6 +390,26 @@ Deno.serve(async (req) => {
         updated_at: new Date().toISOString(),
       })).filter((r) => r.page_id);
       const data = await rest("app_page_maintenance?on_conflict=page_id", {
+        method: "POST",
+        body: JSON.stringify(cleaned),
+      });
+      return json({ ok: true, data });
+    }
+
+    if (action === "save_observations") {
+      const p = payload as Record<string, unknown>;
+      const rows = Array.isArray(p.rows) ? p.rows as Array<Record<string, unknown>> : [];
+      const cleaned = rows.map((r) => ({
+        symbol: asText(r.symbol),
+        name: asText(r.name),
+        category: asText(r.category) || "觀察",
+        note: asText(r.note),
+        is_active: r.is_active !== false,
+        updated_at: new Date().toISOString(),
+      })).filter((r) => /^[1-9]\d{3}$/.test(r.symbol));
+      await restOptional("app_observation_reports?id=not.is.null", { method: "DELETE" });
+      if (!cleaned.length) return json({ ok: true, data: [] });
+      const data = await rest("app_observation_reports", {
         method: "POST",
         body: JSON.stringify(cleaned),
       });

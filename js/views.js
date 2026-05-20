@@ -85,7 +85,7 @@ function mopsNewsPanel(){
       <span class="mops-date on">今天</span>${dates.slice(1).map(d=>`<span class="mops-date">${d.slice(5).replace('-','/')}</span>`).join('')}
     </div>
     <div class="mops-list">
-      ${news.slice(0,5).map(n=>`<div class="mops-item">
+      ${news.map(n=>`<div class="mops-item">
         <span class="mops-label ${n.cat==='重大事件'?'bad':n.cat==='財務數據'?'good':n.cat==='公司治理'?'gov':'info'}">${esc(n.cat||'公告')}</span>
         <div><b>${esc(n.title)}</b><div class="muted code">${n.c!=='-'?`${n.c} ${n.n}`:''}　${String(n.date||'').replaceAll('-','/')} ${n.time||''}</div></div>
       </div>`).join('')}
@@ -134,28 +134,50 @@ function trendMini(title,o,color){
     ${marketTrendSvg(o,color)}
   </div>`;
 }
+function marketSummaryCard(title,o,extra='',chart=null){
+  const d=Number(o&&o.d), dp=Number(o&&o.dp), v=Number(o&&o.v);
+  return `<div class="pick-card best market-card">
+    <div class="pick-top">
+      <div style="min-width:0;flex:1">
+        <div class="pick-code">${esc(title)}</div>
+        <div class="pick-name num ${dcls(d)}">${Number.isFinite(v)?fmtPx(v):'—'}</div>
+        <div class="num ${dcls(d)}" style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
+      </div>
+    </div>
+    ${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart)}
+    ${extra?`<div class="flow-list" style="margin-top:10px">${extra}</div>`:''}
+  </div>`;
+}
+function fearIndexPanel(){
+  const m=DATA.market||{};
+  const up=Number(m.up)||0, down=Number(m.down)||0;
+  const total=Math.max(1,up+down+(Number(m.flat)||0));
+  const fear=Math.max(0,Math.min(100,Math.round((down/total)*100)));
+  const label=fear>=70?'恐慌':fear>=55?'偏恐慌':fear>=40?'中性震盪':'偏樂觀';
+  return `<div class="card card-pad">
+    <div class="sec-title">恐慌指數</div>
+    <div class="meter"><div class="meter-arc"><div class="needle" style="transform:rotate(${Math.round(-55+fear*1.1)}deg)"></div></div></div>
+    <b style="font-size:22px">${fear}</b>
+    <div style="font-size:20px;font-weight:900;margin-top:4px">${label}</div>
+    <div class="muted" style="font-size:12.5px;margin-top:8px">依上市櫃漲跌家數、跌停家數與市場強弱估算。</div>
+  </div>`;
+}
+function capitalFlowPanel(){
+  const themes=(DATA.themes||[]).slice(0,8);
+  return `<div class="card">
+    <div class="card-h"><h3>資金流向</h3><span class="tag">類股成交金額 · 熱度</span><span class="more" data-go="map">類股地圖 →</span></div>
+    <div class="tbl-wrap"><table><thead><tr><th>類股</th><th class="r">平均漲幅</th><th>熱度</th><th>狀態</th></tr></thead><tbody>
+      ${themes.map(t=>`<tr><td><b class="lnk" data-go="map">${esc(typeof themeDisplayName==='function'?themeDisplayName(t.name):t.name)}</b><div style="font-size:11px;color:var(--ink-3);margin-top:2px">${esc(t.chain||'')}</div></td><td class="r num ${String(t.gain).startsWith('-')?'down':'up'}">${t.gain}</td><td>${scoreCell(t.score)}</td><td>${thBadge(t.status)}</td></tr>`).join('')}
+    </tbody></table></div>
+  </div>`;
+}
 function vHome(){
   const m=DATA.market;
-  const idxVal=o=>Number.isFinite(Number(o&&o.v))?fmtPx(o.v):'—';
-  const idxDiff=o=>Number.isFinite(Number(o&&o.d))&&Number.isFinite(Number(o&&o.dp))
-    ? `${sgn(Number(o.d).toFixed(2))} (${sgn(Number(o.dp).toFixed(2))}%)`
-    : '—';
-  const ov=[
-    ['加權指數',m.twse],
-    ['櫃買指數',m.tpex],
-  ];
-  const picks=DATA.picks.slice(0,3);
-  const flat=Number(m.flat)||0;
-  const total=Math.max(1,m.up+m.down+flat);
-  const upw=Math.max(12,Math.round(m.up/total*100))+'%';
-  const downw=Math.max(12,Math.round(m.down/total*100))+'%';
-  const tw=m.twseDist||{};
-  const tp=m.tpexDist||{};
   return `<div class="dash fade stagger">
    <div class="dash-head">
      <div>
-       <div class="dash-title"><span class="target">◎</span>今日台股關注清單</div>
-       <div class="hint">盤後量化 AI 依題材、技術與籌碼整理，快速掃描隔日觀察重點。</div>
+       <div class="dash-title"><span class="target">◎</span>今日市場總覽</div>
+       <div class="hint">即時指數、台指期與資金流向整合，盤後資料完成後自動補齊法人與技術訊號。</div>
      </div>
      <div class="spacer"></div>
      <span class="badge hot">資料日 ${DATA.meta.date}</span>
@@ -163,91 +185,23 @@ function vHome(){
    </div>
 
    <div class="pick-grid">
-     ${picks.map((s,i)=>`<div class="pick-card ${i<2?'best':'watch'}" data-stock="${s.c}">
-       <div class="pick-top">
-         <div style="min-width:0;flex:1">
-           <div class="pick-code">${s.c}</div>
-           <div class="pick-name">${s.n}</div>
-           <div style="margin-top:10px"><span class="badge ${i<2?'cool':'warm'}">${i<2?'強勢關注':'穩健關注'}</span></div>
-         </div>
-         <div class="score-ring" style="--score:${s.fs}"><i><span>總分</span><b>${s.fs}</b></i></div>
-       </div>
-       <div class="pick-scores">
-         <div class="mini-score"><span>基本面</span><b>${Math.max(35,Math.round((s.cs+s.ms)/2))}/50</b></div>
-         <div class="mini-score"><span>技術分</span><b>${Math.max(35,Math.round(s.ts/2))}/50</b></div>
-       </div>
-       <div class="pick-tags"><span class="badge">${s.t}</span><span class="badge obs">MACD 多方</span><span class="badge obs">RSI 健康</span></div>
-     </div>`).join('')}
+     ${marketSummaryCard('台指期',m.txFut,`<div class="flow-row"><span>時段</span><span>${txfSession(m.txFut)==='night'?'夜盤':'早盤'}</span></div><div class="flow-row"><span>更新</span><span>${m.txFut&&m.txFut.quote_time||'—'}</span></div>`)}
+     ${marketSummaryCard('加權指數',m.twse,`<div class="flow-row"><span>成交金額</span><span>${m.amtTwse||'—'}</span></div>`,m.twseChart)}
+     ${marketSummaryCard('櫃買指數',m.tpex,`<div class="flow-row"><span>成交金額</span><span>${m.amtTpex||'—'}</span></div>`,m.tpexChart)}
    </div>
 
-   <div class="dash-metrics">
-     <div class="card card-pad">
-       <div class="sec-title">市場環境</div>
-       <div class="meter"><div class="meter-arc"><div class="needle"></div></div></div>
-       <div style="display:flex;flex-direction:column;gap:4px">
-         <b style="font-size:20px">${m.status}</b>
-         <span class="muted" style="font-size:12.5px">${m.statusNote}</span>
-       </div>
-     </div>
-     <div class="card card-pad">
-       <div class="sec-title">今日走勢圖</div>
-       <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
-         ${ov.map(([k,o])=>`<div class="stat">
-           <span class="k">${k}</span>
-           <span data-live="${k==='加權指數'?'twse-v':'tpex-v'}" class="v ${dcls(Number(o&&o.d))}">${idxVal(o)}</span>
-           <span data-live="${k==='加權指數'?'twse-d':'tpex-d'}" class="d ${dcls(Number(o&&o.d))}">${idxDiff(o)}</span>
-           ${marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E',k==='加權指數'?m.twseChart:m.tpexChart)}
-         </div>`).join('')}
-       </div>
-     </div>
-     <div class="card card-pad">
-       <div class="sec-title">漲跌分布</div>
-       <div style="display:grid;grid-template-columns:1fr;gap:10px">
-         ${[
-           ['上市',tw],
-           ['上櫃',tp],
-           ['合計',{up:m.up,down:m.down,flat:flat,limitUp:m.limitUp,limitDown:m.limitDown}]
-         ].map(([k,x])=>`<div style="display:grid;grid-template-columns:46px repeat(3,1fr);align-items:center;gap:8px;font-size:12px">
-           <b>${k}</b>
-           <span class="num up">漲 ${Number(x.up)||0}</span>
-           <span class="num down">跌 ${Number(x.down)||0}</span>
-           <span class="num">平 ${Number(x.flat)||0}</span>
-         </div>`).join('')}
-       </div>
-       <div class="barline" style="--upw:${upw};--downw:${downw}"><i></i><i></i><i></i></div>
-       <div class="muted" style="font-size:12px;margin-top:12px">上市漲停 ${tw.limitUp||0} / 跌停 ${tw.limitDown||0} · 上櫃漲停 ${tp.limitUp||0} / 跌停 ${tp.limitDown||0}</div>
-     </div>
-     <div class="card card-pad">
-       <div class="sec-title">成交金額</div>
-       <div class="flow-list">
-         <div class="flow-row"><span>上市</span><span data-live="amt-twse" class="up">${m.amtTwse}</span></div>
-         <div class="flow-row"><span>上櫃</span><span data-live="amt-tpex" class="up">${m.amtTpex}</span></div>
-         <div class="flow-row"><span>合計</span><span data-live="amt-total">${m.amtTotal||'—'}</span></div>
-       </div>
-     </div>
-   </div>
-
-   <div class="dashboard-table-grid">
-     <div class="card">
-       <div class="card-h"><h3>自選股掃描</h3><span class="tag">Watchlist Scanner</span><span class="more" data-go="screen">查看全部 →</span></div>
-       <div class="tbl-wrap"><table><thead><tr><th>股票</th><th class="r">收盤</th><th class="r">漲跌幅</th><th class="r">趨勢</th><th class="r">總分</th><th>備註</th></tr></thead><tbody>
-         ${DATA.picks.slice(0,5).map(s=>`<tr data-live-row="${s.c}"><td><b class="code lnk" data-stock="${s.c}">${s.c}</b> <b>${s.n}</b></td><td data-live-cell="px" class="r num">${fmtPx(s.px)}</td><td data-live-cell="dp" class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r">${miniTrendForStock(s)}</td><td class="r"><b class="num" style="color:var(--primary)">${s.fs}</b></td><td><span class="badge ${s.fs>=84?'cool':s.fs>=78?'warm':'obs'}">${s.fs>=84?'強勢關注':s.fs>=78?'持續觀察':'中性觀察'}</span></td></tr>`).join('')}
-       </tbody></table></div>
-     </div>
-     <div class="card" data-live-card="txf">
-       ${txFuturePanel()}
-     </div>
+   <div class="grid" style="grid-template-columns:320px 1fr">
+     ${fearIndexPanel()}
+     ${capitalFlowPanel()}
    </div>
 
    <div class="grid" style="grid-template-columns:1fr 1fr">
      <div class="card">
-       <div class="card-h"><h3>今日強勢題材排行</h3><span class="tag">熱度分數 · 升溫 / 主流 / 降溫</span><span class="more" data-go="map">產業地圖 →</span></div>
-       <div class="tbl-wrap"><table><thead><tr><th>題材</th><th class="r">平均漲幅</th><th>熱度</th><th>狀態</th></tr></thead><tbody>
-         ${DATA.themes.slice(0,6).map(t=>`<tr><td><b class="lnk" data-go="map">${t.name}</b><div style="font-size:11px;color:var(--ink-3);margin-top:2px">${t.chain}</div></td><td class="r up num">${t.gain}</td><td>${scoreCell(t.score)}</td><td>${thBadge(t.status)}</td></tr>`).join('')}
-       </tbody></table></div>
+       <div class="card-h"><h3>市場行事曆</h3><span class="tag">Macro / Earnings</span></div>
+       <div class="card-pad muted" style="font-size:13.5px;line-height:1.7">待 GitHub Actions 連接 MacroMicro 行事曆後顯示每日總經公布與美股財報時程。</div>
      </div>
      <div class="card">
-       <div class="card-h"><h3>今日重大公告 / 風險提醒</h3><span class="tag">News & Risk</span></div>
+       <div class="card-h"><h3>重大公告 / 風險提醒</h3><span class="tag">News & Risk</span></div>
        ${mopsNewsPanel()}
      </div>
    </div>
@@ -270,7 +224,13 @@ function mapMarketThemes(){
     if(label==='上市') return n.includes('上市') && !n.includes('上櫃');
     return n.includes('上櫃');
   });
-  return rows;
+  if(rows.length) return rows;
+  const built=typeof buildClassThemesFromCaches==='function'?buildClassThemesFromCaches():[];
+  return built.filter(t=>{
+    const n=String(t.name||'').trim();
+    if(label==='上市') return n.includes('上市') && !n.includes('上櫃');
+    return n.includes('上櫃');
+  });
 }
 function vMap(){
   const themes=mapMarketThemes();
@@ -320,8 +280,12 @@ const SEL=new Set(['今日漲幅 > 3%','站上 20MA','三大法人合計買超',
 const WATCH_KEY='stockLabWatchlist';
 let WATCH_REMOTE_LOADED=false;
 let WATCH_SYNC_STATUS='';
+function watchKey(){
+  const u=authUser&&authUser();
+  return u&&u.account?`${WATCH_KEY}:${u.account}`:WATCH_KEY;
+}
 function watchlist(){
-  return readStore(WATCH_KEY,[]).filter(x=>x&&/^[1-9]\d{3}$/.test(String(x.c||'')));
+  return readStore(watchKey(),[]).filter(x=>x&&/^[1-9]\d{3}$/.test(String(x.c||'')));
 }
 function setWatchlist(rows){
   const seen=new Set();
@@ -334,7 +298,7 @@ function setWatchlist(rows){
     seen.add(x.c);
     return true;
   });
-  writeStore(WATCH_KEY,clean);
+  writeStore(watchKey(),clean);
 }
 function stockKnownInfo(sym){
   const c=String(sym||'').trim();
@@ -442,21 +406,18 @@ function vScreen(){
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div class="card card-pad">
      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px">
-       <b style="font-size:15px">篩選條件</b><span class="tag" style="color:var(--ink-3);font-size:12px">點選下方條件即時篩選 · 已選 <b id="selCnt">${SEL.size}</b> 項</span>
-       <button class="btn ghost sm" id="clrBtn" style="margin-left:auto">清除</button>
-       <button class="btn sm" id="runBtn">執行篩選</button>
+       <b style="font-size:15px">篩選條件</b><span class="tag" style="color:var(--ink-3);font-size:12px">成交量 >= 1000 張 · 站上 MA20/MA60 · MA5 > MA10 > MA20 > MA60 · 20MA 上升</span>
+       <button class="btn sm" id="runBtn" style="margin-left:auto">重新整理</button>
      </div>
-     ${Object.entries(DATA.filters).map(([g,arr])=>`<div style="margin-top:16px">
-       <div class="sec-title" style="margin-bottom:9px">${g}條件</div>
-       <div style="display:flex;gap:8px;flex-wrap:wrap">
-       ${arr.map(f=>`<span class="chip ${SEL.has(f)?'on':''}" data-f="${f}">${f}</span>`).join('')}
-       </div></div>`).join('')}
+     <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+       ${['有量','有趨勢','均線結構轉強','短中期動能偏多'].map(f=>`<span class="chip on">${f}</span>`).join('')}
+     </div>
    </div>
    <div class="card">
-     <div class="card-h"><h3>篩選結果</h3><span class="tag"><b id="resCnt">${DATA.screen.length}</b> 檔符合 · 依綜合分排序</span>
+     <div class="card-h"><h3>篩選結果</h3><span class="tag"><b id="resCnt">${DATA.screen.length}</b> 檔符合 · 依量能與趨勢排序</span>
        <span class="more">匯出 CSV →</span></div>
      <div class="tbl-wrap"><table><thead><tr><th>代號</th><th>名稱</th><th>題材</th><th class="r">收盤</th><th class="r">漲跌</th>
-       <th class="r">成交量</th><th class="r">技術分</th><th class="r">籌碼分</th><th class="r">題材分</th><th class="r">總分</th><th>操作</th></tr></thead>
+       <th class="r">成交量</th><th>符合條件</th><th>操作</th></tr></thead>
        <tbody id="resBody">${rowsScreen(DATA.screen)}</tbody></table></div>
    </div>
   </div>`;
@@ -465,8 +426,7 @@ function rowsScreen(list){
   return list.map(s=>`<tr><td class="code lnk" data-stock="${s.c}">${s.c}</td><td><b>${s.n}</b></td>
     <td><span class="badge">${s.t}</span></td><td class="r num">${fmtPx(s.px)}</td>
     <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r num muted">${s.vol}</td>
-    <td class="r num">${s.ts}</td><td class="r num">${s.cs}</td><td class="r num">${s.ms}</td>
-    <td class="r"><b class="num" style="color:var(--primary);font-size:14px">${s.total}</b></td>
+    <td class="muted" style="white-space:normal;min-width:240px">${esc(s.reason||'成交量 >= 1000 張；站上 MA20/MA60；均線多頭排列；20MA 上升')}</td>
     <td><button class="btn line sm" data-stock="${s.c}">分析</button></td></tr>`).join('');
 }
 
@@ -1253,14 +1213,93 @@ function vAIDetail(id){
   </div>`;
 }
 
-/* ============ 7. 後台管理 ============ */
+/* ============ 7. ATR 停利停損 / 觀察報告 ============ */
+function atrKey(){
+  const u=authUser&&authUser();
+  return u&&u.account?`stockLabAtrWatch:${u.account}`:'stockLabAtrWatch';
+}
+function atrRows(){return readStore(atrKey(),[]);}
+function setAtrRows(rows){writeStore(atrKey(),rows);}
+function atrCard(r){
+  const s=stockKnownInfo(r.c);
+  const px=Number(s.px||r.current||r.entry||0);
+  const atr=Number(r.atr||px*0.035||0);
+  const stop=Number(r.stop||Number(r.entry)-atr*Number(r.stopMult||1));
+  const take=Number(r.take||Number(r.entry)+atr*Number(r.takeMult||1.5));
+  const trailBase=Math.max(Number(r.high||0),px,Number(r.entry||0));
+  const trail=Math.max(stop,trailBase-atr*Number(r.trailAtr||0.5),trailBase*(1-Number(r.trailPct||5)/100));
+  const rr=(take-Number(r.entry))/(Number(r.entry)-stop);
+  return `<div class="card atr-card">
+    <div class="card-h"><h3><span class="code">${r.c}</span> ${esc(s.n||r.n||r.c)}</h3><span class="badge ${r.dir==='short'?'bad':'good'}">${r.dir==='short'?'做空':'做多'} ▲</span></div>
+    <div class="card-pad">
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
+        ${[['現價',fmtPx(px),''],['ATR 值',fmtPx(atr),'cool'],['買入價',fmtPx(r.entry),''],['風險報酬比',Number.isFinite(rr)?`1 : ${rr.toFixed(2)}`:'—','']].map(x=>`<div class="mini-tile"><span>${x[0]}</span><b class="num ${x[2]}">${x[1]}</b></div>`).join('')}
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px">
+        <div class="mini-tile danger"><span>固定停利停損</span><b class="num down">${fmtPx(stop)}</b><small>初始停損</small></div>
+        <div class="mini-tile success"><span>固定停利價</span><b class="num up">${fmtPx(take)}</b><small>目標獲利</small></div>
+        <div class="mini-tile cool"><span>移動停利停損</span><b class="num up">${fmtPx(trail)}</b><small>只升不降，股價創高自動上移</small></div>
+      </div>
+      <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 停利 ${r.takeMult||1.5} 倍 · 移動停利 ${r.trailAtr||0.5} ATR 或 ${r.trailPct||5}%</div>
+      <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn line sm" data-atr-remove="${r.c}">移除觀察</button></div>
+    </div>
+  </div>`;
+}
+function vATR(){
+  const rows=atrRows();
+  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+    <div class="card card-pad">
+      <h3 style="font-size:20px;margin-bottom:14px">ATR 停利停損 + 移動停利</h3>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;align-items:end">
+        <div class="field"><label>股票代號</label><input id="atrSymbol" placeholder="2330"></div>
+        <div class="field"><label>買入價</label><input id="atrEntry" type="number" step="0.01" placeholder="買入價"></div>
+        <div class="field"><label>ATR 週期</label><input id="atrPeriod" type="number" value="14"></div>
+        <div class="field"><label>停損倍數</label><input id="atrStopMult" type="number" step="0.1" value="1"></div>
+        <div class="field"><label>停利倍數</label><input id="atrTakeMult" type="number" step="0.1" value="1.5"></div>
+        <div class="field"><label>移動停利倍數 ATR</label><input id="atrTrailAtr" type="number" step="0.1" value="0.5"></div>
+        <div class="field"><label>移動停利 %</label><input id="atrTrailPct" type="number" step="0.1" value="5"></div>
+        <button class="btn" id="atrAddBtn">加入觀察</button>
+      </div>
+      <div id="atrMsg" class="muted" style="font-size:13px;margin-top:10px"></div>
+    </div>
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px">
+      ${rows.length?rows.map(atrCard).join(''):`<div class="card card-pad muted" style="font-size:13.5px">尚未加入 ATR 觀察股票。</div>`}
+    </div>
+  </div>`;
+}
+function observeCards(){
+  const rows=Array.isArray(DATA.observations)?DATA.observations:[];
+  if(!rows.length) return `<div class="card card-pad muted" style="font-size:13.5px">目前尚無管理員發布的觀察報告。</div>`;
+  return rows.map(r=>{
+    const s=stockKnownInfo(r.symbol||r.c);
+    return `<div class="quote-card no-side observe-card">
+      <div class="quote-main">
+        <div class="quote-title lnk" data-stock="${s.c}"><span class="code">${s.c}</span> <b>${esc(s.n||r.name||s.c)}</b></div>
+        <div class="quote-stats">
+          <div><span>收盤價</span><b class="num ${dcls(Number(s.dp))}">${fmtPx(s.px)}</b></div>
+          <div><span>漲跌幅</span><b class="num ${dcls(Number(s.dp))}">${Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</b></div>
+          <div><span>成交量(張)</span><b class="num">${Number.isFinite(Number(s.vol))?fmtLots(s.vol):'—'}</b></div>
+        </div>
+        <div class="quote-tags"><span class="badge">${esc(s.industry||s.t||'—')}</span><span class="badge obs">${esc(r.category||'觀察')}</span></div>
+        <div style="font-size:13px;line-height:1.7;margin-top:12px;color:var(--ink-2)">${esc(r.note||'管理員尚未填寫觀察備註')}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+function vObserve(){
+  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
+    <div class="card card-pad"><h3 style="font-size:20px;margin-bottom:6px">觀察報告</h3><div class="muted" style="font-size:13.5px">由管理員發布觀察股票與觀察理由，一般會員可在前台查看。</div></div>
+    <div class="quote-list">${observeCards()}</div>
+  </div>`;
+}
+
+/* ============ 8. 後台管理 ============ */
 function vAdmin(){
   if(!isAdmin()){
     return `<div class="fade account-grid">
       <div class="card card-pad auth-panel">
         <h3 style="font-size:18px;margin-bottom:10px">需要管理員登入</h3>
         <div class="muted" style="font-size:13.5px;line-height:1.7">後台管理、板塊開通設定與使用天數設定只開放管理員帳號操作。</div>
-        <div style="margin-top:14px"><span class="badge warm">請使用 Supabase app_users 內 role=admin 的帳號</span></div>
       </div>
       <div class="card card-pad">
         <h3 style="font-size:18px;margin-bottom:12px">管理員登入</h3>
@@ -1280,11 +1319,11 @@ function vAdmin(){
      <b style="font-size:13.5px">📌 說明</b>
      <div style="font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.6">
        股票、題材、AI 資料皆由系統每日盤後自動抓取與計算維護，此處為檢視。
-       「開通設定」可設定板塊是否開通與使用天數。</div>
+       「開通設定」可設定板塊是否開通與使用天數。${DATA.onlineCount?`目前在線使用人數：${DATA.onlineCount}`:''}</div>
    </div>
    <div class="seg" style="flex-wrap:wrap" id="admSeg">
      ${[
-       ['開通設定',4],['維修狀態',5],['股票資料',0],['題材分類',1],['篩選參數',2],['每日報告',3],['AI 機器人',6]
+       ['開通設定',4],['維修狀態',5],['觀察報告',6],['股票資料',0],['題材分類',1],['篩選參數',2],['每日報告',3],['AI 機器人',7]
      ].map((r,i)=>`<button class="${i===0?'on':''}" data-tab="${r[1]}">${r[0]}</button>`).join('')}
    </div>
    <div id="admBody"></div>
@@ -1438,6 +1477,19 @@ function admBody(i){
       <div class="card-pad" style="border-top:1px solid var(--border-soft);display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <button class="btn" id="saveMaintenanceBtn">儲存維修狀態</button>
         <span id="maintenanceMsg" class="muted" style="font-size:13px"></span>
+      </div>
+    </div>`;
+  }
+  else if(i===6){
+    const txt=(DATA.observations||[]).map(r=>`${r.symbol||r.c},${r.name||''},${r.category||'觀察'},${r.note||''}`).join('\n');
+    b.innerHTML=`<div class="card">
+      <div class="card-h"><h3>觀察報告管理</h3><span class="tag">每行：代號,名稱,分類,觀察原因</span></div>
+      <div class="card-pad">
+        <textarea id="observeInput" style="width:100%;min-height:220px;padding:10px 12px;border:1px solid var(--border);border-radius:9px;font-family:var(--mono);font-size:13px;outline:none" placeholder="2330,台積電,觀察,站上月線且法人回補">${esc(txt)}</textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:12px">
+          <button class="btn" id="saveObserveBtn">儲存觀察報告</button>
+          <span id="observeMsg" class="muted" style="font-size:13px"></span>
+        </div>
       </div>
     </div>`;
   }

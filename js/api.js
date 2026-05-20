@@ -549,7 +549,7 @@ async function loadReal(){
       }
     }catch(e){ DATA.realNewsLoaded = false; console.warn('公告載入略過:',e); }
 
-    // ---- 每日篩選：讀 candidate_pool（綜合分排序）----
+    // ---- 每日篩選：讀 candidate_pool（均線 + 量能條件）----
     try{
       const cp = await sbGet(
         `candidate_pool?select=symbol,name,score,reason&date=eq.${d}`+
@@ -572,6 +572,7 @@ async function loadReal(){
             px:isFinite(px)?px:'—',
             dp:isFinite(cpv)?cpv:0,
             vol:isFinite(vol)?vol.toLocaleString('en-US'):'—',
+            reason:r.reason||'成交量 >= 1000 張；站上 MA20/MA60；均線結構轉強；20MA 上升',
             ts:s.technical_score!=null?s.technical_score:'—',
             cs:s.chip_score!=null?s.chip_score:'—',
             ms:s.theme_score!=null?s.theme_score:'—',
@@ -580,6 +581,12 @@ async function loadReal(){
         });
       }
     }catch(e){ console.warn('candidate_pool 載入略過:',e); }
+
+    // ---- 觀察報告 ----
+    try{
+      const obs=await sbGet('app_observation_reports?select=symbol,name,category,note,is_active,updated_at&is_active=eq.true&order=updated_at.desc&limit=40',80);
+      DATA.observations=(obs||[]).map(r=>({symbol:r.symbol,c:r.symbol,name:r.name,category:r.category,note:r.note,updated_at:r.updated_at}));
+    }catch(e){ DATA.observations=[]; console.warn('app_observation_reports 載入略過:',e); }
 
     // ---- AI 量化實驗室：讀真實 ai_* 資料 ----
     try{
@@ -638,6 +645,14 @@ async function loadReal(){
       DATA.maintenance={};
       (pm||[]).forEach(r=>{DATA.maintenance[r.page_id]={id:r.page_id,name:r.name,maintenance:!!r.maintenance,message:r.message||'',updated_at:r.updated_at};});
     }catch(e){ console.warn('app_page_maintenance 載入略過:',e); }
+    try{
+      if(typeof adminWrite==='function' && typeof authUser==='function' && authUser() && typeof authToken==='function' && authToken()){
+        adminWrite('heartbeat_online',{}).catch(()=>{});
+      }
+      const since=new Date(Date.now()-5*60*1000).toISOString();
+      const on=await sbGet(`app_online_sessions?select=account,last_seen&last_seen=gte.${encodeURIComponent(since)}`,500);
+      DATA.onlineCount=Array.isArray(on)?new Set(on.map(x=>x.account).filter(Boolean)).size:0;
+    }catch(e){ DATA.onlineCount=0; }
 
     // ---- 資料來源狀態：讀每個 job 最新一筆完成紀錄 ----
     try{

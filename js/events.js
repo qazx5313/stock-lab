@@ -5,14 +5,11 @@ function bindPage(id){
     await loadStockSeries(el.dataset.stock);
     go('stock');});
   document.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{
-    const t=DATA.themes.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;go('map');}});
+    const list=typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]);
+    const t=list.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;go('map');}});
   document.querySelectorAll('[data-map-market]').forEach(el=>el.onclick=()=>{
     MAP_MARKET=el.dataset.mapMarket==='TPEX'?'TPEX':'TWSE';
-    const label=MAP_MARKET==='TPEX'?'上櫃':'上市';
-    const first=(DATA.themes||[]).find(t=>{
-      const n=String(t.name||'').trim();
-      return label==='上市'?(n.includes('上市')&&!n.includes('上櫃')):n.includes('上櫃');
-    });
+    const first=(typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]))[0];
     MAP_SEL=first?first.id:'';
     go('map');
   });
@@ -60,15 +57,15 @@ function bindPage(id){
   const logoutBtn=document.getElementById('logoutBtn');
   if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);setAuthToken('');setRefreshToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
   if(id==='screen'){
-    const upd=()=>{document.getElementById('selCnt').textContent=SEL.size;
+    const upd=()=>{const x=document.getElementById('selCnt');if(x)x.textContent=SEL.size;
       document.querySelectorAll('[data-f]').forEach(c=>c.classList.toggle('on',SEL.has(c.dataset.f)));};
     document.querySelectorAll('[data-f]').forEach(c=>c.onclick=()=>{
       SEL.has(c.dataset.f)?SEL.delete(c.dataset.f):SEL.add(c.dataset.f);upd();});
-    document.getElementById('clrBtn').onclick=()=>{SEL.clear();upd();
+    const clr=document.getElementById('clrBtn');
+    if(clr)clr.onclick=()=>{SEL.clear();upd();
       document.getElementById('resBody').innerHTML=rowsScreen([]);document.getElementById('resCnt').textContent=0;};
     document.getElementById('runBtn').onclick=()=>{
-      const n=Math.max(3,Math.min(DATA.screen.length,DATA.screen.length-((4-SEL.size)%4+4)%4));
-      const r=DATA.screen.slice(0,Math.max(3,n));document.getElementById('resBody').innerHTML=rowsScreen(r);
+      const r=DATA.screen.slice(0,DATA.screen.length);document.getElementById('resBody').innerHTML=rowsScreen(r);
       document.getElementById('resCnt').textContent=r.length;
       document.querySelectorAll('#resBody [data-stock]').forEach(el=>el.onclick=async()=>{DATA.stock.c=el.dataset.stock;await loadStockSeries(el.dataset.stock);go('stock');});};
   }
@@ -97,6 +94,51 @@ function bindPage(id){
       removeWatchStock(btn.dataset.watchRemove);
       await persistWatchlist();
       go('watch');
+    });
+  }
+  if(id==='atr'){
+    const add=document.getElementById('atrAddBtn');
+    const msg=document.getElementById('atrMsg');
+    const calcAtr=async(sym,period)=>{
+      try{
+        const rows=await sbGet(`daily_prices?select=date,high,low,close&symbol=eq.${sym}&order=date.desc&limit=${Math.max(30,period+5)}`,80);
+        const a=(rows||[]).slice().reverse();
+        if(a.length<period+1) return NaN;
+        const trs=[];
+        for(let i=1;i<a.length;i++){
+          const h=Number(a[i].high||a[i].close), l=Number(a[i].low||a[i].close), pc=Number(a[i-1].close);
+          trs.push(Math.max(h-l,Math.abs(h-pc),Math.abs(l-pc)));
+        }
+        const sub=trs.slice(-period);
+        return sub.reduce((s,x)=>s+x,0)/sub.length;
+      }catch(e){return NaN;}
+    };
+    if(add)add.onclick=async()=>{
+      const sym=(document.getElementById('atrSymbol')||{}).value?.trim()||'';
+      const entry=Number((document.getElementById('atrEntry')||{}).value);
+      const period=Math.max(2,parseInt((document.getElementById('atrPeriod')||{}).value,10)||14);
+      if(!/^[1-9]\d{3}$/.test(sym)||!Number.isFinite(entry)||entry<=0){
+        if(msg){msg.textContent='請輸入正確股票代號與買入價';msg.style.color='#92400E';}
+        return;
+      }
+      add.disabled=true;add.textContent='計算中…';
+      const info=stockKnownInfo(sym);
+      let atr=await calcAtr(sym,period);
+      if(!Number.isFinite(atr)||atr<=0) atr=entry*0.035;
+      const stopMult=Number((document.getElementById('atrStopMult')||{}).value)||1;
+      const takeMult=Number((document.getElementById('atrTakeMult')||{}).value)||1.5;
+      const trailAtr=Number((document.getElementById('atrTrailAtr')||{}).value)||0.5;
+      const trailPct=Number((document.getElementById('atrTrailPct')||{}).value)||5;
+      const rows=atrRows().filter(x=>x.c!==sym);
+      rows.unshift({c:sym,n:info.n||sym,entry,period,atr,stopMult,takeMult,trailAtr,trailPct,current:info.px,high:Math.max(entry,Number(info.px)||entry),createdAt:new Date().toISOString(),dir:'long'});
+      setAtrRows(rows);
+      if(msg){msg.textContent='已加入 ATR 觀察列表';msg.style.color='var(--up)';}
+      add.disabled=false;add.textContent='加入觀察';
+      go('atr');
+    };
+    document.querySelectorAll('[data-atr-remove]').forEach(btn=>btn.onclick=()=>{
+      setAtrRows(atrRows().filter(x=>x.c!==btn.dataset.atrRemove));
+      go('atr');
     });
   }
   if(id==='stock'){
@@ -352,6 +394,24 @@ function bindPage(id){
         }
         saveMaintenance.disabled=false;saveMaintenance.textContent='儲存維修狀態';
         buildNav();
+      };
+      const saveObserve=document.getElementById('saveObserveBtn');
+      if(saveObserve)saveObserve.onclick=async()=>{
+        const msg=document.getElementById('observeMsg');
+        const lines=((document.getElementById('observeInput')||{}).value||'').split('\n').map(x=>x.trim()).filter(Boolean);
+        const rows=lines.map(line=>{
+          const [symbol,name,category,...noteParts]=line.split(',').map(x=>x.trim());
+          return {symbol,name:name||symbol,category:category||'觀察',note:noteParts.join(',')||'',is_active:true};
+        }).filter(r=>/^[1-9]\d{3}$/.test(r.symbol));
+        saveObserve.disabled=true;saveObserve.textContent='儲存中…';
+        try{
+          await adminWrite('save_observations',{rows});
+          DATA.observations=rows.map(r=>({c:r.symbol,...r}));
+          if(msg){msg.textContent='已儲存觀察報告';msg.style.color='var(--up)';}
+        }catch(e){
+          if(msg){msg.textContent='儲存失敗：'+(e.message||e);msg.style.color='#92400E';}
+        }
+        saveObserve.disabled=false;saveObserve.textContent='儲存觀察報告';
       };
     };
     document.querySelectorAll('#admSeg button').forEach(btn=>btn.onclick=()=>{

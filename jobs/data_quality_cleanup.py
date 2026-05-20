@@ -165,6 +165,7 @@ def theme_aliases(name):
 
 
 def theme_stock_matched(theme_name, stock_info, link_info):
+    theme_name = re.sub(r"^(上市|上櫃)\s*[·・]\s*", "", str(theme_name or "").strip())
     if not theme_name or theme_name == "其他":
         return True
     tags = stock_info.get("theme_tags") or []

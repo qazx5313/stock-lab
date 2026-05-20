@@ -76,7 +76,7 @@ function isPageAllowed(id){
   if(!authUser()) return false;
   if(id==='status') return isAdmin();
   if(isAdmin()) return true;
-  if(['watch','screen','stock','report'].includes(id)) return true;
+  if(['watch','atr','screen','stock','observe','report'].includes(id)) return true;
   if(p.grp==='實驗室' || p.grp==='系統') return hasAccess(id);
   return true;
 }
@@ -307,9 +307,6 @@ function vAccount(){
       <div class="auth-status"><div class="avatar">${u.nick.slice(0,1)}</div>
         <div style="flex:1"><b>${u.nick}</b><div class="muted" style="font-size:12.5px">${u.account} · ${u.role==='admin'?'管理員':'一般會員'} · 剩餘 ${remainingDays()}</div></div>
         <button class="btn line sm" id="logoutBtn">登出</button></div>
-      <div style="margin-top:14px;font-size:12.5px;color:var(--ink-2);line-height:1.7">
-        帳號資料以 Supabase 為準；管理員必須在 app_users 表中設定 role=admin。前端不再提供硬寫管理員密碼。
-      </div>
       <div class="card" style="margin-top:16px">
         <div class="card-h"><h3>目前板塊開通</h3><span class="tag">依會員權限顯示</span></div>
         <div class="card-pad activation-grid">

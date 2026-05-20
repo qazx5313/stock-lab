@@ -4,6 +4,9 @@ const DATA = {
   meta:{date:'載入中',weekday:'',updated:'—'},
   realtimeMap:{},
   maintenance:{},
+  observations:[],
+  atrWatch:[],
+  onlineCount:0,
 
   market:{
     twse:{name:'加權指數',v:21684.32,d:+182.45,dp:+0.85},
@@ -200,8 +203,10 @@ const DATA = {
     {id:'home',name:'今日市場總覽',enabled:true,days:30},
     {id:'map',name:'產業題材地圖',enabled:true,days:30},
     {id:'watch',name:'自選股',enabled:true,days:14},
+    {id:'atr',name:'ATR 停利停損',enabled:true,days:14},
     {id:'screen',name:'每日篩選',enabled:true,days:14},
     {id:'stock',name:'個股分析',enabled:true,days:14},
+    {id:'observe',name:'觀察報告',enabled:false,days:7},
     {id:'report',name:'每日報告',enabled:false,days:7},
     {id:'ai',name:'AI 模擬實驗室',enabled:false,days:7},
     {id:'status',name:'資料更新狀態',enabled:false,days:7},

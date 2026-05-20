@@ -284,6 +284,58 @@ create table if not exists data_status(
   run_date date
 );
 
+-- ---------- 前台帳號 / 開通 / 設定 ----------
+create table if not exists app_users(
+  account text primary key,
+  password text,
+  nick text,
+  role text default 'user',
+  days_remaining int default 0,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create table if not exists app_activation_settings(
+  page_id text primary key,
+  name text,
+  enabled bool default false,
+  days int default 0,
+  updated_at timestamptz default now()
+);
+
+create table if not exists app_user_entitlements(
+  account text not null,
+  page_id text not null,
+  name text,
+  enabled bool default false,
+  days int default 0,
+  updated_at timestamptz default now(),
+  primary key(account,page_id)
+);
+create index if not exists idx_app_user_entitlements_account on app_user_entitlements(account);
+
+create table if not exists app_settings(
+  key text primary key,
+  value text,
+  updated_at timestamptz default now()
+);
+
+create table if not exists app_observation_reports(
+  id bigserial primary key,
+  symbol text not null,
+  name text,
+  category text default '觀察',
+  note text,
+  is_active bool default true,
+  updated_at timestamptz default now()
+);
+create index if not exists idx_app_observation_reports_active on app_observation_reports(is_active,updated_at desc);
+
+create table if not exists app_online_sessions(
+  account text primary key,
+  last_seen timestamptz default now()
+);
+
 -- ---------- 會員自選股 ----------
 create table if not exists app_watchlist(
   account text not null,
@@ -321,7 +373,9 @@ begin
     'daily_signals','candidate_pool','ai_agents','ai_candidates',
     'ai_backtests','ai_deep_analysis','ai_positions','ai_trades',
     'ai_reviews','ai_strategy_versions','data_status',
-    'realtime_quotes','app_page_maintenance'
+    'realtime_quotes','app_page_maintenance',
+    'app_users','app_activation_settings','app_user_entitlements',
+    'app_settings','app_observation_reports','app_online_sessions'
   ]
   loop
     execute format('alter table %I enable row level security;', t);

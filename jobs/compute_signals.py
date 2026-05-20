@@ -188,7 +188,7 @@ def main():
     for r in inst:
         inst_by_sym[r["symbol"]].append(r)
 
-    signals, theme_heat = [], defaultdict(
+    signals, screen_candidates, theme_heat = [], [], defaultdict(
         lambda: {"gain": [], "vol": [], "members": []}
     )
 
@@ -202,7 +202,8 @@ def main():
         vols = [float(r["volume"]) if r.get("volume") else 0 for r in rows]
         cur = rows[-1]
 
-        ma5, ma20, ma60 = ma(closes, 5), ma(closes, 20), ma(closes, 60)
+        ma5, ma10, ma20, ma60 = ma(closes, 5), ma(closes, 10), ma(closes, 20), ma(closes, 60)
+        ma20_prev = round(sum(closes[-21:-1]) / 20, 2) if len(closes) >= 21 else None
         rsi14 = rsi(closes)
         kk, dd = kd(highs, lows, closes)
         dif, sig, hist = macd(closes)
@@ -282,6 +283,30 @@ def main():
             }
         )
 
+        vol_lots = vols[-1] / 1000 if vols[-1] > 100000 else vols[-1]
+        if (
+            len(closes) >= 61
+            and vol_lots >= 1000
+            and ma5 is not None and ma10 is not None and ma20 is not None and ma60 is not None
+            and closes[-1] >= ma20 and closes[-1] >= ma60
+            and ma5 > ma10 > ma20 > ma60
+            and ma20_prev is not None and ma20 > ma20_prev
+        ):
+            screen_candidates.append(
+                {
+                    "date": latest,
+                    "symbol": sym,
+                    "name": (smap.get(sym) or {}).get("name") or sym,
+                    "source_module": "ma_volume_screen",
+                    "candidate_type": "均線量能轉強",
+                    "reason": (
+                        f"成交量 {round(vol_lots):,} 張；站上 MA20/MA60；"
+                        f"MA5({ma5}) > MA10({ma10}) > MA20({ma20}) > MA60({ma60})；20MA 上升"
+                    ),
+                    "score": round(vol_lots),
+                }
+            )
+
         if theme and cp is not None:
             theme_heat[theme]["gain"].append(cp)
             if vol_x:
@@ -293,106 +318,17 @@ def main():
     log(f"算出 {len(signals)} 檔訊號")
     sb_upsert("daily_signals", signals, on_conflict="date,symbol")
 
-    # ---- 題材熱度（強勢代表股法，非全體平均）----
-    # 只取題材內「綜合分前段的強勢股」當代表，弱勢股不拉低熱度，
-    # 並把 漲停/接近漲停、創波段高、強勢股佔比 納入熱度。
-    themes_rows, theme_stock_rows = [], []
-    tid = 1
+    # 股票類股地圖由 fetch_stock_classes.py 統一重建。
+    # 這裡只計算 daily_signals / candidate_pool，避免跑完 AI 訊號後覆蓋官方產業分類。
+    log("題材表由 fetch_stock_classes 管理，本步不覆寫 themes/theme_stocks")
 
-    def theme_metrics(info):
-        members = sorted(info["members"], key=lambda x: x["score"], reverse=True)
-        total_n = len(members)
-        # 代表股 = 綜合分前 40%，至少 5 檔、最多 30 檔
-        k = max(5, min(30, round(total_n * 0.4))) if total_n else 0
-        reps = members[:k] if total_n else []
-        gains = [m["cp"] for m in reps if m["cp"] is not None]
-        rep_gain = (sum(gains) / len(gains)) if gains else 0.0
-        # 強勢指標
-        limit_up = sum(1 for m in reps if m["cp"] is not None and m["cp"] >= 9.0)
-        strong = sum(1 for m in reps if m["cp"] is not None and m["cp"] >= 3.0)
-        strong_ratio = (strong / len(reps)) if reps else 0
-        vols = info["vol"]
-        avg_vol = (sum(vols) / len(vols)) if vols else 1
-        return {
-            "total_n": total_n,
-            "reps": reps,
-            "rep_gain": rep_gain,
-            "limit_up": limit_up,
-            "strong": strong,
-            "strong_ratio": strong_ratio,
-            "avg_vol": avg_vol,
-        }
-
-    ranked = sorted(
-        theme_heat.items(),
-        key=lambda kv: theme_metrics(kv[1])["rep_gain"],
-        reverse=True,
-    )
-    for name, info in ranked:
-        mt = theme_metrics(info)
-        if mt["total_n"] == 0:
-            continue
-        # 熱度 = 代表股漲幅 + 強勢股佔比 + 量能 + 漲停加成
-        heat = round(
-            mt["rep_gain"] * 5
-            + mt["strong_ratio"] * 35
-            + (mt["avg_vol"] - 1) * 20
-            + mt["limit_up"] * 4
-        )
-        heat = max(0, min(100, heat))
-        status = "主流" if heat >= 75 else ("增溫" if heat >= 55 else "觀察")
-        themes_rows.append(
-            {
-                "id": tid,
-                "theme_name": name,
-                "description": (
-                    f"{name}：成分 {mt['total_n']} 檔，"
-                    f"強勢代表 {len(mt['reps'])} 檔，"
-                    f"代表平均漲幅 {round(mt['rep_gain'],2)}%，"
-                    f"強勢佔比 {round(mt['strong_ratio']*100)}%，"
-                    f"漲停 {mt['limit_up']}，量比 {round(mt['avg_vol'],2)}x"
-                ),
-                "heat_score": heat,
-                "trend_status": status,
-            }
-        )
-        for m in sorted(info["members"], key=lambda x: x["score"], reverse=True):
-            theme_stock_rows.append(
-                {
-                    "theme_id": tid,
-                    "symbol": m["symbol"],
-                    "role": "領漲"
-                    if (m["cp"] is not None and m["cp"] >= mt["rep_gain"])
-                    else "成分",
-                    "supply_chain_level": "",
-                    "relevance_score": m["score"],
-                    "note": "",
-                }
-            )
-        tid += 1
-    sb_upsert("themes", themes_rows, on_conflict="id")
-    sb_upsert("theme_stocks", theme_stock_rows, on_conflict="theme_id,symbol")
-    log(f"題材 {len(themes_rows)} 個，成分 {len(theme_stock_rows)} 筆")
-
-    # ---- 候選池：綜合分前 40 ----
-    top = sorted(signals, key=lambda s: s["final_score"], reverse=True)[:40]
-    cand = [
-        {
-            "date": latest,
-            "symbol": s["symbol"],
-            "name": (smap.get(s["symbol"]) or {}).get("name") or s["symbol"],
-            "source_module": "compute_signals",
-            "candidate_type": "綜合評分",
-            "reason": "；".join(s["signal_tags"]) or s["summary"][:60],
-            "score": s["final_score"],
-        }
-        for s in top
-    ]
+    # ---- 候選池：每日篩選新邏輯 ----
+    cand = sorted(screen_candidates, key=lambda s: s["score"], reverse=True)[:80]
     sb_delete("candidate_pool", f"date=eq.{latest}")
     sb_upsert("candidate_pool", cand)
     log(f"候選池 {len(cand)} 檔")
 
-    mark_status("compute_signals", True, f"signals={len(signals)} themes={len(themes_rows)}")
+    mark_status("compute_signals", True, f"signals={len(signals)}")
     log("=== compute_signals 完成 ===")
 
 
