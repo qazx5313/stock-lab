@@ -667,9 +667,7 @@ async function refreshRealtimeOnly(){
     applyRealtimeQuotes(rq);
     saveRealCache();
     if(typeof renderTxFuture==='function') renderTxFuture();
-    if(['home','watch','stock','ai'].includes(CUR)){
-      go(CUR);
-    }
+    if(typeof updateLiveDom==='function') updateLiveDom();
     return true;
   }catch(e){
     console.warn('即時資料自動刷新略過:',e);
@@ -756,8 +754,7 @@ function updateLiveDom(){
     liveText('[data-live="amt-twse"]',m.amtTwse||'—','up');
     liveText('[data-live="amt-tpex"]',m.amtTpex||'—','up');
     liveText('[data-live="amt-total"]',m.amtTotal||'—','');
-    const tx=document.querySelector('[data-live-card="txf"]');
-    if(tx && typeof txFuturePanel==='function') tx.innerHTML=txFuturePanel();
+    updateTxFutureDom();
     (DATA.picks||[]).slice(0,5).forEach(s=>{
       const row=document.querySelector(`[data-live-row="${s.c}"]`);
       if(!row) return;
@@ -780,6 +777,36 @@ function updateLiveDom(){
       if(vol) vol.textContent=`${fmtLots(s.vol)} 張`;
     });
   }
+}
+function setLiveClass(el,base,cls){
+  if(!el) return;
+  el.className=[base,cls].filter(Boolean).join(' ');
+}
+function updateTxFutureDom(){
+  const f=(DATA.market&&DATA.market.txFut)||{};
+  const card=document.querySelector('[data-live-card="txf"]');
+  if(!card) return;
+  const sess=typeof txfSession==='function'?txfSession(f):'day';
+  const v=Number(f.v), d=Number(f.d), dp=Number(f.dp);
+  const cls=dcls(d);
+  const day=card.querySelector('[data-txf-session="day"]');
+  const night=card.querySelector('[data-txf-session="night"]');
+  if(day) day.className=`session-tag ${sess==='day'?'on':''}`;
+  if(night) night.className=`session-tag ${sess==='night'?'on':''}`;
+  liveText('[data-live="txf-time"]',f.quote_time||'—','muted code');
+  liveText('[data-live="txf-name"]',f.name||'台指期','k');
+  const price=card.querySelector('[data-live="txf-price"]');
+  if(price){
+    price.textContent=Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
+    setLiveClass(price,'v',cls);
+  }
+  const diff=card.querySelector('[data-live="txf-diff"]');
+  if(diff){
+    diff.textContent=Number.isFinite(d)?`${d>0?'+':''}${d.toLocaleString('en-US',{maximumFractionDigits:2})}${Number.isFinite(dp)?` (${dp>0?'+':''}${dp.toFixed(2)}%)`:''}`:'—';
+    setLiveClass(diff,'d',cls);
+  }
+  liveText('[data-live="txf-source"]',String(f.source||'—').replace('TAIFEX_MIS_RT','TAIFEX 即時').replace('TAIFEX_EDGE_RT_NIGHT','TAIFEX 即時').replace('TAIFEX_EDGE_RT_DAY','TAIFEX 即時'),'');
+  liveText('[data-live="txf-updated"]',f.updated_at?fmtDoneTime(f.updated_at):'—','');
 }
 
 function flagSource(txt){ /* 舊介面保留相容，不再使用 */ }

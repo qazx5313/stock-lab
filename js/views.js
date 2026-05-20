@@ -57,19 +57,19 @@ function txFuturePanel(){
     <div class="card-pad">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px">
         <div style="display:flex;gap:8px;align-items:center">
-          <span class="session-tag ${sess==='day'?'on':''}">早盤</span>
-          <span class="session-tag ${sess==='night'?'on':''}">夜盤</span>
+          <span data-txf-session="day" class="session-tag ${sess==='day'?'on':''}">早盤</span>
+          <span data-txf-session="night" class="session-tag ${sess==='night'?'on':''}">夜盤</span>
         </div>
-        <span class="muted code" style="font-size:12px">${f.quote_time||'—'}</span>
+        <span data-live="txf-time" class="muted code" style="font-size:12px">${f.quote_time||'—'}</span>
       </div>
       <div class="stat">
-        <span class="k">${f.name||'台指期'}</span>
-        <span class="v ${cls}" style="font-size:28px">${Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—'}</span>
-        <span class="d ${cls}">${Number.isFinite(d)?`${d>0?'+':''}${d.toLocaleString('en-US',{maximumFractionDigits:2})}${Number.isFinite(dp)?` (${dp>0?'+':''}${dp.toFixed(2)}%)`:''}`:'—'}</span>
+        <span data-live="txf-name" class="k">${f.name||'台指期'}</span>
+        <span data-live="txf-price" class="v ${cls}" style="font-size:28px">${Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—'}</span>
+        <span data-live="txf-diff" class="d ${cls}">${Number.isFinite(d)?`${d>0?'+':''}${d.toLocaleString('en-US',{maximumFractionDigits:2})}${Number.isFinite(dp)?` (${dp>0?'+':''}${dp.toFixed(2)}%)`:''}`:'—'}</span>
       </div>
       <div class="flow-list" style="margin-top:16px">
-        <div class="flow-row"><span>資料來源</span><span>${String(f.source||'—').replace('TAIFEX_MIS_RT','TAIFEX 即時').replace('TAIFEX_EDGE_RT','TAIFEX 即時')}</span></div>
-        <div class="flow-row"><span>更新</span><span>${f.updated_at?fmtDoneTime(f.updated_at):'—'}</span></div>
+        <div class="flow-row"><span>資料來源</span><span data-live="txf-source">${String(f.source||'—').replace('TAIFEX_MIS_RT','TAIFEX 即時').replace('TAIFEX_EDGE_RT_NIGHT','TAIFEX 即時').replace('TAIFEX_EDGE_RT_DAY','TAIFEX 即時')}</span></div>
+        <div class="flow-row"><span>更新</span><span data-live="txf-updated">${f.updated_at?fmtDoneTime(f.updated_at):'—'}</span></div>
       </div>
     </div>`;
 }

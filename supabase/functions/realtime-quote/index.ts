@@ -237,12 +237,22 @@ async function fetchTaifexTxf() {
       const ws = new WebSocket(`wss://mis.taifex.com.tw/futures/rt/000/${sid}/websocket`);
       const messages = await new Promise<unknown[]>((resolve) => {
         const out: unknown[] = [];
+        let subscribed = false;
+        const subscribe = () => {
+          if (subscribed || ws.readyState !== WebSocket.OPEN) return;
+          subscribed = true;
+          ws.send(JSON.stringify([JSON.stringify({ type: "subscribe", symbols })]));
+        };
         const done = () => { try { ws.close(); } catch (_) { /* noop */ } resolve(out); };
         const timer = setTimeout(done, 5500);
-        ws.onopen = () => ws.send(JSON.stringify([JSON.stringify({ type: "subscribe", symbols })]));
+        ws.onopen = () => setTimeout(subscribe, 1200);
         ws.onmessage = (ev) => {
           const raw = String(ev.data ?? "");
-          if (!raw || raw === "h" || raw === "o") return;
+          if (raw === "o") {
+            subscribe();
+            return;
+          }
+          if (!raw || raw === "h") return;
           if (!raw.startsWith("a")) return;
           try {
             for (const item of JSON.parse(raw.slice(1))) {
