@@ -10,6 +10,8 @@ function authUser(){return readStore('stockLabAuth',null);}
 function setAuthUser(v){v?writeStore('stockLabAuth',v):localStorage.removeItem('stockLabAuth');}
 function authToken(){return localStorage.getItem('stockLabAccessToken')||'';}
 function setAuthToken(v){v?localStorage.setItem('stockLabAccessToken',v):localStorage.removeItem('stockLabAccessToken');}
+function refreshToken(){return localStorage.getItem('stockLabRefreshToken')||'';}
+function setRefreshToken(v){v?localStorage.setItem('stockLabRefreshToken',v):localStorage.removeItem('stockLabRefreshToken');}
 function authEmailFor(account){
   const a=String(account||'').trim();
   if(a.includes('@')) return a;
@@ -95,7 +97,7 @@ function renderTopAuth(){
     : `<button class="btn sm" data-go="account">登入 / 申請</button>`;
   document.querySelectorAll('#topAuth [data-go]').forEach(el=>el.onclick=()=>go(el.dataset.go));
   const out=document.getElementById('topLogoutBtn');
-  if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
+  if(out)out.onclick=()=>{setAuthUser(null);setAuthToken('');setRefreshToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
 }
 function renderDataFreshness(){
   renderTxFuture();
@@ -206,6 +208,7 @@ async function remoteLogin(account,password){
     if(!r.ok) throw new Error(await r.text());
     const session=await r.json();
     setAuthToken(session.access_token||'');
+    setRefreshToken(session.refresh_token||'');
     let profile=null;
     try{
       const rows=await sbGet(`app_users?select=account,nick,role,days_remaining&account=eq.${encodeURIComponent(account)}&limit=1`);
@@ -226,10 +229,29 @@ async function remoteLogin(account,password){
   }catch(e){ console.warn('Supabase Auth 登入略過:',e); }
   return null;
 }
-async function adminWrite(action,payload){
-  const token=authToken();
+async function refreshAuthSession(){
+  const rt=refreshToken();
+  if(!rt) return '';
+  try{
+    const r=await fetch(`${SB_URL}/auth/v1/token?grant_type=refresh_token`,{
+      method:'POST',
+      headers:{apikey:SB_ANON,'Content-Type':'application/json'},
+      body:JSON.stringify({refresh_token:rt})
+    });
+    if(!r.ok) return '';
+    const session=await r.json();
+    setAuthToken(session.access_token||'');
+    setRefreshToken(session.refresh_token||rt);
+    return session.access_token||'';
+  }catch(e){
+    console.warn('Supabase token 更新失敗:',e);
+    return '';
+  }
+}
+async function edgeWrite(action,payload,requireLoginText){
+  let token=authToken();
   if(!token) throw new Error('尚未取得 Supabase Auth token，請重新登入');
-  const r=await fetch(EDGE_ADMIN_WRITE_URL,{
+  const send=()=>fetch(EDGE_ADMIN_WRITE_URL,{
     method:'POST',
     headers:{
       apikey:SB_ANON,
@@ -238,29 +260,23 @@ async function adminWrite(action,payload){
     },
     body:JSON.stringify({action,payload})
   });
+  let r=await send();
+  if(r.status===401){
+    token=await refreshAuthSession();
+    if(!token) throw new Error(`${requireLoginText}（登入已過期，請重新登入）`);
+    r=await send();
+  }
   const txt=await r.text().catch(()=> '');
   let data={};
   try{data=txt?JSON.parse(txt):{};}catch(_){data={error:txt};}
   if(!r.ok || data.ok===false) throw new Error(data.error||`HTTP ${r.status}`);
   return data.data;
 }
+async function adminWrite(action,payload){
+  return edgeWrite(action,payload,'尚未取得 Supabase Auth token');
+}
 async function userWrite(action,payload){
-  const token=authToken();
-  if(!token) throw new Error('尚未登入');
-  const r=await fetch(EDGE_ADMIN_WRITE_URL,{
-    method:'POST',
-    headers:{
-      apikey:SB_ANON,
-      Authorization:`Bearer ${token}`,
-      'Content-Type':'application/json'
-    },
-    body:JSON.stringify({action,payload})
-  });
-  const txt=await r.text().catch(()=> '');
-  let data={};
-  try{data=txt?JSON.parse(txt):{};}catch(_){data={error:txt};}
-  if(!r.ok || data.ok===false) throw new Error(data.error||`HTTP ${r.status}`);
-  return data.data;
+  return edgeWrite(action,payload,'尚未登入');
 }
 async function loadRemoteWatchlist(){
   try{

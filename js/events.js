@@ -58,7 +58,7 @@ function bindPage(id){
     if(msg){msg.textContent='申請完成，可直接登入';msg.style.color='var(--up)';}
   };
   const logoutBtn=document.getElementById('logoutBtn');
-  if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);setAuthToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
+  if(logoutBtn)logoutBtn.onclick=()=>{setAuthUser(null);setAuthToken('');setRefreshToken('');if(typeof WATCH_REMOTE_LOADED!=='undefined')WATCH_REMOTE_LOADED=false;buildNav();go('home');};
   if(id==='screen'){
     const upd=()=>{document.getElementById('selCnt').textContent=SEL.size;
       document.querySelectorAll('[data-f]').forEach(c=>c.classList.toggle('on',SEL.has(c.dataset.f)));};
