@@ -24,6 +24,11 @@ HEADERS = {
 }
 MIS_URL = "https://mis.twse.com.tw/stock/api/getStockInfo.jsp"
 MIS_BOOT = "https://mis.twse.com.tw/stock/index?lang=zhHant"
+REALTIME_KEYS = [
+    "symbol", "name", "market", "quote_date", "quote_time",
+    "open", "high", "low", "price", "prev_close", "change",
+    "change_percent", "volume", "amount", "source", "updated_at",
+]
 
 
 def is_symbol(v):
@@ -156,6 +161,7 @@ def quote_row(q, fallback=None):
         "change": change,
         "change_percent": change_percent,
         "volume": volume_lots * 1000 if volume_lots is not None and market in ("TWSE", "TPEX") else volume_lots,
+        "amount": None,
         "source": "TWSE_MIS",
         "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
@@ -182,6 +188,10 @@ def should_write_daily(now_tw):
     return now_tw.hour > 13 or (now_tw.hour == 13 and now_tw.minute >= 30)
 
 
+def normalize_realtime_row(row):
+    return {k: row.get(k) for k in REALTIME_KEYS}
+
+
 def latest_txf_fallback():
     try:
         rows = sb_select(
@@ -199,10 +209,15 @@ def latest_txf_fallback():
             "market": "TAIFEX",
             "quote_date": str(r.get("date"))[:10],
             "quote_time": None,
+            "open": None,
+            "high": None,
+            "low": None,
             "price": to_float(r.get("index_value")),
             "prev_close": None,
             "change": to_float(r.get("change")),
             "change_percent": to_float(r.get("change_percent")),
+            "volume": None,
+            "amount": None,
             "source": "TAIFEX_OPENAPI_EOD",
             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         }
@@ -229,6 +244,7 @@ def main():
     txf = latest_txf_fallback()
     if txf and txf.get("price") is not None:
         rows.append(txf)
+    rows = [normalize_realtime_row(r) for r in rows]
     sb_upsert("stocks", stock_rows, on_conflict="symbol")
     written = sb_upsert("realtime_quotes", rows, on_conflict="symbol,market")
     daily_written = 0
