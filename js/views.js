@@ -768,7 +768,7 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   const host=canvas.parentElement;
   const ratio=window.devicePixelRatio||1;
   const W=Math.max(620,Math.floor(host.clientWidth||1100));
-  const H=860;
+  const H=940;
   canvas.style.width='100%';
   canvas.style.height=H+'px';
   canvas.width=W*ratio;
@@ -779,7 +779,7 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   x.fillStyle='#fff';
   x.fillRect(0,0,W,H);
   const L=14,R=66,T=34,G=10,B=34;
-  const priceH=390,volH=82,macdH=110,kdH=90,rsiH=90;
+  const priceH=400,volH=95,macdH=130,kdH=105,rsiH=120;
   const panels=[
     {name:'price',y:T,h:priceH,label:'K 線  MA5  MA10  MA20  MA60'},
     {name:'vol',y:T+priceH+G,h:volH,label:'成交量'},
