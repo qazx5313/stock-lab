@@ -262,28 +262,45 @@ async function fetchTaifexTxf() {
           } catch (_) {
             // Ignore malformed websocket frames.
           }
-          if (out.length >= symbols.length) {
-            clearTimeout(timer);
-            done();
-          }
+          // Keep the socket open for the whole short window so the chart can use
+          // official TAIFEX tick updates instead of a synthetic line.
         };
         ws.onerror = () => { clearTimeout(timer); done(); };
       });
       const bySymbol = new Map<string, Record<string, unknown>>();
+      const pointsBySymbol = new Map<string, Array<{ t: string; p: number; a: number }>>();
       for (const msg of messages as Array<Record<string, unknown>>) {
         if (msg.type !== "quote") continue;
         const q = msg.quote as Record<string, unknown> | undefined;
         const symbol = String(q?.symbol ?? "");
         const values = q?.values as Record<string, unknown> | undefined;
-        if (symbol && values) bySymbol.set(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
+        if (!symbol || !values) continue;
+        bySymbol.set(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
+        const row = taifexRow(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
+        if (!row || row.price == null || !row.quote_time) continue;
+        const pts = pointsBySymbol.get(symbol) ?? [];
+        pts.push({ t: row.quote_time, p: Number(row.price), a: Number(row.volume ?? 0) });
+        pointsBySymbol.set(symbol, pts);
       }
       let best = null as ReturnType<typeof taifexRow> | null;
+      let bestSymbol = "";
       for (const [symbol, values] of bySymbol.entries()) {
         const row = taifexRow(symbol, values);
         if (!row) continue;
-        if (!best || Number(row.volume ?? 0) > Number(best.volume ?? 0)) best = row;
+        if (!best || Number(row.volume ?? 0) > Number(best.volume ?? 0)) {
+          best = row;
+          bestSymbol = symbol;
+        }
       }
-      if (best) return best;
+      if (best) {
+        const uniq = new Map<string, { t: string; p: number; a: number }>();
+        for (const pt of pointsBySymbol.get(bestSymbol) ?? []) {
+          if (!pt.t || !Number.isFinite(pt.p)) continue;
+          uniq.set(pt.t, pt);
+        }
+        const chartPoints = [...uniq.values()].slice(-240);
+        return { ...best, chart_points: chartPoints };
+      }
     } catch {
       // Try next TAIFEX session.
     }

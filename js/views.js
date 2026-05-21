@@ -1,6 +1,13 @@
 ﻿/* ============ 1. 首頁 ============ */
 function chartPointsSvg(points,color='#22C55E'){
-  const rows=(points||[]).map(p=>({p:Number(p.p),a:Number(p.a),x:Number(p.x)})).filter(p=>Number.isFinite(p.p));
+  let rows=(points||[]).map(p=>({p:Number(p.p),a:Number(p.a),x:Number(p.x),t:String(p.t||'')})).filter(p=>Number.isFinite(p.p));
+  if(rows.length<2) return '';
+  if(rows.some(p=>Number.isFinite(p.x))){
+    rows=rows.filter(p=>Number.isFinite(p.x)).sort((a,b)=>a.x-b.x || a.t.localeCompare(b.t));
+    const dedup=new Map();
+    rows.forEach(p=>dedup.set(Number.isFinite(p.x)?p.x.toFixed(2):(p.t||String(dedup.size)),p));
+    rows=[...dedup.values()];
+  }
   if(rows.length<2) return '';
   const sample=rows.filter((_,i)=>i%Math.max(1,Math.floor(rows.length/90))===0).slice(-110);
   const vals=sample.map(p=>p.p);
@@ -20,9 +27,20 @@ function chartPointsSvg(points,color='#22C55E'){
     <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
   </svg>`;
 }
-function marketTrendSvg(o,color='#22C55E',chart=null){
+function blankTrendSvg(){
+  return `<svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
+    <g stroke="#E2E8F0" stroke-width=".7" opacity=".75">
+      <line x1="0" y1="18" x2="300" y2="18"/><line x1="0" y1="44" x2="300" y2="44"/>
+      <line x1="0" y1="70" x2="300" y2="70"/>
+      <line x1="60" y1="8" x2="60" y2="76"/><line x1="120" y1="8" x2="120" y2="76"/>
+      <line x1="180" y1="8" x2="180" y2="76"/><line x1="240" y1="8" x2="240" y2="76"/>
+    </g>
+  </svg>`;
+}
+function marketTrendSvg(o,color='#22C55E',chart=null,allowFallback=true){
   const real=chartPointsSvg(chart&&chart.points,color);
   if(real) return real;
+  if(!allowFallback) return blankTrendSvg();
   const d=Number(o&&o.d);
   const pts=Number.isFinite(d)&&d<0
     ? '0,22 36,18 72,30 108,24 144,38 180,34 216,48 252,44 300,58'
@@ -161,7 +179,7 @@ function marketSummaryCard(title,o,extra='',chart=null){
         <div class="num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''} style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
       </div>
     </div>
-    <div ${liveKey?`data-live-chart="${liveKey}"`:''}>${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart)}</div>
+    <div ${liveKey?`data-live-chart="${liveKey}"`:''}>${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart,liveKey!=='txf')}</div>
     ${extra?`<div class="flow-list" style="margin-top:10px">${extra}</div>`:''}
   </div>`;
 }

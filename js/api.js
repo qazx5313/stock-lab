@@ -285,7 +285,7 @@ function applyRealtimeQuotes(rows, options={}){
         DATA.realtimeMap.TAIWANVIX=q;
       }else{
         DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:r.source||'TAIFEX_MIS_RT',quote_time:r.quote_time,updated_at:r.updated_at};
-        appendTxfChartPoint(DATA.market.txFut, r);
+        appendTxfChartPoints(DATA.market.txFut, r);
       }
       return;
     }
@@ -302,7 +302,7 @@ function applyRealtimeQuotes(rows, options={}){
     DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
   }
 }
-const REAL_CACHE_KEY='stockLabRealCache:v15';
+const REAL_CACHE_KEY='stockLabRealCache:v16';
 const REAL_CACHE_TTL=1000*60*60*18;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -851,6 +851,14 @@ function txfSessionKeyFromRow(row){
   }
   return 'day';
 }
+function appendTxfChartPoints(f,row={}){
+  const pts=Array.isArray(row&&row.chart_points)?row.chart_points:[];
+  if(pts.length){
+    pts.forEach(pt=>appendTxfChartPoint({...f,v:Number(pt.p),quote_time:pt.t,volume:pt.a},{...row,quote_time:pt.t,volume:pt.a}));
+    return;
+  }
+  appendTxfChartPoint(f,row);
+}
 function appendTxfChartPoint(f,row={}){
   const price=Number(f&&f.v);
   if(!Number.isFinite(price)) return;
@@ -861,6 +869,10 @@ function appendTxfChartPoint(f,row={}){
   const points=Array.isArray(bucket.points)?bucket.points:(bucket.points=[]);
   const label=String(f.quote_time||row.quote_time||f.updated_at||Date.now());
   const progress=txfSessionProgress(label,key);
+  if(!Number.isFinite(progress)) return;
+  const quoteDate=String(row.quote_date||f.quote_date||'').slice(0,10);
+  if(quoteDate && bucket.quoteDate && bucket.quoteDate!==quoteDate) points.splice(0,points.length);
+  if(quoteDate) bucket.quoteDate=quoteDate;
   const last=points[points.length-1];
   if(last && String(last.t||'')===label){
     last.p=price;
@@ -868,6 +880,14 @@ function appendTxfChartPoint(f,row={}){
     last.x=progress;
   }else{
     points.push({t:label,p:price,a:Number(f.volume||row.volume)||0,x:progress});
+  }
+  points.sort((a,b)=>{
+    const ax=Number(a.x), bx=Number(b.x);
+    if(Number.isFinite(ax)&&Number.isFinite(bx)&&ax!==bx) return ax-bx;
+    return String(a.t||'').localeCompare(String(b.t||''));
+  });
+  for(let i=points.length-2;i>=0;i--){
+    if(String(points[i].t||'')===String(points[i+1].t||'')) points.splice(i,1);
   }
   if(points.length>360) points.splice(0,points.length-360);
 }
@@ -904,7 +924,7 @@ function updateMarketCardDom(key,o){
   const chartEl=card.querySelector(`[data-live-chart="${key}"]`);
   if(chartEl && typeof marketTrendSvg==='function'){
     const chart=key==='txf' && typeof txfActiveChart==='function' ? txfActiveChart(o) : null;
-    chartEl.innerHTML=marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E',chart);
+    chartEl.innerHTML=marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E',chart,key!=='txf');
   }
 }
 function setLiveClass(el,base,cls){
@@ -933,7 +953,7 @@ function updateTxFutureDom(){
   const chartEl=card.querySelector('[data-live-chart="txf"]');
   if(chartEl && typeof marketTrendSvg==='function'){
     const chart=typeof txfActiveChart==='function'?txfActiveChart(f):null;
-    chartEl.innerHTML=marketTrendSvg(f,d<0?'#EF4444':'#22C55E',chart);
+    chartEl.innerHTML=marketTrendSvg(f,d<0?'#EF4444':'#22C55E',chart,false);
   }
   const day=card.querySelector('[data-txf-session="day"]');
   const night=card.querySelector('[data-txf-session="night"]');
