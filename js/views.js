@@ -38,8 +38,13 @@ function miniTrendForStock(s){
 function fmtLots(v){
   const n=Number(v);
   if(!Number.isFinite(n)) return '—';
-  const lots=n>=1000000?Math.round(n/1000):Math.round(n);
+  const lots=volumeToLots(n);
   return lots.toLocaleString('en-US');
+}
+function volumeToLots(v){
+  const n=Number(v);
+  if(!Number.isFinite(n)) return NaN;
+  return n>=1000?Math.round(n/1000):Math.round(n);
 }
 function fmtRevenue(v){
   const n=Number(v);
@@ -431,9 +436,19 @@ function vScreen(){
 function rowsScreen(list){
   return list.map(s=>`<tr><td class="code lnk" data-stock="${s.c}">${s.c}</td><td><b>${s.n}</b></td>
     <td><span class="badge">${s.t}</span></td><td class="r num">${fmtPx(s.px)}</td>
-    <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r num muted">${s.vol}</td>
-    <td class="muted" style="white-space:normal;min-width:240px">${esc(s.reason||'成交量 >= 1000 張；站上 MA20/MA60；均線多頭排列；20MA 上升')}</td>
+    <td class="r num ${dcls(Number(s.dp))}">${isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</td><td class="r num muted">${fmtScreenVol(s.vol)}</td>
+    <td class="muted" style="white-space:normal;min-width:240px">${esc(screenReason(s))}</td>
     <td><button class="btn line sm" data-stock="${s.c}">分析</button></td></tr>`).join('');
+}
+function fmtScreenVol(v){
+  if(typeof v==='string' && v.includes('張')) return v;
+  const n=Number(String(v||'').replace(/,/g,''));
+  return Number.isFinite(n)?`${fmtLots(n)} 張`:'—';
+}
+function screenReason(s){
+  const base=s.reason||'成交量 >= 1000 張；站上 MA20/MA60；均線多頭排列；20MA 上升';
+  const vol=fmtScreenVol(s.vol);
+  return vol==='—'?base:String(base).replace(/成交量\s*[\d,]+\s*張/,'成交量 '+vol);
 }
 
 /* ============ 4. 個股分析 ============ */

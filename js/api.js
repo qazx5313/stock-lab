@@ -580,7 +580,7 @@ async function loadReal(){
           const cpv = parseFloat(p.change_percent);
           const px = parseFloat(p.close);
           const vol = parseInt(p.volume);
-          const lots = isFinite(vol)?(vol>=1000000?Math.round(vol/1000):Math.round(vol)).toLocaleString('en-US')+' 張':'—';
+          const lots = isFinite(vol)?fmtLots(vol)+' 張':'—';
           const theme = (Array.isArray(info.theme_tags)&&info.theme_tags.length?info.theme_tags[0]:'') || info.industry || '—';
           return {
             c:r.symbol, n:info.name||r.name||'尚無名稱',

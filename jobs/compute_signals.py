@@ -81,6 +81,15 @@ SYMBOL_THEME = {
 }
 
 
+def volume_to_lots(v):
+    """daily_prices.volume is normalized as shares; screening uses lots."""
+    try:
+        n = float(v or 0)
+    except Exception:
+        return 0.0
+    return n / 1000 if n >= 1000 else n
+
+
 # ---------- 技術指標（純 Python）----------
 def ma(seq, n):
     return round(sum(seq[-n:]) / n, 2) if len(seq) >= n else None
@@ -199,7 +208,7 @@ def main():
         closes = [float(r["close"]) for r in rows]
         highs = [float(r["high"]) if r.get("high") else float(r["close"]) for r in rows]
         lows = [float(r["low"]) if r.get("low") else float(r["close"]) for r in rows]
-        vols = [float(r["volume"]) if r.get("volume") else 0 for r in rows]
+        vols = [volume_to_lots(r.get("volume")) for r in rows]
         cur = rows[-1]
 
         ma5, ma10, ma20, ma60 = ma(closes, 5), ma(closes, 10), ma(closes, 20), ma(closes, 60)
@@ -283,7 +292,7 @@ def main():
             }
         )
 
-        vol_lots = vols[-1] / 1000 if vols[-1] > 100000 else vols[-1]
+        vol_lots = vols[-1]
         if (
             len(closes) >= 61
             and vol_lots >= 1000

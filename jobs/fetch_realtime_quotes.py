@@ -281,9 +281,9 @@ def is_taifex_day_session(now_tw):
     return 845 <= hm <= 1345
 
 
-def taifex_search_txf(session, referer):
+def taifex_search_txf(session, referer, keyword="\u81fa\u6307\u671f"):
     session.get(referer, timeout=TIMEOUT)
-    body = json.dumps({"KeyWord": "\u81fa\u6307\u671f"}, ensure_ascii=False).encode("utf-8")
+    body = json.dumps({"KeyWord": keyword}, ensure_ascii=False).encode("utf-8")
     r = session.post(TAIFEX_SEARCH, data=body, headers=taifex_headers(referer), timeout=TIMEOUT)
     if r.status_code != 200:
         raise RuntimeError(f"TAIFEX search HTTP {r.status_code}")
@@ -364,6 +364,67 @@ def taifex_quote_to_row(symbol, values):
         "source": "TAIFEX_MIS_RT",
         "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
+
+
+def taifex_vix_to_row(symbol, values):
+    qdate = parse_date(values.get("144"))
+    price = to_float(values.get("125")) or to_float(values.get("257"))
+    ref = to_float(values.get("129"))
+    if not qdate or price is None:
+        return None
+    change = round(price - ref, 2) if ref is not None else None
+    change_percent = round(change / ref * 100, 2) if ref not in (None, 0) and change is not None else None
+    return {
+        "symbol": "TAIWANVIX",
+        "name": "臺指選擇權波動率指數",
+        "market": "TAIFEX",
+        "quote_date": qdate,
+        "quote_time": parse_taifex_time(values.get("143") or values.get("880")),
+        "open": to_float(values.get("126")),
+        "high": to_float(values.get("130")),
+        "low": to_float(values.get("131")),
+        "price": price,
+        "prev_close": ref,
+        "change": change,
+        "change_percent": change_percent,
+        "volume": to_int(values.get("404")) or to_int(values.get("258")),
+        "amount": None,
+        "source": "TAIFEX_VIX_RT",
+        "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+    }
+
+
+def fetch_taifex_vix():
+    try:
+        sess = requests.Session()
+        sess.headers.update({"User-Agent": HEADERS["User-Agent"]})
+        referer = "https://mis.taifex.com.tw/futures/VolatilityQuotes"
+        rows = taifex_search_txf(sess, referer, "VIX")
+        symbols = [
+            r.get("SymbolID")
+            for r in rows
+            if r.get("Level1ID") == "4" and r.get("SymbolID")
+        ]
+        symbols = [s for s in symbols if s][:5]
+        if not symbols:
+            return None
+        by_symbol = {s: {} for s in symbols}
+        for msg in taifex_sockjs_messages(symbols, referer):
+            if msg.get("type") != "quote":
+                continue
+            quote = msg.get("quote") or {}
+            symbol = quote.get("symbol")
+            if symbol in by_symbol:
+                by_symbol[symbol].update(quote.get("values") or {})
+        for symbol, values in by_symbol.items():
+            row = taifex_vix_to_row(symbol, values)
+            if row:
+                log(f"  TAIFEX VIX {symbol} price={row.get('price')} change={row.get('change')}")
+                return row
+        return None
+    except Exception as exc:
+        log(f"  TAIFEX VIX realtime skipped: {exc}")
+        return None
 
 
 def fetch_taifex_txf(now_tw):
@@ -470,6 +531,9 @@ def main():
     txf = fetch_taifex_txf(now_tw) or latest_txf_fallback()
     if txf and txf.get("price") is not None:
         rows.append(txf)
+    vix = fetch_taifex_vix()
+    if vix and vix.get("price") is not None:
+        rows.append(vix)
     rows = [normalize_realtime_row(r) for r in rows]
     sb_upsert("stocks", stock_rows, on_conflict="symbol")
     written = sb_upsert("realtime_quotes", rows, on_conflict="symbol,market")
