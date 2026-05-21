@@ -860,14 +860,31 @@ function appendTxfChartPoint(f,row={}){
   const bucket=DATA.market.txfCharts[key]||(DATA.market.txfCharts[key]={points:[]});
   const points=Array.isArray(bucket.points)?bucket.points:(bucket.points=[]);
   const label=String(f.quote_time||row.quote_time||f.updated_at||Date.now());
+  const progress=txfSessionProgress(label,key);
   const last=points[points.length-1];
   if(last && String(last.t||'')===label){
     last.p=price;
     last.a=Number(f.volume||row.volume)||last.a||0;
+    last.x=progress;
   }else{
-    points.push({t:label,p:price,a:Number(f.volume||row.volume)||0});
+    points.push({t:label,p:price,a:Number(f.volume||row.volume)||0,x:progress});
   }
   if(points.length>360) points.splice(0,points.length-360);
+}
+function txfSessionProgress(label,key){
+  const txt=String(label||'');
+  const m=txt.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
+  let total=null;
+  if(m) total=Number(m[1])*60+Number(m[2])+(Number(m[3]||0)/60);
+  else if(typeof taipeiNowParts==='function') total=taipeiNowParts().total;
+  if(!Number.isFinite(total)) return null;
+  if(key==='night'){
+    const start=15*60, end=29*60+5;
+    let t=total<6*60 ? total+24*60 : total;
+    return Math.max(0,Math.min(1,(t-start)/(end-start)));
+  }
+  const start=8*60+45, end=13*60+45;
+  return Math.max(0,Math.min(1,(total-start)/(end-start)));
 }
 function updateMarketCardDom(key,o){
   const card=document.querySelector(`[data-live-card="${key}"]`);

@@ -1,18 +1,23 @@
 ﻿/* ============ 1. 首頁 ============ */
 function chartPointsSvg(points,color='#22C55E'){
-  const rows=(points||[]).map(p=>({p:Number(p.p),a:Number(p.a)})).filter(p=>Number.isFinite(p.p));
+  const rows=(points||[]).map(p=>({p:Number(p.p),a:Number(p.a),x:Number(p.x)})).filter(p=>Number.isFinite(p.p));
   if(rows.length<2) return '';
   const sample=rows.filter((_,i)=>i%Math.max(1,Math.floor(rows.length/90))===0).slice(-110);
   const vals=sample.map(p=>p.p);
   const min=Math.min(...vals), max=Math.max(...vals), span=max-min||1;
   const pts=sample.map((p,i)=>{
-    const x=(i/(sample.length-1))*300;
+    const x=Number.isFinite(p.x)?Math.max(0,Math.min(1,p.x))*300:(i/(sample.length-1))*300;
     const y=66-((p.p-min)/span)*52;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
   return `<svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
+    <g stroke="#E2E8F0" stroke-width=".7" opacity=".75">
+      <line x1="0" y1="18" x2="300" y2="18"/><line x1="0" y1="44" x2="300" y2="44"/>
+      <line x1="0" y1="70" x2="300" y2="70"/>
+      <line x1="60" y1="8" x2="60" y2="76"/><line x1="120" y1="8" x2="120" y2="76"/>
+      <line x1="180" y1="8" x2="180" y2="76"/><line x1="240" y1="8" x2="240" y2="76"/>
+    </g>
     <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
-    <polyline points="0,70 300,70" fill="none" stroke="#E2E8F0" stroke-width="1"/>
   </svg>`;
 }
 function marketTrendSvg(o,color='#22C55E',chart=null){
