@@ -777,7 +777,9 @@ async function refreshLiveEdge(){
     if(DATA.stock&&DATA.stock.c&&DATA.priceMap&&DATA.priceMap[DATA.stock.c]){
       const q=DATA.priceMap[DATA.stock.c];
       DATA.stock.px=Number(q.close)||DATA.stock.px;
+      DATA.stock.chg=Number(q.change);
       DATA.stock.dp=Number(q.change_percent);
+      DATA.stock.vol=Number(q.volume);
     }
     if(typeof renderTxFuture==='function') renderTxFuture();
     if(typeof updateLiveDom==='function') updateLiveDom();
