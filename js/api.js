@@ -285,6 +285,7 @@ function applyRealtimeQuotes(rows, options={}){
         DATA.realtimeMap.TAIWANVIX=q;
       }else{
         DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:r.source||'TAIFEX_MIS_RT',quote_time:r.quote_time,updated_at:r.updated_at};
+        appendTxfChartPoint(DATA.market.txFut, r);
       }
       return;
     }
@@ -840,6 +841,34 @@ function updateLiveDom(){
     });
   }
 }
+function txfSessionKeyFromRow(row){
+  const txt=String([row&&row.name,row&&row.source,row&&row.quote_time].filter(Boolean).join(' '));
+  if(/-M|AfterHours|NIGHT|夜/i.test(txt)) return 'night';
+  if(/-F|Regular|DAY|早/i.test(txt)) return 'day';
+  if(typeof taipeiNowParts==='function'){
+    const p=taipeiNowParts();
+    return p.total>=15*60 || p.total<8*60+45 ? 'night':'day';
+  }
+  return 'day';
+}
+function appendTxfChartPoint(f,row={}){
+  const price=Number(f&&f.v);
+  if(!Number.isFinite(price)) return;
+  DATA.market=DATA.market||{};
+  DATA.market.txfCharts=DATA.market.txfCharts||{day:{points:[]},night:{points:[]}};
+  const key=txfSessionKeyFromRow({...f,...row});
+  const bucket=DATA.market.txfCharts[key]||(DATA.market.txfCharts[key]={points:[]});
+  const points=Array.isArray(bucket.points)?bucket.points:(bucket.points=[]);
+  const label=String(f.quote_time||row.quote_time||f.updated_at||Date.now());
+  const last=points[points.length-1];
+  if(last && String(last.t||'')===label){
+    last.p=price;
+    last.a=Number(f.volume||row.volume)||last.a||0;
+  }else{
+    points.push({t:label,p:price,a:Number(f.volume||row.volume)||0});
+  }
+  if(points.length>360) points.splice(0,points.length-360);
+}
 function updateMarketCardDom(key,o){
   const card=document.querySelector(`[data-live-card="${key}"]`);
   if(!card) return;
@@ -854,6 +883,11 @@ function updateMarketCardDom(key,o){
   if(diff){
     diff.textContent=Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—';
     diff.className=`num ${cls}`;
+  }
+  const chartEl=card.querySelector(`[data-live-chart="${key}"]`);
+  if(chartEl && typeof marketTrendSvg==='function'){
+    const chart=key==='txf' && typeof txfActiveChart==='function' ? txfActiveChart(o) : null;
+    chartEl.innerHTML=marketTrendSvg(o,Number(o&&o.d)<0?'#EF4444':'#22C55E',chart);
   }
 }
 function setLiveClass(el,base,cls){
@@ -879,6 +913,11 @@ function updateTxFutureDom(){
   }
   liveText('[data-live="txf-session-label"]',sess==='night'?'夜盤':'早盤','');
   liveText('[data-live="txf-time"]',f.quote_time||'—','');
+  const chartEl=card.querySelector('[data-live-chart="txf"]');
+  if(chartEl && typeof marketTrendSvg==='function'){
+    const chart=typeof txfActiveChart==='function'?txfActiveChart(f):null;
+    chartEl.innerHTML=marketTrendSvg(f,d<0?'#EF4444':'#22C55E',chart);
+  }
   const day=card.querySelector('[data-txf-session="day"]');
   const night=card.querySelector('[data-txf-session="night"]');
   if(day) day.className=`session-tag ${sess==='day'?'on':''}`;

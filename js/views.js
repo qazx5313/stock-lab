@@ -104,6 +104,12 @@ function txfSession(f){
   const p=typeof taipeiNowParts==='function'?taipeiNowParts():{total:0};
   return p.total>=15*60 || p.total<8*60+45 ? 'night':'day';
 }
+function txfActiveChart(f){
+  const sess=txfSession(f);
+  const charts=DATA.market&&DATA.market.txfCharts;
+  const chart=charts&&charts[sess];
+  return chart&&Array.isArray(chart.points)&&chart.points.length>=2?chart:null;
+}
 function txFuturePanel(){
   const f=(DATA.market&&DATA.market.txFut)||{};
   const v=Number(f.v), d=Number(f.d), dp=Number(f.dp);
@@ -150,7 +156,7 @@ function marketSummaryCard(title,o,extra='',chart=null){
         <div class="num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''} style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
       </div>
     </div>
-    ${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart)}
+    <div ${liveKey?`data-live-chart="${liveKey}"`:''}>${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart)}</div>
     ${extra?`<div class="flow-list" style="margin-top:10px">${extra}</div>`:''}
   </div>`;
 }
@@ -193,7 +199,7 @@ function vHome(){
    </div>
 
    <div class="pick-grid">
-     ${marketSummaryCard('台指期',m.txFut,`<div class="flow-row"><span>時段</span><span data-live="txf-session-label">${txfSession(m.txFut)==='night'?'夜盤':'早盤'}</span></div><div class="flow-row"><span>更新</span><span data-live="txf-time">${m.txFut&&m.txFut.quote_time||'—'}</span></div>`)}
+     ${marketSummaryCard('台指期',m.txFut,`<div class="flow-row"><span>時段</span><span data-live="txf-session-label">${txfSession(m.txFut)==='night'?'夜盤':'早盤'}</span></div><div class="flow-row"><span>更新</span><span data-live="txf-time">${m.txFut&&m.txFut.quote_time||'—'}</span></div>`,txfActiveChart(m.txFut))}
      ${marketSummaryCard('加權指數',m.twse,`<div class="flow-row"><span>成交金額</span><span>${m.amtTwse||'—'}</span></div>`,m.twseChart)}
      ${marketSummaryCard('櫃買指數',m.tpex,`<div class="flow-row"><span>成交金額</span><span>${m.amtTpex||'—'}</span></div>`,m.tpexChart)}
    </div>
