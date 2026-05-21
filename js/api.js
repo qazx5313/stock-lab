@@ -232,12 +232,17 @@ function applyRealtimeQuotes(rows, options={}){
     const market=String(r.market||'').trim();
     const price=Number(r.price);
     if(!sym || !Number.isFinite(price)) return;
+    const rawVolume=Number(r.volume);
+    const source=String(r.source||'');
+    const quoteVolume=Number.isFinite(rawVolume) && /TWSE_MIS_EDGE/i.test(source) && (market==='TWSE' || market==='TPEX')
+      ? rawVolume*1000
+      : rawVolume;
     const q={
       symbol:sym,name:r.name,market,
       close:price,price,
       change:Number(r.change),
       change_percent:Number(r.change_percent),
-      volume:Number(r.volume),
+      volume:quoteVolume,
       amount:Number(r.amount),
       source:r.source,
       date:r.quote_date,
