@@ -807,6 +807,9 @@ function updateLiveDom(){
     const m=DATA.market||{};
     const fmt=o=>Number.isFinite(Number(o&&o.v))?fmtPx(o.v):'—';
     const diff=o=>Number.isFinite(Number(o&&o.d))&&Number.isFinite(Number(o&&o.dp))?`${sgn(Number(o.d).toFixed(2))} (${sgn(Number(o.dp).toFixed(2))}%)`:'—';
+    updateMarketCardDom('twse',m.twse);
+    updateMarketCardDom('tpex',m.tpex);
+    updateTxFutureDom();
     liveText('[data-live="twse-v"]',fmt(m.twse),`v ${dcls(Number(m.twse&&m.twse.d))}`);
     liveText('[data-live="twse-d"]',diff(m.twse),`d ${dcls(Number(m.twse&&m.twse.d))}`);
     liveText('[data-live="tpex-v"]',fmt(m.tpex),`v ${dcls(Number(m.tpex&&m.tpex.d))}`);
@@ -814,7 +817,6 @@ function updateLiveDom(){
     liveText('[data-live="amt-twse"]',m.amtTwse||'—','up');
     liveText('[data-live="amt-tpex"]',m.amtTpex||'—','up');
     liveText('[data-live="amt-total"]',m.amtTotal||'—','');
-    updateTxFutureDom();
     (DATA.picks||[]).slice(0,5).forEach(s=>{
       const row=document.querySelector(`[data-live-row="${s.c}"]`);
       if(!row) return;
@@ -838,6 +840,22 @@ function updateLiveDom(){
     });
   }
 }
+function updateMarketCardDom(key,o){
+  const card=document.querySelector(`[data-live-card="${key}"]`);
+  if(!card) return;
+  const v=Number(o&&o.v), d=Number(o&&o.d), dp=Number(o&&o.dp);
+  const cls=dcls(d);
+  const price=card.querySelector(`[data-live="${key}-price"]`);
+  const diff=card.querySelector(`[data-live="${key}-diff"]`);
+  if(price){
+    price.textContent=Number.isFinite(v)?fmtPx(v):'—';
+    price.className=`pick-name num ${cls}`;
+  }
+  if(diff){
+    diff.textContent=Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—';
+    diff.className=`num ${cls}`;
+  }
+}
 function setLiveClass(el,base,cls){
   if(!el) return;
   el.className=[base,cls].filter(Boolean).join(' ');
@@ -849,6 +867,18 @@ function updateTxFutureDom(){
   const sess=typeof txfSession==='function'?txfSession(f):'day';
   const v=Number(f.v), d=Number(f.d), dp=Number(f.dp);
   const cls=dcls(d);
+  const summaryPrice=card.querySelector('[data-live="txf-price"]');
+  const summaryDiff=card.querySelector('[data-live="txf-diff"]');
+  if(summaryPrice){
+    summaryPrice.textContent=Number.isFinite(v)?fmtPx(v):'—';
+    summaryPrice.className=`pick-name num ${cls}`;
+  }
+  if(summaryDiff){
+    summaryDiff.textContent=Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—';
+    summaryDiff.className=`num ${cls}`;
+  }
+  liveText('[data-live="txf-session-label"]',sess==='night'?'夜盤':'早盤','');
+  liveText('[data-live="txf-time"]',f.quote_time||'—','');
   const day=card.querySelector('[data-txf-session="day"]');
   const night=card.querySelector('[data-txf-session="night"]');
   if(day) day.className=`session-tag ${sess==='day'?'on':''}`;

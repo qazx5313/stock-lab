@@ -141,12 +141,13 @@ function trendMini(title,o,color){
 }
 function marketSummaryCard(title,o,extra='',chart=null){
   const d=Number(o&&o.d), dp=Number(o&&o.dp), v=Number(o&&o.v);
-  return `<div class="pick-card best market-card">
+  const liveKey=title==='台指期'?'txf':(title==='加權指數'?'twse':(title==='櫃買指數'?'tpex':''));
+  return `<div class="pick-card best market-card" ${liveKey?`data-live-card="${liveKey}"`:''}>
     <div class="pick-top">
       <div style="min-width:0;flex:1">
-        <div class="pick-code">${esc(title)}</div>
-        <div class="pick-name num ${dcls(d)}">${Number.isFinite(v)?fmtPx(v):'—'}</div>
-        <div class="num ${dcls(d)}" style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
+        <div class="pick-code" ${liveKey?`data-live="${liveKey}-name"`:''}>${esc(title)}</div>
+        <div class="pick-name num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-price"`:''}>${Number.isFinite(v)?fmtPx(v):'—'}</div>
+        <div class="num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''} style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
       </div>
     </div>
     ${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart)}
@@ -192,7 +193,7 @@ function vHome(){
    </div>
 
    <div class="pick-grid">
-     ${marketSummaryCard('台指期',m.txFut,`<div class="flow-row"><span>時段</span><span>${txfSession(m.txFut)==='night'?'夜盤':'早盤'}</span></div><div class="flow-row"><span>更新</span><span>${m.txFut&&m.txFut.quote_time||'—'}</span></div>`)}
+     ${marketSummaryCard('台指期',m.txFut,`<div class="flow-row"><span>時段</span><span data-live="txf-session-label">${txfSession(m.txFut)==='night'?'夜盤':'早盤'}</span></div><div class="flow-row"><span>更新</span><span data-live="txf-time">${m.txFut&&m.txFut.quote_time||'—'}</span></div>`)}
      ${marketSummaryCard('加權指數',m.twse,`<div class="flow-row"><span>成交金額</span><span>${m.amtTwse||'—'}</span></div>`,m.twseChart)}
      ${marketSummaryCard('櫃買指數',m.tpex,`<div class="flow-row"><span>成交金額</span><span>${m.amtTpex||'—'}</span></div>`,m.tpexChart)}
    </div>
