@@ -739,6 +739,12 @@ function renderTradingViewStockChart(){
   if(el.__tvResizeObserver) el.__tvResizeObserver.disconnect();
   el.__tvResizeObserver=new ResizeObserver(()=>drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), rows));
   el.__tvResizeObserver.observe(el);
+  const canvas=el.querySelector('#tvLiteCanvas');
+  canvas.onmousemove=ev=>{
+    const rect=canvas.getBoundingClientRect();
+    drawTradingStyleCanvas(canvas, rows, {x:ev.clientX-rect.left,y:ev.clientY-rect.top});
+  };
+  canvas.onmouseleave=()=>drawTradingStyleCanvas(canvas, rows);
 }
 
 function calcMaRows(rows,len){
@@ -757,12 +763,12 @@ function indicatorRows(rows,vals){
     .filter(p=>p.time&&Number.isFinite(p.value));
 }
 
-function drawTradingStyleCanvas(canvas, rows){
+function drawTradingStyleCanvas(canvas, rows, hover){
   if(!canvas||!rows||rows.length<2) return;
   const host=canvas.parentElement;
   const ratio=window.devicePixelRatio||1;
   const W=Math.max(620,Math.floor(host.clientWidth||1100));
-  const H=760;
+  const H=820;
   canvas.style.width='100%';
   canvas.style.height=H+'px';
   canvas.width=W*ratio;
@@ -772,8 +778,8 @@ function drawTradingStyleCanvas(canvas, rows){
   x.clearRect(0,0,W,H);
   x.fillStyle='#fff';
   x.fillRect(0,0,W,H);
-  const L=14,R=62,T=14,G=10,B=26;
-  const priceH=390,volH=74,macdH=106,kdH=84,rsiH=74;
+  const L=14,R=66,T=26,G=10,B=34;
+  const priceH=390,volH=82,macdH=110,kdH=90,rsiH=90;
   const panels=[
     {name:'price',y:T,h:priceH,label:'K 線  MA5  MA10  MA20  MA60'},
     {name:'vol',y:T+priceH+G,h:volH,label:'成交量'},
@@ -789,6 +795,16 @@ function drawTradingStyleCanvas(canvas, rows){
   const highs=rows.map(r=>Number(r.h));
   const lows=rows.map(r=>Number(r.l));
   const vols=rows.map(r=>volumeToLots(r.v)||0);
+  const ma5=rows.map((_,i)=>i<4?NaN:rows.slice(i-4,i+1).reduce((a,b)=>a+Number(b.c||0),0)/5);
+  const ma10=rows.map((_,i)=>i<9?NaN:rows.slice(i-9,i+1).reduce((a,b)=>a+Number(b.c||0),0)/10);
+  const ma20=rows.map((_,i)=>i<19?NaN:rows.slice(i-19,i+1).reduce((a,b)=>a+Number(b.c||0),0)/20);
+  const ma60=rows.map((_,i)=>i<59?NaN:rows.slice(i-59,i+1).reduce((a,b)=>a+Number(b.c||0),0)/60);
+  const macd=calcMACDSeries(closes);
+  const kd=calcKDSeries(highs,lows,closes,9);
+  const rsi=calcRSISeries(closes,14);
+  const hoverIdx=hover&&Number.isFinite(hover.x)?Math.max(0,Math.min(n-1,Math.round((hover.x-L-bw/2)/bw))):n-1;
+  const hrow=rows[hoverIdx]||rows[n-1];
+  const hv=(arr)=>{const v=Number(arr&&arr[hoverIdx]);return Number.isFinite(v)?v:null;};
   const grid=(p,steps=4)=>{
     x.strokeStyle='#EAF0F7';x.lineWidth=1;
     for(let i=0;i<=steps;i++){const yy=p.y+i*p.h/steps;x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();}
@@ -806,6 +822,11 @@ function drawTradingStyleCanvas(canvas, rows){
     return {Y,mx,mn,span};
   };
   panels.forEach(p=>grid(p,p.name==='price'?6:2));
+  drawQuoteHeader(x,W,hrow,{
+    ma5:hv(ma5),ma10:hv(ma10),ma20:hv(ma20),ma60:hv(ma60),
+    vol:hv(vols),dif:hv(macd.dif),macd:hv(macd.signal),osc:hv(macd.hist),
+    k:hv(kd.k),d:hv(kd.d),rsi:hv(rsi)
+  });
   const priceVals=rows.flatMap(r=>[Number(r.h),Number(r.l)]).filter(Number.isFinite);
   const py=axis(panels[0],priceVals,v=>v.toFixed(2)).Y;
   const drawLine=(vals,color,p=panels[0],fixedAxis=null)=>{
@@ -824,8 +845,7 @@ function drawTradingStyleCanvas(canvas, rows){
     const y1=py(Math.max(o,c)),y2=py(Math.min(o,c));
     x.fillRect(xx-bodyW/2,y1,bodyW,Math.max(2,y2-y1));
   });
-  [[5,'#F59E0B'],[10,'#2563EB'],[20,'#7C3AED'],[60,'#64748B']].forEach(([len,color])=>{
-    const vals=rows.map((_,i)=>i<len-1?NaN:rows.slice(i-len+1,i+1).reduce((a,b)=>a+Number(b.c||0),0)/len);
+  [[ma5,'#F59E0B'],[ma10,'#2563EB'],[ma20,'#7C3AED'],[ma60,'#64748B']].forEach(([vals,color])=>{
     drawLine(vals,color,panels[0],py);
   });
   const last=rows[rows.length-1];
@@ -836,18 +856,63 @@ function drawTradingStyleCanvas(canvas, rows){
   const vp=panels[1],vmx=Math.max(...vols,1),vY=v=>vp.y+vp.h-(v/vmx)*(vp.h-18);
   rows.forEach((r,i)=>{const v=vols[i],xx=X(i),up=Number(r.c)>=Number(r.o);x.fillStyle=up?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),vY(v),Math.max(2,bw*.64),vp.y+vp.h-vY(v));});
   x.fillStyle='#475569';x.textAlign='left';x.font='11px var(--mono), monospace';x.fillText(Math.round(vmx).toLocaleString('en-US'),W-R+8,vp.y+12);
-  const macd=calcMACDSeries(closes),mp=panels[2],mvals=[...macd.dif,...macd.signal,...macd.hist].map(Number).filter(Number.isFinite);
+  const mp=panels[2],mvals=[...macd.dif,...macd.signal,...macd.hist].map(Number).filter(Number.isFinite);
   const mMax=Math.max(...mvals.map(Math.abs),.01),mY=v=>mp.y+mp.h/2-(v/mMax)*(mp.h*.42);
   x.strokeStyle='#CBD5E1';x.beginPath();x.moveTo(L,mY(0));x.lineTo(W-R,mY(0));x.stroke();
   macd.hist.forEach((v,i)=>{v=Number(v);if(!Number.isFinite(v))return;const xx=X(i),yy=mY(v);x.fillStyle=v>=0?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),Math.min(mY(0),yy),Math.max(2,bw*.64),Math.abs(mY(0)-yy));});
   drawLine(macd.dif,'#2563EB',mp,mY);drawLine(macd.signal,'#F59E0B',mp,mY);
-  const kd=calcKDSeries(highs,lows,closes,9),kp=panels[3],kY=v=>kp.y+8+(100-v)/100*(kp.h-16);
+  const kp=panels[3],kY=v=>kp.y+8+(100-v)/100*(kp.h-16);
   axis(kp,[0,50,100],v=>v.toFixed(0));drawLine(kd.k,'#F59E0B',kp,kY);drawLine(kd.d,'#06B6D4',kp,kY);
-  const rp=panels[4],rsi=calcRSISeries(closes,14),rY=v=>rp.y+8+(100-v)/100*(rp.h-16);
+  const rp=panels[4],rY=v=>rp.y+8+(100-v)/100*(rp.h-16);
   axis(rp,[0,50,100],v=>v.toFixed(0));drawLine(rsi,'#2563EB',rp,rY);
+  if(hover&&Number.isFinite(hover.x)){
+    const xx=X(hoverIdx);
+    x.setLineDash([4,4]);x.strokeStyle='#94A3B8';x.beginPath();x.moveTo(xx,T);x.lineTo(xx,H-B);x.stroke();x.setLineDash([]);
+    const yy=Math.max(T,Math.min(H-B,hover.y||T));
+    x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();
+    const label=shortChartDate(hrow.d,true);
+    x.fillStyle='#0F172A';x.fillRect(Math.max(L,Math.min(W-R-84,xx-42)),H-26,84,20);
+    x.fillStyle='#fff';x.font='800 11px var(--mono), monospace';x.textAlign='center';x.fillText(label,Math.max(L+42,Math.min(W-R-42,xx)),H-12);
+  }
   const tickEvery=Math.max(8,Math.ceil(n/8));
   x.fillStyle='#475569';x.font='11px system-ui';x.textAlign='center';
   rows.forEach((r,i)=>{if(i%tickEvery&&i!==n-1)return;const d=String(r.d||'');const lab=i===n-1?shortChartDate(d,true):shortChartDate(d);x.fillText(lab,X(i),H-8);});
+}
+
+function drawQuoteHeader(x,W,row,v){
+  const bits=[
+    ['日期',shortChartDate(row&&row.d,true),'#475569'],
+    ['開',fmtPx(row&&row.o),'#475569'],
+    ['高',fmtPx(row&&row.h),'#DC2626'],
+    ['低',fmtPx(row&&row.l),'#16A34A'],
+    ['收',fmtPx(row&&row.c),'#0F172A'],
+    ['量',Number.isFinite(v.vol)?Math.round(v.vol).toLocaleString('en-US')+'張':'—','#F59E0B'],
+    ['MA5',fmtInd(v.ma5),'#F59E0B'],
+    ['MA10',fmtInd(v.ma10),'#2563EB'],
+    ['MA20',fmtInd(v.ma20),'#7C3AED'],
+    ['MA60',fmtInd(v.ma60),'#64748B']
+  ];
+  let xx=18,yy=15;
+  x.font='800 12px var(--mono), monospace';x.textAlign='left';
+  bits.forEach(([k,val,color])=>{
+    const text=`${k} ${val}`;
+    x.fillStyle=color;x.fillText(text,xx,yy);
+    xx+=x.measureText(text).width+12;
+    if(xx>W-220){xx=18;yy+=17;}
+  });
+  const row2=[
+    ['MACD DIF',fmtInd(v.dif),'#2563EB'],['MACD',fmtInd(v.macd),'#F59E0B'],['OSC',fmtInd(v.osc),'#DC2626'],
+    ['KD K',fmtInd(v.k),'#F59E0B'],['D',fmtInd(v.d),'#06B6D4'],['RSI',fmtInd(v.rsi),'#2563EB']
+  ];
+  row2.forEach(([k,val,color])=>{
+    const text=`${k} ${val}`;
+    x.fillStyle=color;x.fillText(text,xx,yy);
+    xx+=x.measureText(text).width+12;
+    if(xx>W-160){xx=18;yy+=17;}
+  });
+}
+function fmtInd(v){
+  return Number.isFinite(Number(v))?Number(v).toFixed(2):'—';
 }
 
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
