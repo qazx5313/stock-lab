@@ -734,98 +734,11 @@ function renderTradingViewStockChart(){
     el.innerHTML='<div class="muted" style="padding:18px">此股票 K 棒資料不足，請先更新每日資料。</div>';
     return;
   }
-  el.innerHTML='<div class="muted" style="padding:18px">正在載入 TradingView Lightweight Charts…</div>';
-  loadLightweightCharts().then(()=>{
-    if(!window.LightweightCharts || !document.getElementById('tvStockChart')) return;
-    const L=window.LightweightCharts;
-    el.innerHTML='';
-    const width=Math.max(320,Math.floor(el.getBoundingClientRect().width||el.clientWidth||900));
-    const chart=L.createChart(el,{
-      width,
-      height:760,
-      layout:{background:{type:'solid',color:'#fff'},textColor:'#475569',attributionLogo:false},
-      grid:{vertLines:{color:'#EEF2F7'},horzLines:{color:'#EEF2F7'}},
-      localization:{locale:'zh-TW'},
-      rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.08}},
-      timeScale:{borderVisible:false,timeVisible:true,secondsVisible:false,fixLeftEdge:true,fixRightEdge:true},
-      crosshair:{mode:L.CrosshairMode?L.CrosshairMode.Normal:0}
-    });
-    const add=(kind,opts,paneIndex=0)=>{
-      if(chart.addSeries){
-        const map={candle:L.CandlestickSeries,hist:L.HistogramSeries,line:L.LineSeries};
-        return chart.addSeries(map[kind],opts,paneIndex);
-      }
-      if(kind==='candle'&&chart.addCandlestickSeries) return chart.addCandlestickSeries(opts);
-      if(kind==='hist'&&chart.addHistogramSeries) return chart.addHistogramSeries(opts);
-      if(kind==='line'&&chart.addLineSeries) return chart.addLineSeries(opts);
-      const map={candle:L.CandlestickSeries,hist:L.HistogramSeries,line:L.LineSeries};
-      return chart.addSeries(map[kind],opts);
-    };
-    const candles=rows.map(r=>({
-      time:String(r.d||'').slice(0,10),
-      open:Number(r.o),
-      high:Number(r.h),
-      low:Number(r.l),
-      close:Number(r.c)
-    })).filter(r=>r.time&&isFinite(r.close)&&r.close>0);
-    const candle=add('candle',{
-      upColor:'#16A34A',
-      downColor:'#DC2626',
-      borderUpColor:'#16A34A',
-      borderDownColor:'#DC2626',
-      wickUpColor:'#16A34A',
-      wickDownColor:'#DC2626'
-    },0);
-    candle.setData(candles);
-    const vol=add('hist',{
-      priceFormat:{type:'volume'},
-      priceLineVisible:false,
-      lastValueVisible:true
-    },1);
-    vol.setData(rows.map(r=>({
-      time:String(r.d||'').slice(0,10),
-      value:volumeToLots(r.v)||0,
-      color:Number(r.c)>=Number(r.o)?'rgba(22,163,74,.5)':'rgba(220,38,38,.45)'
-    })).filter(r=>r.time));
-    [[5,'#F59E0B'],[10,'#2563EB'],[20,'#7C3AED'],[60,'#64748B']].forEach(([len,color])=>{
-      const line=add('line',{color,lineWidth:2,priceLineVisible:false,lastValueVisible:false},0);
-      line.setData(calcMaRows(rows,len));
-    });
-    const closes=rows.map(r=>Number(r.c));
-    const highs=rows.map(r=>Number(r.h));
-    const lows=rows.map(r=>Number(r.l));
-    const rsiLine=add('line',{color:'#2563EB',lineWidth:2,priceLineVisible:false},2);
-    rsiLine.setData(indicatorRows(rows,calcRSISeries(closes,14)));
-    const kLine=add('line',{color:'#F59E0B',lineWidth:2,priceLineVisible:false},3);
-    const dLine=add('line',{color:'#7C3AED',lineWidth:2,priceLineVisible:false},3);
-    const kd=calcKDSeries(highs,lows,closes,9);
-    kLine.setData(indicatorRows(rows,kd.k));
-    dLine.setData(indicatorRows(rows,kd.d));
-    const macd=calcMACDSeries(closes);
-    const macdHist=add('hist',{priceFormat:{type:'price',precision:3,minMove:.001},priceLineVisible:false},4);
-    macdHist.setData(indicatorRows(rows,macd.hist).map(p=>({...p,color:p.value>=0?'rgba(22,163,74,.55)':'rgba(220,38,38,.5)'})));
-    const difLine=add('line',{color:'#2563EB',lineWidth:2,priceLineVisible:false},4);
-    const sigLine=add('line',{color:'#F59E0B',lineWidth:2,priceLineVisible:false},4);
-    difLine.setData(indicatorRows(rows,macd.dif));
-    sigLine.setData(indicatorRows(rows,macd.signal));
-    if(chart.panes){
-      const panes=chart.panes();
-      if(panes[0]&&panes[0].setHeight) panes[0].setHeight(360);
-      if(panes[1]&&panes[1].setHeight) panes[1].setHeight(105);
-      if(panes[2]&&panes[2].setHeight) panes[2].setHeight(95);
-      if(panes[3]&&panes[3].setHeight) panes[3].setHeight(95);
-      if(panes[4]&&panes[4].setHeight) panes[4].setHeight(125);
-    }
-    const ro=new ResizeObserver(()=>{
-      if(!document.getElementById('tvStockChart')) return;
-      const w=el.clientWidth||900;
-      chart.applyOptions({width:Math.max(320,Math.floor(w)),height:760});
-    });
-    ro.observe(el);
-    chart.timeScale().fitContent();
-  }).catch(()=>{
-    el.innerHTML='<div class="muted" style="padding:18px">TradingView Lightweight Charts 載入失敗，請確認網路連線或瀏覽器是否阻擋外部腳本。</div>';
-  });
+  el.innerHTML='<canvas id="tvLiteCanvas" class="tv-canvas"></canvas>';
+  drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), rows);
+  if(el.__tvResizeObserver) el.__tvResizeObserver.disconnect();
+  el.__tvResizeObserver=new ResizeObserver(()=>drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), rows));
+  el.__tvResizeObserver.observe(el);
 }
 
 function calcMaRows(rows,len){
@@ -842,6 +755,99 @@ function calcMaRows(rows,len){
 function indicatorRows(rows,vals){
   return (vals||[]).map((v,i)=>({time:String(rows[i]&&rows[i].d||'').slice(0,10),value:Number(v)}))
     .filter(p=>p.time&&Number.isFinite(p.value));
+}
+
+function drawTradingStyleCanvas(canvas, rows){
+  if(!canvas||!rows||rows.length<2) return;
+  const host=canvas.parentElement;
+  const ratio=window.devicePixelRatio||1;
+  const W=Math.max(620,Math.floor(host.clientWidth||1100));
+  const H=760;
+  canvas.style.width='100%';
+  canvas.style.height=H+'px';
+  canvas.width=W*ratio;
+  canvas.height=H*ratio;
+  const x=canvas.getContext('2d');
+  x.setTransform(ratio,0,0,ratio,0,0);
+  x.clearRect(0,0,W,H);
+  x.fillStyle='#fff';
+  x.fillRect(0,0,W,H);
+  const L=14,R=62,T=14,G=10,B=26;
+  const priceH=390,volH=74,macdH=106,kdH=84,rsiH=74;
+  const panels=[
+    {name:'price',y:T,h:priceH,label:'K 線  MA5  MA10  MA20  MA60'},
+    {name:'vol',y:T+priceH+G,h:volH,label:'成交量'},
+    {name:'macd',y:T+priceH+G+volH+G,h:macdH,label:'MACD 12・26・9'},
+    {name:'kd',y:T+priceH+G+volH+G+macdH+G,h:kdH,label:'KD 9'},
+    {name:'rsi',y:T+priceH+G+volH+G+macdH+G+kdH+G,h:rsiH,label:'RSI 14'}
+  ];
+  const plotW=W-L-R;
+  const n=rows.length;
+  const bw=plotW/n;
+  const X=i=>L+i*bw+bw/2;
+  const closes=rows.map(r=>Number(r.c));
+  const highs=rows.map(r=>Number(r.h));
+  const lows=rows.map(r=>Number(r.l));
+  const vols=rows.map(r=>volumeToLots(r.v)||0);
+  const grid=(p,steps=4)=>{
+    x.strokeStyle='#EAF0F7';x.lineWidth=1;
+    for(let i=0;i<=steps;i++){const yy=p.y+i*p.h/steps;x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();}
+    const tickEvery=Math.max(7,Math.ceil(n/8));
+    rows.forEach((r,i)=>{if(i%tickEvery&&i!==n-1)return;const xx=X(i);x.beginPath();x.moveTo(xx,p.y);x.lineTo(xx,p.y+p.h);x.stroke();});
+    x.fillStyle='#94A3B8';x.font='700 11px system-ui';x.textAlign='left';x.fillText(p.label,L+8,p.y+16);
+  };
+  const axis=(p,vals,fmt=v=>Number(v).toFixed(2))=>{
+    const good=vals.filter(Number.isFinite);
+    const mx=Math.max(...good),mn=Math.min(...good);
+    const span=Math.max(.0001,mx-mn);
+    const Y=v=>p.y+8+(mx-v)/span*(p.h-16);
+    x.fillStyle='#475569';x.font='11px var(--mono), monospace';x.textAlign='left';
+    [mx,(mx+mn)/2,mn].forEach(v=>x.fillText(fmt(v),W-R+8,Y(v)+4));
+    return {Y,mx,mn,span};
+  };
+  panels.forEach(p=>grid(p,p.name==='price'?6:2));
+  const priceVals=rows.flatMap(r=>[Number(r.h),Number(r.l)]).filter(Number.isFinite);
+  const py=axis(panels[0],priceVals,v=>v.toFixed(2)).Y;
+  const drawLine=(vals,color,p=panels[0],fixedAxis=null)=>{
+    const clean=vals.map(Number);
+    const yFn=fixedAxis||axis(p,clean, v=>Math.abs(v)>=10?v.toFixed(2):v.toFixed(3)).Y;
+    x.strokeStyle=color;x.lineWidth=2;x.beginPath();let started=false;
+    clean.forEach((v,i)=>{if(!Number.isFinite(v))return;const xx=X(i),yy=yFn(v);if(!started){x.moveTo(xx,yy);started=true;}else x.lineTo(xx,yy);});
+    x.stroke();
+    return yFn;
+  };
+  rows.forEach((r,i)=>{
+    const o=Number(r.o),h=Number(r.h),l=Number(r.l),c=Number(r.c);
+    const up=c>=o,xx=X(i),bodyW=Math.max(3,Math.min(10,bw*.58));
+    x.strokeStyle=up?'#DC2626':'#16A34A';x.fillStyle=x.strokeStyle;
+    x.beginPath();x.moveTo(xx,py(h));x.lineTo(xx,py(l));x.stroke();
+    const y1=py(Math.max(o,c)),y2=py(Math.min(o,c));
+    x.fillRect(xx-bodyW/2,y1,bodyW,Math.max(2,y2-y1));
+  });
+  [[5,'#F59E0B'],[10,'#2563EB'],[20,'#7C3AED'],[60,'#64748B']].forEach(([len,color])=>{
+    const vals=rows.map((_,i)=>i<len-1?NaN:rows.slice(i-len+1,i+1).reduce((a,b)=>a+Number(b.c||0),0)/len);
+    drawLine(vals,color,panels[0],py);
+  });
+  const last=rows[rows.length-1];
+  if(last&&Number.isFinite(Number(last.c))){
+    const yy=py(Number(last.c));x.setLineDash([2,3]);x.strokeStyle='#EF4444';x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();x.setLineDash([]);
+    x.fillStyle='#DC2626';x.fillRect(W-R+4,yy-10,54,20);x.fillStyle='#fff';x.font='800 11px var(--mono), monospace';x.textAlign='center';x.fillText(Number(last.c).toFixed(2),W-R+31,yy+4);
+  }
+  const vp=panels[1],vmx=Math.max(...vols,1),vY=v=>vp.y+vp.h-(v/vmx)*(vp.h-18);
+  rows.forEach((r,i)=>{const v=vols[i],xx=X(i),up=Number(r.c)>=Number(r.o);x.fillStyle=up?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),vY(v),Math.max(2,bw*.64),vp.y+vp.h-vY(v));});
+  x.fillStyle='#475569';x.textAlign='left';x.font='11px var(--mono), monospace';x.fillText(Math.round(vmx).toLocaleString('en-US'),W-R+8,vp.y+12);
+  const macd=calcMACDSeries(closes),mp=panels[2],mvals=[...macd.dif,...macd.signal,...macd.hist].map(Number).filter(Number.isFinite);
+  const mMax=Math.max(...mvals.map(Math.abs),.01),mY=v=>mp.y+mp.h/2-(v/mMax)*(mp.h*.42);
+  x.strokeStyle='#CBD5E1';x.beginPath();x.moveTo(L,mY(0));x.lineTo(W-R,mY(0));x.stroke();
+  macd.hist.forEach((v,i)=>{v=Number(v);if(!Number.isFinite(v))return;const xx=X(i),yy=mY(v);x.fillStyle=v>=0?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),Math.min(mY(0),yy),Math.max(2,bw*.64),Math.abs(mY(0)-yy));});
+  drawLine(macd.dif,'#2563EB',mp,mY);drawLine(macd.signal,'#F59E0B',mp,mY);
+  const kd=calcKDSeries(highs,lows,closes,9),kp=panels[3],kY=v=>kp.y+8+(100-v)/100*(kp.h-16);
+  axis(kp,[0,50,100],v=>v.toFixed(0));drawLine(kd.k,'#F59E0B',kp,kY);drawLine(kd.d,'#06B6D4',kp,kY);
+  const rp=panels[4],rsi=calcRSISeries(closes,14),rY=v=>rp.y+8+(100-v)/100*(rp.h-16);
+  axis(rp,[0,50,100],v=>v.toFixed(0));drawLine(rsi,'#2563EB',rp,rY);
+  const tickEvery=Math.max(8,Math.ceil(n/8));
+  x.fillStyle='#475569';x.font='11px system-ui';x.textAlign='center';
+  rows.forEach((r,i)=>{if(i%tickEvery&&i!==n-1)return;const d=String(r.d||'');const lab=i===n-1?shortChartDate(d,true):shortChartDate(d);x.fillText(lab,X(i),H-8);});
 }
 
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
