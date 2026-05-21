@@ -442,6 +442,11 @@ function vStock(){
   const fc=s.foreignCost||{};
   const revenue=Array.isArray(s.revenue)?s.revenue:[];
   const latestRevenue=revenue[0]||null;
+  const dp=Number(s.dp);
+  const chg=Number(s.chg);
+  const vol=Number(s.vol);
+  const headCls=dcls(dp);
+  const headArrow=Number.isFinite(dp)?(dp>=0?'▲':'▼'):'';
   const fcRows=[
     ['外資推估成本',fc.cost,''],
     ['站穩起飛價 ×1.04',fc.launch,'cool'],
@@ -458,12 +463,15 @@ function vStock(){
            <span class="badge">${s.market}</span><span class="badge obs">${s.industry}</span><span class="badge hot">${s.theme}</span>
          </div>
          <div style="margin-top:10px;color:var(--ink-2);font-size:13px">題材定位：${s.role}</div>
-       </div>
-       <div style="text-align:right">
-         <div class="num up" style="font-size:30px;font-weight:800">${fmtPx(s.px)}</div>
-         <div class="num up" style="font-weight:700">▲ +${s.dp}%　量 ${s.vol} 張</div>
-       </div>
-     </div>
+      </div>
+      <div style="text-align:right">
+        <div class="num ${headCls}" style="font-size:30px;font-weight:800">${fmtPx(s.px)}</div>
+        <div class="num ${headCls}" style="font-weight:700">
+          ${headArrow} ${Number.isFinite(chg)?sgn(chg.toFixed(2)):''}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}
+          ${Number.isFinite(vol)?`　量 ${fmtLots(vol)} 張`:''}
+        </div>
+      </div>
+    </div>
      <div style="display:flex;gap:8px;margin-top:14px">
        <input id="stkInput" placeholder="輸入股票代號（示範：1815）" style="flex:1;max-width:260px;padding:9px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--mono);font-size:14px;outline:none">
        <button class="btn sm" id="stkSearchBtn">查詢</button>
@@ -472,27 +480,13 @@ function vStock(){
    </div>
 
    <div class="card">
-     <div class="card-h"><h3>技術分析 · 近 60 日</h3><span class="tag">K 線 + 量 + 5/10/20/60MA</span>
-       <div class="seg" style="margin-left:auto"><button class="on">日線</button><button>週線</button></div></div>
-     <div class="card-pad">
-       <canvas id="cK" style="width:100%;height:340px;display:block"></canvas>
-       <canvas id="cV" style="width:100%;height:96px;display:block;margin-top:8px"></canvas>
-       <div style="display:flex;gap:18px;font-size:11.5px;color:var(--ink-2);margin-top:10px;flex-wrap:wrap">
-         <span><b style="color:#F59E0B">━</b> 5MA</span><span><b style="color:#2563EB">━</b> 10MA</span>
-         <span><b style="color:#7C3AED">━</b> 20MA</span><span><b style="color:#0F172A">━</b> 60MA</span>
-         <span style="margin-left:auto;color:var(--ink-3)">${s.levelText||'支撐 / 壓力：資料計算中'}</span>
-       </div>
+     <div class="card-h"><h3>TradingView 技術分析</h3><span class="tag">K 線 · 成交量 · MA5/10/20/60</span></div>
+     <div class="tv-wrap">
+       <div id="tvStockChart" class="tv-chart"></div>
      </div>
    </div>
 
-   <div class="grid" style="grid-template-columns:1fr 1fr">
-     <div class="card"><div class="card-h"><h3>技術指標</h3></div>
-       <div class="card-pad" style="display:flex;flex-direction:column;gap:14px">
-         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">KD（9,3,3）<b class="${s.tech?.kdClass||''}" style="float:right">${s.tech?.kdText||'尚無足夠歷史資料'}</b></div><canvas id="cKD" style="width:100%;height:80px;display:block"></canvas></div>
-         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">MACD <b class="${s.tech?.macdClass||''}" style="float:right">${s.tech?.macdText||'尚無足夠歷史資料'}</b></div><canvas id="cMD" style="width:100%;height:80px;display:block"></canvas></div>
-         <div><div style="font-size:12px;color:var(--ink-2);margin-bottom:5px">RSI（14）<b class="${s.tech?.rsiClass||''}" style="float:right">${s.tech?.rsiText||'尚無足夠歷史資料'}</b></div><canvas id="cRS" style="width:100%;height:80px;display:block"></canvas></div>
-       </div>
-     </div>
+   <div class="grid" style="grid-template-columns:1fr">
      <div class="card"><div class="card-h"><h3>籌碼分析</h3><span class="tag">三大法人 · 融資融券</span></div>
        <div class="tbl-wrap"><table><tbody>
        ${[['外資買賣超',s.inst.foreign],['投信買賣超',s.inst.trust],['自營商買賣超',s.inst.dealer],
@@ -556,9 +550,9 @@ function vStock(){
        ${(s.ann&&s.ann.length)?s.ann.map(a=>`<div style="display:flex;gap:12px;padding:12px 20px;border-bottom:1px solid var(--border-soft)">
          <b class="code" style="color:var(--ink-3);flex-shrink:0">${a.d}</b><div style="font-size:13px;line-height:1.4">${a.t}</div></div>`).join(''):
          `<div class="muted" style="padding:18px 20px;font-size:13px">此股票目前沒有公開資訊觀測站公告資料。</div>`}
-       </div>
-     </div>
-   </div>
+      </div>
+    </div>
+  </div>
   </div>`;
 }
 
@@ -593,7 +587,11 @@ async function loadStockSeries(sym){
       const prev=DATA.stock.series[DATA.stock.series.length-2];
       if(last){
         DATA.stock.px=last.c;
-        if(prev&&prev.c) DATA.stock.dp=+(((last.c-prev.c)/prev.c)*100).toFixed(2);
+        DATA.stock.vol=Number(last.v)||0;
+        if(prev&&prev.c){
+          DATA.stock.chg=+(last.c-prev.c).toFixed(2);
+          DATA.stock.dp=+(((last.c-prev.c)/prev.c)*100).toFixed(2);
+        }
       }
       // 補股名
       try{
@@ -698,6 +696,101 @@ async function loadStockRealDetails(sym){
     );
     DATA.stock.revenue=Array.isArray(rev)?rev:[];
   }catch(e){ console.warn('月營收載入略過:',e); DATA.stock.revenue=[]; }
+}
+
+function loadLightweightCharts(){
+  if(window.LightweightCharts) return Promise.resolve();
+  if(window.__lwChartsLoading) return window.__lwChartsLoading;
+  window.__lwChartsLoading=new Promise((resolve,reject)=>{
+    const s=document.createElement('script');
+    s.src='https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js';
+    s.async=true;
+    s.onload=resolve;
+    s.onerror=reject;
+    document.head.appendChild(s);
+  });
+  return window.__lwChartsLoading;
+}
+function renderTradingViewStockChart(){
+  const el=document.getElementById('tvStockChart');
+  if(!el) return;
+  const rows=(DATA.stock&&Array.isArray(DATA.stock.series)?DATA.stock.series:[]).slice(-180);
+  if(rows.length<2){
+    el.innerHTML='<div class="muted" style="padding:18px">此股票 K 棒資料不足，請先更新每日資料。</div>';
+    return;
+  }
+  el.innerHTML='<div class="muted" style="padding:18px">正在載入 TradingView Lightweight Charts…</div>';
+  loadLightweightCharts().then(()=>{
+    if(!window.LightweightCharts || !document.getElementById('tvStockChart')) return;
+    const L=window.LightweightCharts;
+    el.innerHTML='';
+    const chart=L.createChart(el,{
+      width:el.clientWidth||900,
+      height:el.clientHeight||620,
+      layout:{background:{type:'solid',color:'#fff'},textColor:'#475569'},
+      grid:{vertLines:{color:'#EEF2F7'},horzLines:{color:'#EEF2F7'}},
+      localization:{locale:'zh-TW'},
+      rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.24}},
+      timeScale:{borderVisible:false,timeVisible:false},
+      crosshair:{mode:L.CrosshairMode?L.CrosshairMode.Normal:0}
+    });
+    const add=(kind,opts)=>{
+      if(kind==='candle'&&chart.addCandlestickSeries) return chart.addCandlestickSeries(opts);
+      if(kind==='hist'&&chart.addHistogramSeries) return chart.addHistogramSeries(opts);
+      if(kind==='line'&&chart.addLineSeries) return chart.addLineSeries(opts);
+      const map={candle:L.CandlestickSeries,hist:L.HistogramSeries,line:L.LineSeries};
+      return chart.addSeries(map[kind],opts);
+    };
+    const candles=rows.map(r=>({
+      time:String(r.d||'').slice(0,10),
+      open:Number(r.o),
+      high:Number(r.h),
+      low:Number(r.l),
+      close:Number(r.c)
+    })).filter(r=>r.time&&isFinite(r.close)&&r.close>0);
+    const candle=add('candle',{
+      upColor:'#16A34A',
+      downColor:'#DC2626',
+      borderUpColor:'#16A34A',
+      borderDownColor:'#DC2626',
+      wickUpColor:'#16A34A',
+      wickDownColor:'#DC2626'
+    });
+    candle.setData(candles);
+    const vol=add('hist',{
+      priceScaleId:'',
+      priceFormat:{type:'volume'},
+      color:'#94A3B8',
+      scaleMargins:{top:.78,bottom:0}
+    });
+    vol.setData(rows.map(r=>({
+      time:String(r.d||'').slice(0,10),
+      value:Number(r.v)||0,
+      color:Number(r.c)>=Number(r.o)?'rgba(22,163,74,.5)':'rgba(220,38,38,.45)'
+    })).filter(r=>r.time));
+    [[5,'#F59E0B'],[10,'#2563EB'],[20,'#7C3AED'],[60,'#64748B']].forEach(([len,color])=>{
+      const line=add('line',{color,lineWidth:2,priceLineVisible:false,lastValueVisible:false});
+      line.setData(calcMaRows(rows,len));
+    });
+    const ro=new ResizeObserver(()=>{
+      if(document.getElementById('tvStockChart')) chart.applyOptions({width:el.clientWidth,height:el.clientHeight});
+    });
+    ro.observe(el);
+    chart.timeScale().fitContent();
+  }).catch(()=>{
+    el.innerHTML='<div class="muted" style="padding:18px">TradingView Lightweight Charts 載入失敗，請確認網路連線或瀏覽器是否阻擋外部腳本。</div>';
+  });
+}
+
+function calcMaRows(rows,len){
+  const out=[];
+  for(let i=0;i<rows.length;i++){
+    if(i<len-1) continue;
+    const part=rows.slice(i-len+1,i+1).map(r=>Number(r.c)).filter(Number.isFinite);
+    if(part.length!==len) continue;
+    out.push({time:String(rows[i].d||'').slice(0,10),value:+(part.reduce((a,b)=>a+b,0)/len).toFixed(4)});
+  }
+  return out;
 }
 
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
@@ -809,6 +902,10 @@ function weekdayShort(s){
   return Number.isNaN(d.getTime())?'':(['週日','週一','週二','週三','週四','週五','週六'][d.getDay()]||'');
 }
 function drawStockCharts(){
+  if(document.getElementById('tvStockChart')){
+    renderTradingViewStockChart();
+    return;
+  }
   const D=(DATA.stock&&Array.isArray(DATA.stock.series)&&DATA.stock.series.length>=5)
             ? DATA.stock.series.slice(-60)
             : [];
