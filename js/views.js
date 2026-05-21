@@ -739,7 +739,7 @@ function renderTradingViewStockChart(){
     if(!window.LightweightCharts || !document.getElementById('tvStockChart')) return;
     const L=window.LightweightCharts;
     el.innerHTML='';
-    const width=el.clientWidth||900;
+    const width=Math.max(320,Math.floor(el.getBoundingClientRect().width||el.clientWidth||900));
     const pane=(title,h,cls='')=>{
       const box=document.createElement('div');
       box.className=`tv-pane ${cls}`;
@@ -751,11 +751,11 @@ function renderTradingViewStockChart(){
     const baseOpts=(h,timeVisible=false)=>({
       width,
       height:h,
-      layout:{background:{type:'solid',color:'#fff'},textColor:'#475569'},
+      layout:{background:{type:'solid',color:'#fff'},textColor:'#475569',attributionLogo:false},
       grid:{vertLines:{color:'#EEF2F7'},horzLines:{color:'#EEF2F7'}},
       localization:{locale:'zh-TW'},
       rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.08}},
-      timeScale:{borderVisible:false,timeVisible},
+      timeScale:{borderVisible:false,timeVisible,fixLeftEdge:true,fixRightEdge:true},
       crosshair:{mode:L.CrosshairMode?L.CrosshairMode.Normal:0}
     });
     const add=(chart,kind,opts)=>{
@@ -765,11 +765,11 @@ function renderTradingViewStockChart(){
       const map={candle:L.CandlestickSeries,hist:L.HistogramSeries,line:L.LineSeries};
       return chart.addSeries(map[kind],opts);
     };
-    const priceChart=L.createChart(pane('K 線 / MA5・MA10・MA20・MA60',360,'main'),baseOpts(360,false));
-    const volChart=L.createChart(pane('成交量',120),baseOpts(120,false));
-    const rsiChart=L.createChart(pane('RSI 14',120),baseOpts(120,false));
-    const kdChart=L.createChart(pane('KD 9',120),baseOpts(120,false));
-    const macdChart=L.createChart(pane('MACD 12・26・9',145),baseOpts(145,true));
+    const priceChart=L.createChart(pane('K 線 / MA5・MA10・MA20・MA60',330,'main'),baseOpts(330,false));
+    const volChart=L.createChart(pane('成交量',96),baseOpts(96,false));
+    const rsiChart=L.createChart(pane('RSI 14',96),baseOpts(96,false));
+    const kdChart=L.createChart(pane('KD 9',96),baseOpts(96,false));
+    const macdChart=L.createChart(pane('MACD 12・26・9',120),baseOpts(120,true));
     const charts=[priceChart,volChart,rsiChart,kdChart,macdChart];
     const candles=rows.map(r=>({
       time:String(r.d||'').slice(0,10),
