@@ -221,6 +221,14 @@
   .decision-metric span{display:block;font-size:11px;color:var(--ink-2);font-weight:850;margin-bottom:6px}
   .decision-metric b{display:block;font-size:19px;font-weight:950;line-height:1.15}
   .decision-metric small{display:block;font-size:11px;color:var(--ink-3);line-height:1.4;margin-top:5px}
+  .decision-signals{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:13px 20px;border-top:1px solid var(--border-soft);background:#fff}
+  .decision-signals>b{font-size:12px;color:var(--ink-2);font-weight:900}
+  .decision-signals>div{display:flex;gap:8px;flex-wrap:wrap}
+  .signal-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid var(--border);background:#F8FAFC;border-radius:999px;padding:6px 10px;font-size:12px;font-weight:850;color:var(--ink-2)}
+  .signal-chip small{font-size:11px;color:var(--ink-3);font-weight:900}
+  .signal-chip.up{background:#F0FDF4;border-color:#BBF7D0;color:var(--down)}
+  .signal-chip.warn{background:#FFF7ED;border-color:#FED7AA;color:#C2410C}
+  .signal-chip.down{background:#FEF2F2;border-color:#FECACA;color:var(--up)}
   .atr-card .card-h{align-items:center}
   .observe-card{align-items:stretch}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px}

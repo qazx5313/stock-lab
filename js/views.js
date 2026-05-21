@@ -482,6 +482,123 @@ function screenReason(s){
 }
 
 /* ============ 4. 個股分析 ============ */
+function avgNums(nums){
+  const xs=(nums||[]).map(Number).filter(Number.isFinite);
+  return xs.length?xs.reduce((a,b)=>a+b,0)/xs.length:null;
+}
+function sdNums(nums){
+  const xs=(nums||[]).map(Number).filter(Number.isFinite);
+  if(!xs.length) return null;
+  const a=avgNums(xs);
+  return Math.sqrt(xs.reduce((s,x)=>s+Math.pow(x-a,2),0)/xs.length);
+}
+function pctDiff(a,b){
+  a=Number(a);b=Number(b);
+  return Number.isFinite(a)&&Number.isFinite(b)&&b!==0?(a-b)/b*100:null;
+}
+function candleParts(k){
+  const o=Number(k&&k.o),h=Number(k&&k.h),l=Number(k&&k.l),c=Number(k&&k.c);
+  const range=Math.max(0.001,h-l);
+  const body=Math.abs(c-o);
+  return {o,h,l,c,range,body,upper:h-Math.max(o,c),lower:Math.min(o,c)-l,green:c>=o,red:c<o};
+}
+function localLows(series,start,end){
+  const out=[];
+  for(let i=Math.max(1,start);i<=Math.min(series.length-2,end);i++){
+    const v=Number(series[i].l)||Number(series[i].c);
+    const p=Number(series[i-1].l)||Number(series[i-1].c);
+    const n=Number(series[i+1].l)||Number(series[i+1].c);
+    if(Number.isFinite(v)&&v<=p&&v<=n) out.push({i,v,k:series[i]});
+  }
+  return out;
+}
+function localHighs(series,start,end){
+  const out=[];
+  for(let i=Math.max(1,start);i<=Math.min(series.length-2,end);i++){
+    const v=Number(series[i].h)||Number(series[i].c);
+    const p=Number(series[i-1].h)||Number(series[i-1].c);
+    const n=Number(series[i+1].h)||Number(series[i+1].c);
+    if(Number.isFinite(v)&&v>=p&&v>=n) out.push({i,v,k:series[i]});
+  }
+  return out;
+}
+function detectTechSignals(series,ctx){
+  const closes=series.map(x=>Number(x.c));
+  const highs=series.map(x=>Number(x.h));
+  const lows=series.map(x=>Number(x.l));
+  const vols=series.map(x=>Number(x.v||x.vol||0));
+  const last=series[series.length-1]||{};
+  const prev=series[series.length-2]||{};
+  const lastC=candleParts(last), prevC=candleParts(prev);
+  const px=ctx.px, ma5=ctx.ma5, ma10=ctx.ma10, ma20=ctx.ma20, ma60=ctx.ma60;
+  const vol20=avgNums(vols.slice(-21,-1));
+  const volRatio=vol20&&Number(last.v||last.vol)?Number(last.v||last.vol)/vol20:null;
+  const kd=calcKDSeries(highs,lows,closes,9);
+  const kNow=lastNum(kd.k), dNow=lastNum(kd.d);
+  const kPrev=kd.k.length>1?kd.k[kd.k.length-2]:null;
+  const dPrev=kd.d.length>1?kd.d[kd.d.length-2]:null;
+  const rsi14=lastNum(calcRSISeries(closes,14));
+  const macd=calcMACDSeries(closes);
+  const difNow=lastNum(macd.dif), macdNow=lastNum(macd.macd), oscNow=lastNum(macd.osc);
+  const oscPrev=macd.osc.length>1?macd.osc[macd.osc.length-2]:null;
+  const bMid=avgNums(closes.slice(-20));
+  const bSd=sdNums(closes.slice(-20));
+  const bUp=Number.isFinite(bMid)&&Number.isFinite(bSd)?bMid+bSd*2:null;
+  const bDn=Number.isFinite(bMid)&&Number.isFinite(bSd)?bMid-bSd*2:null;
+  const signals=[];
+  const add=(name,kind,score,note)=>signals.push({name,kind,score,note});
+  const recent=series.slice(-60);
+  const baseIndex=series.length-recent.length;
+  const lowsPts=localLows(series,Math.max(0,series.length-45),series.length-2);
+  for(let a=0;a<lowsPts.length;a++){
+    for(let b=a+1;b<lowsPts.length;b++){
+      const l1=lowsPts[a], l2=lowsPts[b];
+      if(l2.i-l1.i<8 || l2.i-l1.i>35) continue;
+      const lowGap=Math.abs(l1.v-l2.v)/Math.max(l1.v,l2.v);
+      const neck=Math.max(...series.slice(l1.i,l2.i+1).map(x=>Number(x.h)||0));
+      if(lowGap<=0.08 && Number.isFinite(neck) && px>=neck*0.985){
+        add('W底', 'up', 86, `雙低接近，頸線 ${fmtPx(neck)} 附近已被挑戰`);
+        a=lowsPts.length; break;
+      }
+    }
+  }
+  if(recent.length>=45){
+    const left=recent.slice(0,18).reduce((m,x,i)=>(Number(x.h)>m.v?{i:baseIndex+i,v:Number(x.h)}:m),{i:baseIndex,v:0});
+    const bottom=recent.reduce((m,x,i)=>(Number(x.l)<m.v?{i:baseIndex+i,v:Number(x.l)}:m),{i:baseIndex,v:Infinity});
+    const depth=pctDiff(left.v,bottom.v);
+    const rightHigh=Math.max(...recent.slice(-12).map(x=>Number(x.h)||0));
+    if(Number.isFinite(depth) && depth>=12 && depth<=45 && bottom.i>left.i+8 && rightHigh>=left.v*0.9 && px>=ma20){
+      add('咖啡杯型態', 'up', 82, `回升接近杯緣 ${fmtPx(left.v)}，留意是否放量突破`);
+    }
+  }
+  if(lastC.lower>=lastC.body*2.2 && lastC.upper<=lastC.range*.28 && ctx.above20 && ctx.ma20Up){
+    add('吊人線', 'warn', 55, '上升後出現長下影小實體，隔日若跌破低點要保守');
+  }
+  if(prevC.red && prevC.body/prevC.range>=0.5 && lastC.green && lastC.o>=prevC.c && lastC.c<=prevC.o && px<ma20*1.03){
+    add('多頭母子', 'up', 63, '下跌後小紅K收在前一根黑K實體內，留意止跌反彈');
+  }
+  const priorLow=Math.min(...series.slice(-22,-2).map(x=>Number(x.l)||Infinity));
+  if(Number.isFinite(priorLow) && lastC.l<priorLow*.995 && lastC.c>priorLow && lastC.green){
+    add('假跌破', 'up', 72, `跌破 ${fmtPx(priorLow)} 後收回，支撐有買盤防守`);
+  }
+  const priorHigh=Math.max(...series.slice(-22,-2).map(x=>Number(x.h)||0));
+  if(Number.isFinite(priorHigh) && px>priorHigh && volRatio>=1.3){
+    add('帶量突破', 'up', 78, `突破近20日高點，量能約 ${volRatio.toFixed(2)} 倍`);
+  }
+  if([ma5,ma10,ma20,ma60].every(Number.isFinite) && ma5>ma10 && ma10>ma20 && ma20>ma60) add('均線多頭排列','up',76,'短中長均線結構偏多');
+  if([kNow,dNow,kPrev,dPrev].every(Number.isFinite) && kPrev<=dPrev && kNow>dNow && kNow<80) add('KD黃金交叉','up',66,`K ${fmtPx(kNow)} 上穿 D ${fmtPx(dNow)}`);
+  if(Number.isFinite(kNow) && kNow>=80 && Number.isFinite(dNow) && dNow>=80) add('KD高檔鈍化','warn',58,'強勢延伸中，但追價風險提高');
+  if(Number.isFinite(rsi14) && rsi14>=55 && rsi14<=75) add('RSI偏多','up',61,`RSI14 ${fmtPx(rsi14)}，動能健康`);
+  if(Number.isFinite(rsi14) && rsi14>=80) add('RSI過熱','warn',50,`RSI14 ${fmtPx(rsi14)}，短線易震盪`);
+  if([oscNow,oscPrev].every(Number.isFinite) && oscNow>0 && oscNow>oscPrev) add('MACD轉強','up',64,'OSC 位於零軸上且擴大');
+  if(Number.isFinite(bUp) && px>=bUp*.98) add('布林上緣攻擊','up',67,`靠近布林上緣 ${fmtPx(bUp)}，適合觀察續航`);
+  if(Number.isFinite(bDn) && px<=bDn*1.02) add('布林下緣止跌區','warn',52,`接近布林下緣 ${fmtPx(bDn)}，先看止跌確認`);
+  if(Number.isFinite(volRatio) && volRatio>=1.5) add('VMA量能放大','up',62,`成交量約20日均量 ${volRatio.toFixed(2)} 倍`);
+  return {
+    signals:signals.sort((a,b)=>b.score-a.score).slice(0,8),
+    indicator:{k:kNow,d:dNow,rsi:rsi14,dif:difNow,macd:macdNow,osc:oscNow,bUp,bMid,bDn,volRatio}
+  };
+}
 function stockDecisionInfo(s){
   const series=Array.isArray(s&&s.series)?s.series.filter(x=>Number.isFinite(Number(x.c))):[];
   const last=series[series.length-1]||{};
@@ -517,16 +634,26 @@ function stockDecisionInfo(s){
   const maBull=[ma5,ma10,ma20,ma60].every(Number.isFinite) && ma5>ma10 && ma10>ma20 && ma20>ma60;
   const above20=Number.isFinite(ma20)&&px>=ma20;
   const ma20Up=Number.isFinite(ma20)&&Number.isFinite(ma20Prev)&&ma20>=ma20Prev;
+  const tech=detectTechSignals(series,{px,ma5,ma10,ma20,ma60,above20,ma20Up});
+  const primary=tech.signals[0]||null;
   const body=Math.abs(Number(last.c)-Number(last.o));
   const range=Math.max(0.001,Number(last.h)-Number(last.l));
-  let pattern='整理中';
-  if(Number(last.c)>Number(last.o) && body/range>=0.55) pattern='突破型態';
-  else if(Number(last.c)<Number(last.o) && body/range>=0.55) pattern='轉弱K棒';
-  else if(Number(last.l)<Number(prev.l) && Number(last.c)>Number(last.o)) pattern='下影支撐';
+  let pattern=primary?primary.name:'整理中';
+  if(!primary && Number(last.c)>Number(last.o) && body/range>=0.55) pattern='突破型態';
+  else if(!primary && Number(last.c)<Number(last.o) && body/range>=0.55) pattern='轉弱K棒';
+  else if(!primary && Number(last.l)<Number(prev.l) && Number(last.c)>Number(last.o)) pattern='下影支撐';
   const trend=maBull?'多頭排列':(above20&&ma20Up?'上升趨勢':(above20?'站上MA20':'跌破MA20'));
-  const win=maBull?68:(above20&&ma20Up?62:(above20?54:46));
+  const win=primary?primary.score:(maBull?68:(above20&&ma20Up?62:(above20?54:46)));
   let action='';
-  if(!above20 && Number.isFinite(ma20)){
+  if(primary && primary.name==='假跌破'){
+    action=`假跌破收回支撐，防守 ${fmtPx(defense)}，壓力先看 ${fmtPx(resistance)}`;
+  }else if(primary && primary.name==='W底'){
+    action=`W底接近確認，站穩頸線後防守 ${fmtPx(defense)}，壓力先看 ${fmtPx(resistance)}`;
+  }else if(primary && primary.name==='咖啡杯型態'){
+    action=`咖啡杯回升段，放量突破杯緣後偏向波段續攻`;
+  }else if(primary && primary.name==='吊人線'){
+    action=`出現吊人線警訊，若隔日跌破低點或 MA20 轉弱先降低部位`;
+  }else if(!above20 && Number.isFinite(ma20)){
     action=`等站回 MA20（${fmtPx(ma20)}）並守住 ${fmtPx(defense)} 後再評估進場`;
   }else if(Number.isFinite(resistance) && px>=resistance*0.995){
     action=`接近壓力 ${fmtPx(resistance)}，先觀察是否帶量突破`;
@@ -537,14 +664,15 @@ function stockDecisionInfo(s){
   const track=maBull?'均線多頭排列，回測支撐是買點':(above20?'短線偏多，留意 MA20 是否失守':'趨勢偏弱，等重新站回均線');
   return {
     ready:true,
-    trend,pattern,win,support,resistance,defense,rr,ma5,ma10,ma20,ma60,ma20Up,
+    trend,pattern,win,support,resistance,defense,rr,ma5,ma10,ma20,ma60,ma20Up,signals:tech.signals,indicator:tech.indicator,
     summary,
     bullets:[
-      `K線型態：${pattern}，勝率參考 ${win}%`,
+      `K線型態：${pattern}，強度參考 ${win}%${primary&&primary.note?'；'+primary.note:''}`,
       `防守位 ${fmtPx(defense)}（距現價 ${fmtPct((defense-px)/px*100)}），以防守位作為停損基準`,
       `支撐 ${fmtPx(support)}（${below.name}），壓力 ${fmtPx(resistance)}（近20日高點）`,
       `趨勢：${track}`,
-      `軌道：${above20?'站在 MA20 之上':'低於 MA20'}，${ma20Up?'MA20 仍上升':'MA20 未明顯上升'}`
+      `軌道：${above20?'站在 MA20 之上':'低於 MA20'}，${ma20Up?'MA20 仍上升':'MA20 未明顯上升'}`,
+      `指標：KD ${fmtPx(tech.indicator.k)}/${fmtPx(tech.indicator.d)}，RSI ${fmtPx(tech.indicator.rsi)}，MACD OSC ${fmtPx(tech.indicator.osc)}`
     ],
     metrics:[
       ['現價',fmtPx(px),''],
@@ -578,6 +706,10 @@ function stockDecisionPanel(s){
           <span>${esc(m[0])}</span><b class="${m[2]||''}">${esc(m[1])}</b>${m[3]?`<small>${esc(m[3])}</small>`:''}
         </div>`).join('')}
       </div>
+    </div>
+    <div class="decision-signals">
+      <b>技術型態偵測</b>
+      <div>${(d.signals&&d.signals.length?d.signals:[{name:'尚無明確型態',kind:'',score:'—',note:'等待型態確認'}]).map(x=>`<span class="signal-chip ${x.kind||''}">${esc(x.name)} <small>${esc(x.score)}${Number.isFinite(Number(x.score))?'%':''}</small></span>`).join('')}</div>
     </div>
   </div>`;
 }
