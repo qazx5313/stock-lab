@@ -7,6 +7,7 @@ const DATA = {
   observations:[],
   atrWatch:[],
   onlineCount:0,
+  onlineStats:{members:0,guests:0,total:0},
 
   market:{
     twse:{name:'加權指數',v:21684.32,d:+182.45,dp:+0.85},

@@ -5,35 +5,33 @@ function chartPointsSvg(points,color='#22C55E'){
   if(rows.some(p=>Number.isFinite(p.x))){
     rows=rows.filter(p=>Number.isFinite(p.x)).sort((a,b)=>a.x-b.x || a.t.localeCompare(b.t));
     const dedup=new Map();
-    rows.forEach(p=>dedup.set(Number.isFinite(p.x)?p.x.toFixed(2):(p.t||String(dedup.size)),p));
+    rows.forEach(p=>dedup.set(p.t||Number(p.x).toFixed(5),p));
     rows=[...dedup.values()];
   }
   if(rows.length<2) return '';
-  const sample=rows.filter((_,i)=>i%Math.max(1,Math.floor(rows.length/90))===0).slice(-110);
+  const sample=rows.filter((_,i)=>i%Math.max(1,Math.floor(rows.length/180))===0).slice(-220);
   const vals=sample.map(p=>p.p);
-  const min=Math.min(...vals), max=Math.max(...vals), span=max-min||1;
+  const min=Math.min(...vals), max=Math.max(...vals), pad=Math.max(4,(max-min)*.12), span=(max-min+pad*2)||1;
+  const base=vals[0];
   const pts=sample.map((p,i)=>{
     const x=Number.isFinite(p.x)?Math.max(0,Math.min(1,p.x))*300:(i/(sample.length-1))*300;
-    const y=66-((p.p-min)/span)*52;
+    const y=68-((p.p-(min-pad))/span)*56;
     return `${x.toFixed(1)},${y.toFixed(1)}`;
   }).join(' ');
   return `<svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
-    <g stroke="#E2E8F0" stroke-width=".7" opacity=".75">
-      <line x1="0" y1="18" x2="300" y2="18"/><line x1="0" y1="44" x2="300" y2="44"/>
-      <line x1="0" y1="70" x2="300" y2="70"/>
-      <line x1="60" y1="8" x2="60" y2="76"/><line x1="120" y1="8" x2="120" y2="76"/>
-      <line x1="180" y1="8" x2="180" y2="76"/><line x1="240" y1="8" x2="240" y2="76"/>
+    <g stroke="#E2E8F0" stroke-width=".65" opacity=".85">
+      ${[12,26,40,54,68].map(y=>`<line x1="0" y1="${y}" x2="300" y2="${y}"/>`).join('')}
+      ${Array.from({length:13},(_,i)=>i*25).map(x=>`<line x1="${x}" y1="8" x2="${x}" y2="76"/>`).join('')}
     </g>
-    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round"/>
+    <line x1="0" y1="${(68-((base-(min-pad))/span)*56).toFixed(1)}" x2="300" y2="${(68-((base-(min-pad))/span)*56).toFixed(1)}" stroke="#94A3B8" stroke-width=".8" stroke-dasharray="4 3"/>
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
   </svg>`;
 }
 function blankTrendSvg(){
   return `<svg class="spark" viewBox="0 0 300 82" preserveAspectRatio="none" aria-hidden="true">
-    <g stroke="#E2E8F0" stroke-width=".7" opacity=".75">
-      <line x1="0" y1="18" x2="300" y2="18"/><line x1="0" y1="44" x2="300" y2="44"/>
-      <line x1="0" y1="70" x2="300" y2="70"/>
-      <line x1="60" y1="8" x2="60" y2="76"/><line x1="120" y1="8" x2="120" y2="76"/>
-      <line x1="180" y1="8" x2="180" y2="76"/><line x1="240" y1="8" x2="240" y2="76"/>
+    <g stroke="#E2E8F0" stroke-width=".65" opacity=".85">
+      ${[12,26,40,54,68].map(y=>`<line x1="0" y1="${y}" x2="300" y2="${y}"/>`).join('')}
+      ${Array.from({length:13},(_,i)=>i*25).map(x=>`<line x1="${x}" y1="8" x2="${x}" y2="76"/>`).join('')}
     </g>
   </svg>`;
 }
@@ -1824,12 +1822,18 @@ function vAdmin(){
       </div>
     </div>`;
   }
+  const online=DATA.onlineStats||{members:DATA.onlineCount||0,guests:0,total:DATA.onlineCount||0};
   return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
    <div class="card card-pad" style="background:var(--accent-soft);border-color:var(--accent)">
      <b style="font-size:13.5px">📌 說明</b>
      <div style="font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.6">
        股票、題材、AI 資料皆由系統每日盤後自動抓取與計算維護，此處為檢視。
-       「開通設定」可設定板塊是否開通與使用天數。${DATA.onlineCount?`目前在線使用人數：${DATA.onlineCount}`:''}</div>
+       「開通設定」可設定板塊是否開通與使用天數。</div>
+   </div>
+   <div class="admin-online-grid">
+     <div class="mini-tile cool"><span>目前在線總數</span><b>${online.total||0}</b><small>最近 5 分鐘內有活動</small></div>
+     <div class="mini-tile success"><span>線上會員</span><b>${online.members||0}</b><small>已登入帳號</small></div>
+     <div class="mini-tile"><span>未登入遊客</span><b>${online.guests||0}</b><small>匿名瀏覽者</small></div>
    </div>
    <div class="seg" style="flex-wrap:wrap" id="admSeg">
      ${[

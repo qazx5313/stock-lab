@@ -457,3 +457,11 @@ setInterval(()=>{
   }
 },5000);
 
+setInterval(()=>{
+  if(document.hidden) return;
+  if(typeof authUser==='function' && authUser() && typeof adminWrite==='function'){
+    adminWrite('heartbeat_online',{}).catch(()=>{});
+  }else if(typeof publicHeartbeatOnline==='function'){
+    publicHeartbeatOnline().catch(()=>{});
+  }
+},60000);

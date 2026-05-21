@@ -233,6 +233,18 @@ Deno.serve(async (req) => {
       return json({ ok: true, data });
     }
 
+    if (action === "public_heartbeat") {
+      const p = payload as Record<string, unknown>;
+      const rawId = asText(p.visitor_id).replace(/[^a-zA-Z0-9._:-]/g, "").slice(0, 80);
+      const visitorId = rawId || crypto.randomUUID();
+      const account = `guest:${visitorId}`;
+      const data = await rest("app_online_sessions?on_conflict=account", {
+        method: "POST",
+        body: JSON.stringify({ account, last_seen: new Date().toISOString() }),
+      });
+      return json({ ok: true, data });
+    }
+
     if (!(await isAdminUser(req))) {
       return json({ ok: false, error: "Admin only" }, 403);
     }

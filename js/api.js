@@ -36,6 +36,29 @@ function parseMarketChartSource(v){
     return Array.isArray(data.points)?data:null;
   }catch(_){return null;}
 }
+function visitorId(){
+  try{
+    let id=localStorage.getItem('stocklab_visitor_id');
+    if(!id){
+      id=(crypto&&crypto.randomUUID)?crypto.randomUUID():String(Date.now())+'-'+Math.random().toString(16).slice(2);
+      localStorage.setItem('stocklab_visitor_id',id);
+    }
+    return id;
+  }catch(_){
+    return String(Date.now())+'-'+Math.random().toString(16).slice(2);
+  }
+}
+async function publicHeartbeatOnline(){
+  try{
+    await fetch(EDGE_ADMIN_WRITE_URL,{
+      method:'POST',
+      headers:{apikey:SB_ANON,'Content-Type':'application/json'},
+      body:JSON.stringify({action:'public_heartbeat',payload:{visitor_id:visitorId()}})
+    });
+  }catch(e){
+    console.warn('public heartbeat 略過:',e);
+  }
+}
 function chunks(arr,size){
   const out=[]; for(let i=0;i<arr.length;i+=size) out.push(arr.slice(i,i+size)); return out;
 }
@@ -669,12 +692,18 @@ async function loadReal(){
     }catch(e){ console.warn('app_page_maintenance 載入略過:',e); }
     try{
       if(typeof adminWrite==='function' && typeof authUser==='function' && authUser() && typeof authToken==='function' && authToken()){
-        adminWrite('heartbeat_online',{}).catch(()=>{});
+        await adminWrite('heartbeat_online',{}).catch(()=>{});
+      }else{
+        await publicHeartbeatOnline().catch(()=>{});
       }
       const since=new Date(Date.now()-5*60*1000).toISOString();
       const on=await sbGet(`app_online_sessions?select=account,last_seen&last_seen=gte.${encodeURIComponent(since)}`,500);
-      DATA.onlineCount=Array.isArray(on)?new Set(on.map(x=>x.account).filter(Boolean)).size:0;
-    }catch(e){ DATA.onlineCount=0; }
+      const accounts=Array.isArray(on)?[...new Set(on.map(x=>String(x.account||'')).filter(Boolean))]:[];
+      const guests=accounts.filter(x=>x.startsWith('guest:')).length;
+      const members=accounts.filter(x=>x && !x.startsWith('guest:')).length;
+      DATA.onlineStats={members,guests,total:members+guests};
+      DATA.onlineCount=members+guests;
+    }catch(e){ DATA.onlineCount=0; DATA.onlineStats={members:0,guests:0,total:0}; }
 
     // ---- 資料來源狀態：讀每個 job 最新一筆完成紀錄 ----
     try{

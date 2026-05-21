@@ -199,6 +199,7 @@
   .top-user b{font-size:13px}
   .top-user span{font-size:12px;color:var(--ink-2);font-weight:700}
   .activation-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+  .admin-online-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
   .activation-card{border:1px solid var(--border);border-radius:12px;padding:13px 14px;background:#fff}
   .mini-tile{border:1px solid var(--border-soft);border-radius:10px;background:#F8FAFC;padding:12px 14px;display:flex;flex-direction:column;gap:5px;min-width:0}
   .mini-tile span{font-size:11px;color:var(--ink-2);font-weight:800}
@@ -341,7 +342,7 @@
     .mob-nav a.active{color:var(--primary)}
     .mob-nav svg{width:21px;height:21px}
     .pick-grid,.dash-metrics,.dashboard-table-grid{grid-template-columns:1fr}
-    .account-grid{grid-template-columns:1fr}
+    .account-grid,.admin-online-grid{grid-template-columns:1fr}
     .decision-head{flex-direction:column}
     .decision-body{grid-template-columns:1fr}
     .decision-notes{border-right:0;border-bottom:1px solid var(--border-soft)}
