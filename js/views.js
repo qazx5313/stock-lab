@@ -482,6 +482,105 @@ function screenReason(s){
 }
 
 /* ============ 4. 個股分析 ============ */
+function stockDecisionInfo(s){
+  const series=Array.isArray(s&&s.series)?s.series.filter(x=>Number.isFinite(Number(x.c))):[];
+  const last=series[series.length-1]||{};
+  const prev=series[series.length-2]||{};
+  const px=Number(s&&s.px)||Number(last.c);
+  const dp=Number(s&&s.dp);
+  if(!series.length || !Number.isFinite(px)){
+    return {
+      ready:false,title:`${s.c} ${s.n||''}`,
+      summary:'尚無足夠 K 線資料，暫時無法產生操作摘要。',
+      bullets:['請先確認每日資料更新已完成。'],
+      metrics:[]
+    };
+  }
+  const m5=ma(series,5), m10=ma(series,10), m20=ma(series,20), m60=ma(series,60);
+  const ma5=lastNum(m5), ma10=lastNum(m10), ma20=lastNum(m20), ma60=lastNum(m60);
+  const ma20Prev=series.length>24?m20[m20.length-6]:null;
+  const recent=series.slice(-20);
+  const recentHigh=Math.max(...recent.map(x=>Number(x.h)||Number(x.c)||0).filter(Number.isFinite));
+  const recentLow=Math.min(...recent.map(x=>Number(x.l)||Number(x.c)||0).filter(Number.isFinite));
+  const supports=[
+    {name:'MA20 動態支撐',v:ma20},
+    {name:'MA60 長線支撐',v:ma60},
+    {name:'近20日低點',v:recentLow}
+  ].filter(x=>Number.isFinite(x.v)&&x.v>0).sort((a,b)=>Math.abs(px-b.v)-Math.abs(px-a.v));
+  const below=supports.filter(x=>x.v<=px).sort((a,b)=>b.v-a.v)[0] || supports.sort((a,b)=>Math.abs(px-a.v)-Math.abs(px-b.v))[0];
+  const resistance=Number.isFinite(recentHigh)?recentHigh:null;
+  const support=below&&Number.isFinite(below.v)?below.v:null;
+  const defense=Number.isFinite(support)?Math.max(support*0.985,px*0.92):px*0.95;
+  const reward=Number.isFinite(resistance)?Math.max(0,resistance-px):0;
+  const risk=Math.max(0,px-defense);
+  const rr=risk>0?reward/risk:null;
+  const maBull=[ma5,ma10,ma20,ma60].every(Number.isFinite) && ma5>ma10 && ma10>ma20 && ma20>ma60;
+  const above20=Number.isFinite(ma20)&&px>=ma20;
+  const ma20Up=Number.isFinite(ma20)&&Number.isFinite(ma20Prev)&&ma20>=ma20Prev;
+  const body=Math.abs(Number(last.c)-Number(last.o));
+  const range=Math.max(0.001,Number(last.h)-Number(last.l));
+  let pattern='整理中';
+  if(Number(last.c)>Number(last.o) && body/range>=0.55) pattern='突破型態';
+  else if(Number(last.c)<Number(last.o) && body/range>=0.55) pattern='轉弱K棒';
+  else if(Number(last.l)<Number(prev.l) && Number(last.c)>Number(last.o)) pattern='下影支撐';
+  const trend=maBull?'多頭排列':(above20&&ma20Up?'上升趨勢':(above20?'站上MA20':'跌破MA20'));
+  const win=maBull?68:(above20&&ma20Up?62:(above20?54:46));
+  let action='';
+  if(!above20 && Number.isFinite(ma20)){
+    action=`等站回 MA20（${fmtPx(ma20)}）並守住 ${fmtPx(defense)} 後再評估進場`;
+  }else if(Number.isFinite(resistance) && px>=resistance*0.995){
+    action=`接近壓力 ${fmtPx(resistance)}，先觀察是否帶量突破`;
+  }else{
+    action=`站穩 ${below.name} ${fmtPx(support)}，防守 ${fmtPx(defense)}，目標壓力 ${fmtPx(resistance)}`;
+  }
+  const summary=`${action}。`;
+  const track=maBull?'均線多頭排列，回測支撐是買點':(above20?'短線偏多，留意 MA20 是否失守':'趨勢偏弱，等重新站回均線');
+  return {
+    ready:true,
+    trend,pattern,win,support,resistance,defense,rr,ma5,ma10,ma20,ma60,ma20Up,
+    summary,
+    bullets:[
+      `K線型態：${pattern}，勝率參考 ${win}%`,
+      `防守位 ${fmtPx(defense)}（距現價 ${fmtPct((defense-px)/px*100)}），以防守位作為停損基準`,
+      `支撐 ${fmtPx(support)}（${below.name}），壓力 ${fmtPx(resistance)}（近20日高點）`,
+      `趨勢：${track}`,
+      `軌道：${above20?'站在 MA20 之上':'低於 MA20'}，${ma20Up?'MA20 仍上升':'MA20 未明顯上升'}`
+    ],
+    metrics:[
+      ['現價',fmtPx(px),''],
+      ['趨勢',trend,above20?'up':'down'],
+      ['型態',pattern,pattern.includes('弱')?'down':'up'],
+      ['支撐區',fmtPx(support),'up',below.name],
+      ['壓力區',fmtPx(resistance),'down','近20日高點'],
+      ['防守位',fmtPx(defense),'down',fmtPct((defense-px)/px*100)],
+      ['風險報酬',rr==null?'—':rr.toFixed(2),rr!=null&&rr>=1.5?'up':'warn','目標壓力 / 防守風險']
+    ]
+  };
+}
+function stockDecisionPanel(s){
+  const d=stockDecisionInfo(s);
+  return `<div class="decision-card">
+    <div class="decision-head">
+      <div>
+        <div class="decision-title"><span class="code">${esc(s.c)}</span> ${esc(s.n||s.c)}</div>
+        <div class="decision-summary">${esc(d.summary)}</div>
+      </div>
+      <div class="decision-actions">
+        <button class="btn line sm" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
+      </div>
+    </div>
+    <div class="decision-body">
+      <div class="decision-notes">
+        ${(d.bullets||[]).map(x=>`<div>${esc(x)}</div>`).join('')}
+      </div>
+      <div class="decision-metrics">
+        ${(d.metrics||[]).map(m=>`<div class="decision-metric">
+          <span>${esc(m[0])}</span><b class="${m[2]||''}">${esc(m[1])}</b>${m[3]?`<small>${esc(m[3])}</small>`:''}
+        </div>`).join('')}
+      </div>
+    </div>
+  </div>`;
+}
 function vStock(){
   const s=DATA.stock;
   const fc=s.foreignCost||{};
@@ -523,6 +622,8 @@ function vStock(){
        <button class="btn line sm" id="watchToggleBtn" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
      </div>
    </div>
+
+   ${stockDecisionPanel(s)}
 
    <div class="card">
      <div class="card-h"><h3>TradingView 技術分析</h3><span class="tag">K 線 · 成交量 · MA5/10/20/60 · RSI/KD/MACD</span></div>

@@ -144,18 +144,21 @@ function bindPage(id){
   if(id==='stock'){
     const inp=document.getElementById('stkInput');
     const btn=document.getElementById('stkSearchBtn');
-    const watchBtn=document.getElementById('watchToggleBtn');
-    if(watchBtn)watchBtn.onclick=async()=>{
-      const sym=watchBtn.dataset.watchSymbol||DATA.stock.c;
-      if(isWatched(sym)){
-        removeWatchStock(sym);
-        watchBtn.textContent='加入自選';
-      }else{
-        addWatchStock(DATA.stock);
-        watchBtn.textContent='移出自選';
-      }
-      await persistWatchlist();
+    const bindWatchButton=(watchBtn)=>{
+      if(!watchBtn) return;
+      watchBtn.onclick=async()=>{
+        const sym=watchBtn.dataset.watchSymbol||DATA.stock.c;
+        if(isWatched(sym)){
+          removeWatchStock(sym);
+          document.querySelectorAll(`[data-watch-symbol="${sym}"]`).forEach(b=>b.textContent='加入自選');
+        }else{
+          addWatchStock(DATA.stock);
+          document.querySelectorAll(`[data-watch-symbol="${sym}"]`).forEach(b=>b.textContent='移出自選');
+        }
+        await persistWatchlist();
+      };
     };
+    document.querySelectorAll('[data-watch-symbol]').forEach(bindWatchButton);
     const doSearch=async()=>{
       const v=(inp&&inp.value||'').trim();
       if(!/^[1-9]\d{3}$/.test(v)){

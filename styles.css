@@ -207,6 +207,20 @@
   .mini-tile.danger{background:#FEF2F2;border-color:#FECACA}
   .mini-tile.success{background:#F0FDF4;border-color:#BBF7D0}
   .mini-tile.cool{background:var(--blue-tint);border-color:var(--blue-soft)}
+  .decision-card{background:#fff;border:1px solid var(--border);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .decision-head{padding:18px 20px;display:flex;justify-content:space-between;gap:16px;align-items:flex-start;border-bottom:1px solid var(--border-soft);background:linear-gradient(145deg,#fff,#F8FAFC)}
+  .decision-title{font-size:19px;font-weight:900;letter-spacing:-.2px}
+  .decision-summary{font-size:18px;line-height:1.65;font-weight:850;margin-top:10px;color:var(--ink)}
+  .decision-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end;flex-shrink:0}
+  .decision-body{display:grid;grid-template-columns:minmax(280px,1fr) minmax(320px,.95fr);gap:0}
+  .decision-notes{padding:16px 20px;display:flex;flex-direction:column;gap:9px;border-right:1px solid var(--border-soft)}
+  .decision-notes div{font-size:13.5px;line-height:1.65;color:var(--ink-2);position:relative;padding-left:14px}
+  .decision-notes div:before{content:"";position:absolute;left:0;top:.72em;width:5px;height:5px;border-radius:50%;background:var(--warn)}
+  .decision-metrics{padding:16px;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;background:#FBFDFF}
+  .decision-metric{border:1px solid var(--border-soft);border-radius:10px;background:#F8FAFC;padding:12px 13px;min-height:78px}
+  .decision-metric span{display:block;font-size:11px;color:var(--ink-2);font-weight:850;margin-bottom:6px}
+  .decision-metric b{display:block;font-size:19px;font-weight:950;line-height:1.15}
+  .decision-metric small{display:block;font-size:11px;color:var(--ink-3);line-height:1.4;margin-top:5px}
   .atr-card .card-h{align-items:center}
   .observe-card{align-items:stretch}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
@@ -320,6 +334,10 @@
     .mob-nav svg{width:21px;height:21px}
     .pick-grid,.dash-metrics,.dashboard-table-grid{grid-template-columns:1fr}
     .account-grid{grid-template-columns:1fr}
+    .decision-head{flex-direction:column}
+    .decision-body{grid-template-columns:1fr}
+    .decision-notes{border-right:0;border-bottom:1px solid var(--border-soft)}
+    .decision-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
     .dash>.grid{grid-template-columns:1fr!important}
     .dash-head{align-items:flex-start}
     .pick-reason{min-height:0}
