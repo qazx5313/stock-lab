@@ -768,7 +768,7 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   const host=canvas.parentElement;
   const ratio=window.devicePixelRatio||1;
   const W=Math.max(620,Math.floor(host.clientWidth||1100));
-  const H=820;
+  const H=860;
   canvas.style.width='100%';
   canvas.style.height=H+'px';
   canvas.width=W*ratio;
@@ -778,7 +778,7 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   x.clearRect(0,0,W,H);
   x.fillStyle='#fff';
   x.fillRect(0,0,W,H);
-  const L=14,R=66,T=26,G=10,B=34;
+  const L=14,R=66,T=34,G=10,B=34;
   const priceH=390,volH=82,macdH=110,kdH=90,rsiH=90;
   const panels=[
     {name:'price',y:T,h:priceH,label:'K 線  MA5  MA10  MA20  MA60'},
@@ -810,7 +810,6 @@ function drawTradingStyleCanvas(canvas, rows, hover){
     for(let i=0;i<=steps;i++){const yy=p.y+i*p.h/steps;x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();}
     const tickEvery=Math.max(7,Math.ceil(n/8));
     rows.forEach((r,i)=>{if(i%tickEvery&&i!==n-1)return;const xx=X(i);x.beginPath();x.moveTo(xx,p.y);x.lineTo(xx,p.y+p.h);x.stroke();});
-    x.fillStyle='#94A3B8';x.font='700 11px system-ui';x.textAlign='left';x.fillText(p.label,L+8,p.y+16);
   };
   const axis=(p,vals,fmt=v=>Number(v).toFixed(2))=>{
     const good=vals.filter(Number.isFinite);
@@ -827,6 +826,11 @@ function drawTradingStyleCanvas(canvas, rows, hover){
     vol:hv(vols),dif:hv(macd.dif),macd:hv(macd.signal),osc:hv(macd.hist),
     k:hv(kd.k),d:hv(kd.d),rsi:hv(rsi)
   });
+  drawPanelValueLabel(x,panels[0],[['K 線',''],['MA5',fmtInd(hv(ma5)),'#F59E0B'],['MA10',fmtInd(hv(ma10)),'#2563EB'],['MA20',fmtInd(hv(ma20)),'#7C3AED'],['MA60',fmtInd(hv(ma60)),'#64748B']]);
+  drawPanelValueLabel(x,panels[1],[['成交量',Number.isFinite(hv(vols))?Math.round(hv(vols)).toLocaleString('en-US')+'張':'—','#F59E0B']]);
+  drawPanelValueLabel(x,panels[2],[['MACD', ''],['DIF',fmtInd(hv(macd.dif)),'#2563EB'],['MACD',fmtInd(hv(macd.signal)),'#F59E0B'],['OSC',fmtInd(hv(macd.hist)),Number(hv(macd.hist))>=0?'#DC2626':'#16A34A']]);
+  drawPanelValueLabel(x,panels[3],[['KD', ''],['K',fmtInd(hv(kd.k)),'#F59E0B'],['D',fmtInd(hv(kd.d)),'#06B6D4']]);
+  drawPanelValueLabel(x,panels[4],[['RSI',fmtInd(hv(rsi)),'#2563EB']]);
   const priceVals=rows.flatMap(r=>[Number(r.h),Number(r.l)]).filter(Number.isFinite);
   const py=axis(panels[0],priceVals,v=>v.toFixed(2)).Y;
   const drawLine=(vals,color,p=panels[0],fixedAxis=null)=>{
@@ -886,7 +890,6 @@ function drawQuoteHeader(x,W,row,v){
     ['高',fmtPx(row&&row.h),'#DC2626'],
     ['低',fmtPx(row&&row.l),'#16A34A'],
     ['收',fmtPx(row&&row.c),'#0F172A'],
-    ['量',Number.isFinite(v.vol)?Math.round(v.vol).toLocaleString('en-US')+'張':'—','#F59E0B'],
     ['MA5',fmtInd(v.ma5),'#F59E0B'],
     ['MA10',fmtInd(v.ma10),'#2563EB'],
     ['MA20',fmtInd(v.ma20),'#7C3AED'],
@@ -900,15 +903,15 @@ function drawQuoteHeader(x,W,row,v){
     xx+=x.measureText(text).width+12;
     if(xx>W-220){xx=18;yy+=17;}
   });
-  const row2=[
-    ['MACD DIF',fmtInd(v.dif),'#2563EB'],['MACD',fmtInd(v.macd),'#F59E0B'],['OSC',fmtInd(v.osc),'#DC2626'],
-    ['KD K',fmtInd(v.k),'#F59E0B'],['D',fmtInd(v.d),'#06B6D4'],['RSI',fmtInd(v.rsi),'#2563EB']
-  ];
-  row2.forEach(([k,val,color])=>{
-    const text=`${k} ${val}`;
-    x.fillStyle=color;x.fillText(text,xx,yy);
-    xx+=x.measureText(text).width+12;
-    if(xx>W-160){xx=18;yy+=17;}
+}
+function drawPanelValueLabel(x,p,items){
+  let xx=22,yy=p.y+15;
+  x.font='800 11px var(--mono), monospace';x.textAlign='left';
+  items.forEach(([k,val,color])=>{
+    const text=val?`${k} ${val}`:k;
+    x.fillStyle=color||'#94A3B8';
+    x.fillText(text,xx,yy);
+    xx+=x.measureText(text).width+10;
   });
 }
 function fmtInd(v){
