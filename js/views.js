@@ -785,7 +785,7 @@ function drawTradingStyleCanvas(canvas, rows, hover){
     {name:'vol',y:T+priceH+G,h:volH,label:'成交量'},
     {name:'macd',y:T+priceH+G+volH+G,h:macdH,label:'MACD 12・26・9'},
     {name:'kd',y:T+priceH+G+volH+G+macdH+G,h:kdH,label:'KD 9'},
-    {name:'rsi',y:T+priceH+G+volH+G+macdH+G+kdH+G,h:rsiH,label:'RSI 14'}
+    {name:'rsi',y:T+priceH+G+volH+G+macdH+G+kdH+G,h:rsiH,label:'RSI 9 / RSI 55'}
   ];
   const plotW=W-L-R;
   const n=rows.length;
@@ -801,7 +801,8 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   const ma60=rows.map((_,i)=>i<59?NaN:rows.slice(i-59,i+1).reduce((a,b)=>a+Number(b.c||0),0)/60);
   const macd=calcMACDSeries(closes);
   const kd=calcKDSeries(highs,lows,closes,9);
-  const rsi=calcRSISeries(closes,14);
+  const rsi9=calcRSISeries(closes,9);
+  const rsi55=calcRSISeries(closes,55);
   const hoverIdx=hover&&Number.isFinite(hover.x)?Math.max(0,Math.min(n-1,Math.round((hover.x-L-bw/2)/bw))):n-1;
   const hrow=rows[hoverIdx]||rows[n-1];
   const hv=(arr)=>{const v=Number(arr&&arr[hoverIdx]);return Number.isFinite(v)?v:null;};
@@ -824,13 +825,13 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   drawQuoteHeader(x,W,hrow,{
     ma5:hv(ma5),ma10:hv(ma10),ma20:hv(ma20),ma60:hv(ma60),
     vol:hv(vols),dif:hv(macd.dif),macd:hv(macd.signal),osc:hv(macd.hist),
-    k:hv(kd.k),d:hv(kd.d),rsi:hv(rsi)
+    k:hv(kd.k),d:hv(kd.d),rsi9:hv(rsi9),rsi55:hv(rsi55)
   });
   drawPanelValueLabel(x,panels[0],[['K 線',''],['MA5',fmtInd(hv(ma5)),'#F59E0B'],['MA10',fmtInd(hv(ma10)),'#2563EB'],['MA20',fmtInd(hv(ma20)),'#7C3AED'],['MA60',fmtInd(hv(ma60)),'#64748B']]);
   drawPanelValueLabel(x,panels[1],[['成交量',Number.isFinite(hv(vols))?Math.round(hv(vols)).toLocaleString('en-US')+'張':'—','#F59E0B']]);
   drawPanelValueLabel(x,panels[2],[['MACD', ''],['DIF',fmtInd(hv(macd.dif)),'#2563EB'],['MACD',fmtInd(hv(macd.signal)),'#F59E0B'],['OSC',fmtInd(hv(macd.hist)),Number(hv(macd.hist))>=0?'#DC2626':'#16A34A']]);
   drawPanelValueLabel(x,panels[3],[['KD', ''],['K',fmtInd(hv(kd.k)),'#F59E0B'],['D',fmtInd(hv(kd.d)),'#06B6D4']]);
-  drawPanelValueLabel(x,panels[4],[['RSI',fmtInd(hv(rsi)),'#2563EB']]);
+  drawPanelValueLabel(x,panels[4],[['RSI 相對強弱指標',''],['RSI(9)',fmtInd(hv(rsi9)),'#F59E0B'],['RSI(55)',fmtInd(hv(rsi55)),'#06B6D4']]);
   const priceVals=rows.flatMap(r=>[Number(r.h),Number(r.l)]).filter(Number.isFinite);
   const py=axis(panels[0],priceVals,v=>v.toFixed(2)).Y;
   const drawLine=(vals,color,p=panels[0],fixedAxis=null)=>{
@@ -868,7 +869,16 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   const kp=panels[3],kY=v=>kp.y+8+(100-v)/100*(kp.h-16);
   axis(kp,[0,50,100],v=>v.toFixed(0));drawLine(kd.k,'#F59E0B',kp,kY);drawLine(kd.d,'#06B6D4',kp,kY);
   const rp=panels[4],rY=v=>rp.y+8+(100-v)/100*(rp.h-16);
-  axis(rp,[0,50,100],v=>v.toFixed(0));drawLine(rsi,'#2563EB',rp,rY);
+  axis(rp,[0,20,50,80,100],v=>v.toFixed(0));
+  [80,50,20].forEach(v=>{
+    const yy=rY(v);
+    x.strokeStyle=v===50?'#CBD5E1':'#E2E8F0';
+    x.setLineDash(v===50?[4,4]:[]);
+    x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();
+    x.setLineDash([]);
+  });
+  drawLine(rsi9,'#F59E0B',rp,rY);
+  drawLine(rsi55,'#06B6D4',rp,rY);
   if(hover&&Number.isFinite(hover.x)){
     const xx=X(hoverIdx);
     x.setLineDash([4,4]);x.strokeStyle='#94A3B8';x.beginPath();x.moveTo(xx,T);x.lineTo(xx,H-B);x.stroke();x.setLineDash([]);
@@ -893,7 +903,9 @@ function drawQuoteHeader(x,W,row,v){
     ['MA5',fmtInd(v.ma5),'#F59E0B'],
     ['MA10',fmtInd(v.ma10),'#2563EB'],
     ['MA20',fmtInd(v.ma20),'#7C3AED'],
-    ['MA60',fmtInd(v.ma60),'#64748B']
+    ['MA60',fmtInd(v.ma60),'#64748B'],
+    ['RSI(9)',fmtInd(v.rsi9),'#F59E0B'],
+    ['RSI(55)',fmtInd(v.rsi55),'#06B6D4']
   ];
   let xx=18,yy=15;
   x.font='800 12px var(--mono), monospace';x.textAlign='left';
