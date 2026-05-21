@@ -740,37 +740,27 @@ function renderTradingViewStockChart(){
     const L=window.LightweightCharts;
     el.innerHTML='';
     const width=Math.max(320,Math.floor(el.getBoundingClientRect().width||el.clientWidth||900));
-    const pane=(title,h,cls='')=>{
-      const box=document.createElement('div');
-      box.className=`tv-pane ${cls}`;
-      box.style.height=`${h}px`;
-      box.innerHTML=`<div class="tv-pane-title">${title}</div><div class="tv-pane-canvas"></div>`;
-      el.appendChild(box);
-      return box.querySelector('.tv-pane-canvas');
-    };
-    const baseOpts=(h,timeVisible=false)=>({
+    const chart=L.createChart(el,{
       width,
-      height:h,
+      height:760,
       layout:{background:{type:'solid',color:'#fff'},textColor:'#475569',attributionLogo:false},
       grid:{vertLines:{color:'#EEF2F7'},horzLines:{color:'#EEF2F7'}},
       localization:{locale:'zh-TW'},
       rightPriceScale:{borderVisible:false,scaleMargins:{top:.08,bottom:.08}},
-      timeScale:{borderVisible:false,timeVisible,fixLeftEdge:true,fixRightEdge:true},
+      timeScale:{borderVisible:false,timeVisible:true,secondsVisible:false,fixLeftEdge:true,fixRightEdge:true},
       crosshair:{mode:L.CrosshairMode?L.CrosshairMode.Normal:0}
     });
-    const add=(chart,kind,opts)=>{
+    const add=(kind,opts,paneIndex=0)=>{
+      if(chart.addSeries){
+        const map={candle:L.CandlestickSeries,hist:L.HistogramSeries,line:L.LineSeries};
+        return chart.addSeries(map[kind],opts,paneIndex);
+      }
       if(kind==='candle'&&chart.addCandlestickSeries) return chart.addCandlestickSeries(opts);
       if(kind==='hist'&&chart.addHistogramSeries) return chart.addHistogramSeries(opts);
       if(kind==='line'&&chart.addLineSeries) return chart.addLineSeries(opts);
       const map={candle:L.CandlestickSeries,hist:L.HistogramSeries,line:L.LineSeries};
       return chart.addSeries(map[kind],opts);
     };
-    const priceChart=L.createChart(pane('K 線 / MA5・MA10・MA20・MA60',330,'main'),baseOpts(330,false));
-    const volChart=L.createChart(pane('成交量',96),baseOpts(96,false));
-    const rsiChart=L.createChart(pane('RSI 14',96),baseOpts(96,false));
-    const kdChart=L.createChart(pane('KD 9',96),baseOpts(96,false));
-    const macdChart=L.createChart(pane('MACD 12・26・9',120),baseOpts(120,true));
-    const charts=[priceChart,volChart,rsiChart,kdChart,macdChart];
     const candles=rows.map(r=>({
       time:String(r.d||'').slice(0,10),
       open:Number(r.o),
@@ -778,63 +768,61 @@ function renderTradingViewStockChart(){
       low:Number(r.l),
       close:Number(r.c)
     })).filter(r=>r.time&&isFinite(r.close)&&r.close>0);
-    const candle=add(priceChart,'candle',{
+    const candle=add('candle',{
       upColor:'#16A34A',
       downColor:'#DC2626',
       borderUpColor:'#16A34A',
       borderDownColor:'#DC2626',
       wickUpColor:'#16A34A',
       wickDownColor:'#DC2626'
-    });
+    },0);
     candle.setData(candles);
-    const vol=add(volChart,'hist',{
+    const vol=add('hist',{
       priceFormat:{type:'volume'},
-      color:'#94A3B8'
-    });
+      priceLineVisible:false,
+      lastValueVisible:true
+    },1);
     vol.setData(rows.map(r=>({
       time:String(r.d||'').slice(0,10),
-      value:Number(r.v)||0,
+      value:volumeToLots(r.v)||0,
       color:Number(r.c)>=Number(r.o)?'rgba(22,163,74,.5)':'rgba(220,38,38,.45)'
     })).filter(r=>r.time));
     [[5,'#F59E0B'],[10,'#2563EB'],[20,'#7C3AED'],[60,'#64748B']].forEach(([len,color])=>{
-      const line=add(priceChart,'line',{color,lineWidth:2,priceLineVisible:false,lastValueVisible:false});
+      const line=add('line',{color,lineWidth:2,priceLineVisible:false,lastValueVisible:false},0);
       line.setData(calcMaRows(rows,len));
     });
     const closes=rows.map(r=>Number(r.c));
     const highs=rows.map(r=>Number(r.h));
     const lows=rows.map(r=>Number(r.l));
-    const rsiLine=add(rsiChart,'line',{color:'#2563EB',lineWidth:2,priceLineVisible:false});
+    const rsiLine=add('line',{color:'#2563EB',lineWidth:2,priceLineVisible:false},2);
     rsiLine.setData(indicatorRows(rows,calcRSISeries(closes,14)));
-    const kLine=add(kdChart,'line',{color:'#F59E0B',lineWidth:2,priceLineVisible:false});
-    const dLine=add(kdChart,'line',{color:'#7C3AED',lineWidth:2,priceLineVisible:false});
+    const kLine=add('line',{color:'#F59E0B',lineWidth:2,priceLineVisible:false},3);
+    const dLine=add('line',{color:'#7C3AED',lineWidth:2,priceLineVisible:false},3);
     const kd=calcKDSeries(highs,lows,closes,9);
     kLine.setData(indicatorRows(rows,kd.k));
     dLine.setData(indicatorRows(rows,kd.d));
     const macd=calcMACDSeries(closes);
-    const macdHist=add(macdChart,'hist',{priceFormat:{type:'price',precision:3,minMove:.001},priceLineVisible:false});
+    const macdHist=add('hist',{priceFormat:{type:'price',precision:3,minMove:.001},priceLineVisible:false},4);
     macdHist.setData(indicatorRows(rows,macd.hist).map(p=>({...p,color:p.value>=0?'rgba(22,163,74,.55)':'rgba(220,38,38,.5)'})));
-    const difLine=add(macdChart,'line',{color:'#2563EB',lineWidth:2,priceLineVisible:false});
-    const sigLine=add(macdChart,'line',{color:'#F59E0B',lineWidth:2,priceLineVisible:false});
+    const difLine=add('line',{color:'#2563EB',lineWidth:2,priceLineVisible:false},4);
+    const sigLine=add('line',{color:'#F59E0B',lineWidth:2,priceLineVisible:false},4);
     difLine.setData(indicatorRows(rows,macd.dif));
     sigLine.setData(indicatorRows(rows,macd.signal));
-    let syncing=false;
-    charts.forEach(src=>src.timeScale().subscribeVisibleLogicalRangeChange(range=>{
-      if(syncing||!range) return;
-      syncing=true;
-      charts.forEach(dst=>{if(dst!==src) dst.timeScale().setVisibleLogicalRange(range);});
-      syncing=false;
-    }));
+    if(chart.panes){
+      const panes=chart.panes();
+      if(panes[0]&&panes[0].setHeight) panes[0].setHeight(360);
+      if(panes[1]&&panes[1].setHeight) panes[1].setHeight(105);
+      if(panes[2]&&panes[2].setHeight) panes[2].setHeight(95);
+      if(panes[3]&&panes[3].setHeight) panes[3].setHeight(95);
+      if(panes[4]&&panes[4].setHeight) panes[4].setHeight(125);
+    }
     const ro=new ResizeObserver(()=>{
       if(!document.getElementById('tvStockChart')) return;
       const w=el.clientWidth||900;
-      priceChart.applyOptions({width:w});
-      volChart.applyOptions({width:w});
-      rsiChart.applyOptions({width:w});
-      kdChart.applyOptions({width:w});
-      macdChart.applyOptions({width:w});
+      chart.applyOptions({width:Math.max(320,Math.floor(w)),height:760});
     });
     ro.observe(el);
-    charts.forEach(c=>c.timeScale().fitContent());
+    chart.timeScale().fitContent();
   }).catch(()=>{
     el.innerHTML='<div class="muted" style="padding:18px">TradingView Lightweight Charts 載入失敗，請確認網路連線或瀏覽器是否阻擋外部腳本。</div>';
   });
