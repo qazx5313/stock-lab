@@ -539,8 +539,10 @@ function detectTechSignals(series,ctx){
   const dPrev=kd.d.length>1?kd.d[kd.d.length-2]:null;
   const rsi14=lastNum(calcRSISeries(closes,14));
   const macd=calcMACDSeries(closes);
-  const difNow=lastNum(macd.dif), macdNow=lastNum(macd.macd), oscNow=lastNum(macd.osc);
-  const oscPrev=macd.osc.length>1?macd.osc[macd.osc.length-2]:null;
+  const macdLine=macd.signal||macd.macd||[];
+  const oscLine=macd.hist||macd.osc||[];
+  const difNow=lastNum(macd.dif), macdNow=lastNum(macdLine), oscNow=lastNum(oscLine);
+  const oscPrev=oscLine.length>1?oscLine[oscLine.length-2]:null;
   const bMid=avgNums(closes.slice(-20));
   const bSd=sdNums(closes.slice(-20));
   const bUp=Number.isFinite(bMid)&&Number.isFinite(bSd)?bMid+bSd*2:null;
