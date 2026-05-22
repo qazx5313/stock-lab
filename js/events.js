@@ -73,6 +73,9 @@ function bindPage(id){
     document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=async()=>{AI_VIEW=el.dataset.ai;await loadAIDetailData(AI_VIEW);go('ai');});
     const bk=document.querySelector('[data-aiback]');if(bk)bk.onclick=()=>{AI_VIEW=null;go('ai');};
   }
+  if(id==='aiCompany' && typeof bindAICompanyPage==='function'){
+    bindAICompanyPage();
+  }
   if(id==='watch'){
     if(authUser() && !WATCH_REMOTE_LOADED){
       syncWatchlistFromRemote().then(ok=>{if(ok&&CUR==='watch')go('watch');});
