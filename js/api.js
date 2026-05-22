@@ -245,6 +245,28 @@ function buildClassThemesFromCaches(){
     return am-bm || b.score-a.score;
   });
 }
+function quoteTimeValue(q={}){
+  const updated=Date.parse(q.updated_at||q.updatedAt||'');
+  if(Number.isFinite(updated)) return updated;
+  const d=String(q.quote_date||q.date||'').slice(0,10);
+  const t=String(q.quote_time||q.time||'');
+  const iso=d&&t?`${d}T${t.length===5?t+':00':t}+08:00`:'';
+  const parsed=Date.parse(iso);
+  return Number.isFinite(parsed)?parsed:0;
+}
+function shouldUseRealtimeQuote(sym,q){
+  const old=(DATA.realtimeMap&&DATA.realtimeMap[sym])||(DATA.priceMap&&DATA.priceMap[sym])||null;
+  if(!old) return true;
+  const nextTs=quoteTimeValue(q);
+  const oldTs=quoteTimeValue(old);
+  if(nextTs && oldTs && nextTs<oldTs) return false;
+  if(nextTs && oldTs && nextTs===oldTs){
+    const nextSrc=String(q.source||'');
+    const oldSrc=String(old.source||'');
+    if(/EDGE|RT|MIS/i.test(oldSrc) && !/EDGE|RT|MIS/i.test(nextSrc)) return false;
+  }
+  return true;
+}
 function applyRealtimeQuotes(rows, options={}){
   if(!Array.isArray(rows)||!rows.length) return;
   const merge=options.merge===true;
@@ -287,14 +309,15 @@ function applyRealtimeQuotes(rows, options={}){
       return;
     }
     if(market==='TWSE_INDEX'){
-      DATA.market.twse={name:'加權指數',v:price,d:q.change,dp:q.change_percent};
+      DATA.market.twse={name:'加權指數',v:price,d:q.change,dp:q.change_percent,source:r.source||'TWSE_INDEX_RT',quote_time:r.quote_time,updated_at:r.updated_at};
       return;
     }
     if(market==='TPEX_INDEX'){
-      DATA.market.tpex={name:'櫃買指數',v:price,d:q.change,dp:q.change_percent};
+      DATA.market.tpex={name:'櫃買指數',v:price,d:q.change,dp:q.change_percent,source:r.source||'TPEX_INDEX_RT',quote_time:r.quote_time,updated_at:r.updated_at};
       return;
     }
     if(market==='TAIFEX'){
+      if(!shouldUseRealtimeQuote(sym,q)) return;
       if(sym==='TAIWANVIX' || /VIX|波動率/i.test(String(r.name||''))){
         DATA.market.vix={
           name:r.name||'臺指選擇權波動率指數',
@@ -313,6 +336,7 @@ function applyRealtimeQuotes(rows, options={}){
       return;
     }
     if(/^[1-9]\d{3}$/.test(sym)){
+      if(!shouldUseRealtimeQuote(sym,q)) return;
       DATA.realtimeMap[sym]=q;
       DATA.priceMap=DATA.priceMap||{};
       DATA.priceMap[sym]={...(DATA.priceMap[sym]||{}),...q};
@@ -427,6 +451,11 @@ async function loadReal(){
         const breadth=up+down?up/(up+down):0.5;
         DATA.market.status=breadth>=0.58?'偏多格局':(breadth<=0.42?'偏空格局':'多空拉鋸');
         DATA.market.statusNote=`上市 ${twse.up} 漲 / ${twse.down} 跌；上櫃 ${tpex.up} 漲 / ${tpex.down} 跌。漲停 ${limitUp}、跌停 ${limitDown}。`;
+        if(isRealtimeQuoteTimeNow() && DATA.realtimeMap){
+          Object.entries(DATA.realtimeMap).forEach(([sym,q])=>{
+            if(/^[1-9]\d{3}$/.test(sym)) DATA.priceMap[sym]={...(DATA.priceMap[sym]||{}),...q};
+          });
+        }
       }
     }catch(e){ console.warn('市場分布彙總略過:',e); }
     try{
@@ -457,8 +486,12 @@ async function loadReal(){
           v,
           d:ch,
           dp };
-        if(r.market==='TWSE') DATA.market.twse=o;
-        else if(r.market==='TPEX') DATA.market.tpex=o;
+        const keepRealtime=isRealtimeQuoteTimeNow() && (
+          (r.market==='TWSE' && /RT|MIS|INDEX/i.test(String(DATA.market.twse&&DATA.market.twse.source||''))) ||
+          (r.market==='TPEX' && /RT|MIS|INDEX/i.test(String(DATA.market.tpex&&DATA.market.tpex.source||'')))
+        );
+        if(r.market==='TWSE' && !keepRealtime) DATA.market.twse=o;
+        else if(r.market==='TPEX' && !keepRealtime) DATA.market.tpex=o;
         else if(r.market==='TXF' && DATA.market.txFut?.source!=='TAIFEX_MIS_RT') DATA.market.txFut=o;
         if(r.market==='TWSE' && Number(r.amount)>0 && !DATA.market.twseChart) DATA.market.amtTwse=fmtTwAmount(r.amount);
         if(r.market==='TPEX' && Number(r.amount)>0 && !DATA.market.tpexChart) DATA.market.amtTpex=fmtTwAmount(r.amount);
@@ -743,6 +776,10 @@ async function loadReal(){
 
 async function refreshRealtimeOnly(){
   try{
+    if(typeof isRealtimeQuoteTimeNow==='function' && isRealtimeQuoteTimeNow()){
+      if(typeof refreshLiveEdge==='function') return refreshLiveEdge();
+      return false;
+    }
     const rq=await sbGet('realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&order=updated_at.desc',20000);
     applyRealtimeQuotes(rq);
     saveRealCache();
