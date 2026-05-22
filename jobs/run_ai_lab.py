@@ -10,7 +10,7 @@ run_ai_lab.py - AI 量化模擬實驗室
 共同設計：
   - 每個策略是一個 ai_agents 機器人。
   - 每次排程會更新既有持股、重新產生候選/回測/詳細分析。
-  - 回測如果發現歷史進場後到最新 K 棒仍未出場，會補進持股，不必只挑今天剛出訊號的股票。
+  - 回測延續只作為候選與研究參考；新買進必須來自最新交易日訊號。
 
 注意：
   - 目前資料庫尚無股本、毛利率、股價淨值比、研發比，布林R1的基本面條件先用月營收 YoY 做可用欄位驗證。
@@ -574,8 +574,14 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
 
     cash = int(agent.get("current_cash") if agent.get("current_cash") is not None else INIT_CASH)
     cash += sum(int(t["amount"]) for t in sells)
-    signals.sort(key=lambda s: (s.get("carry_from_backtest", False), s.get("volume_lots", 0)), reverse=True)
-    buy_signals = [s for s in signals if s["symbol"] not in held and s["symbol"] not in sold_today][:MAX_BUY_PER_AGENT]
+    signals.sort(key=lambda s: (not s.get("carry_from_backtest", False), s.get("volume_lots", 0)), reverse=True)
+    buy_signals = [
+        s for s in signals
+        if not s.get("carry_from_backtest")
+        and str(s.get("entry_date") or "")[:10] == latest
+        and s["symbol"] not in held
+        and s["symbol"] not in sold_today
+    ][:MAX_BUY_PER_AGENT]
     per = cash // len(buy_signals) if buy_signals else 0
     positions, buys = [], []
     for sig in buy_signals:
@@ -600,7 +606,7 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
             "carry_from_backtest": bool(sig.get("carry_from_backtest")),
             **(sig.get("state") or {}),
         }
-        label = f"{strategy['name']} 回測持股補進" if sig.get("carry_from_backtest") else f"{strategy['name']} 進場"
+        label = f"{strategy['name']} 進場"
         positions.append(
             {
                 "agent_id": aid,
@@ -636,7 +642,8 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
     spent = sum(int(t["amount"]) for t in buys)
     cash_after = cash - spent
     asset_after = current_asset_value + sum(int(p["market_value"]) for p in positions)
-    review = f"{strategy['name']} 掃描 {len(prices_by_sym)} 檔，符合/回測延續 {len(signals)} 檔，買進 {len(buys)} 檔，賣出 {len(sells)} 檔。"
+    carry_count = sum(1 for s in signals if s.get("carry_from_backtest"))
+    review = f"{strategy['name']} 掃描 {len(prices_by_sym)} 檔，今日訊號 {len(signals)-carry_count} 檔，回測延續 {carry_count} 檔，買進 {len(buys)} 檔，賣出 {len(sells)} 檔。"
     sb_upsert(
         "ai_reviews",
         [

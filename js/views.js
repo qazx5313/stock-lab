@@ -1639,7 +1639,11 @@ async function loadAIDetailData(agentKey){
       c:p.symbol, n:nameOf(p.symbol,p.name), bp:p.buy_price, cp:p.current_price,
       q:p.quantity, bd:fmtDate(p.buy_date), prev:(prevCloseBySymbol[String(p.symbol)]||[]).find(x=>Number(x.close)!==Number(p.current_price))?.close,
       reason:cleanReason(p.buy_reason)}));
-    DATA.aiBuy=trades.filter(t=>t.trade_type==='買進').slice(0,20).map(t=>({
+    const latestAiDate=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-').slice(0,10);
+    DATA.aiBuy=trades.filter(t=>
+      t.trade_type==='買進' &&
+      (!latestAiDate || String(t.trade_date||'').slice(0,10)===latestAiDate)
+    ).slice(0,20).map(t=>({
       d:fmtDate(t.trade_date), c:t.symbol, n:nameOf(t.symbol),
       p:Number(t.price), q:Number(t.quantity)||0, s:'—', reason:cleanReason(t.reason)}));
     DATA.aiSell=trades.filter(t=>t.trade_type==='賣出').map(t=>{
@@ -1727,7 +1731,7 @@ function vAIDetail(id){
        <td class="r num ${ret>=0?'up':'down'}">${sgn(ret.toFixed(1))}%</td></tr>`;}).join('')))}
 
    <div class="grid" style="grid-template-columns:1fr 1fr">
-     ${blk('3 · 買進紀錄','',tbl([['日期'],['股票'],['價格','r'],['張','r'],['分','r'],['原因']],
+     ${blk('3 · 今日買進紀錄','只顯示最新交易日真的進場，不顯示回測延續舊訊號',tbl([['日期'],['股票'],['價格','r'],['張','r'],['分','r'],['原因']],
        DATA.aiBuy.map(b=>`<tr><td class="code">${b.d}</td><td><b class="code">${b.c}</b> ${b.n}</td>
        <td class="r num">${fmtPx(b.p)}</td><td class="r num">${b.q}</td><td class="r num">${b.s}</td>
        <td class="muted" style="white-space:normal;min-width:120px">${b.reason}</td></tr>`).join('')))}

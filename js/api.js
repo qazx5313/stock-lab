@@ -677,13 +677,17 @@ async function loadReal(){
         const bts = await sbGet(
           'ai_backtests?select=agent_id,passed,win_rate,avg_return_5d,max_drawdown', 2000);
         const trs = await sbGet(
-          'ai_trades?select=agent_id,trade_type', 2000);
+          'ai_trades?select=agent_id,trade_type,trade_date', 2000);
         const passCnt={}, buyCnt={}, lastRev={}, statRows={};
         (bts||[]).forEach(b=>{
           if(b.passed){passCnt[b.agent_id]=(passCnt[b.agent_id]||0)+1;}
           (statRows[b.agent_id]=statRows[b.agent_id]||[]).push(b);
         });
-        (trs||[]).forEach(t=>{ if(t.trade_type==='買進'){buyCnt[t.agent_id]=(buyCnt[t.agent_id]||0)+1;} });
+        (trs||[]).forEach(t=>{
+          if(t.trade_type==='買進' && String(t.trade_date||'').slice(0,10)===d){
+            buyCnt[t.agent_id]=(buyCnt[t.agent_id]||0)+1;
+          }
+        });
         (revs||[]).forEach(r=>{ if(!lastRev[r.agent_id]) lastRev[r.agent_id]=r; });
 
         DATA.agents = ags.map(a=>{
