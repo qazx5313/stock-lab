@@ -1723,7 +1723,7 @@ function vAIDetail(id){
 
    ${blk('2 · 目前持有股票','放在上方方便快速檢查',tbl(
      [['代號'],['名稱'],['買進日'],['買進價','r'],['現價','r'],['張數','r'],['持股市值','r'],['今日損益','r'],['未實現損益','r'],['報酬率','r']],
-     DATA.aiPos.map(p=>{const pnl=(p.cp-p.bp)*p.q*1000;const ret=((p.cp-p.bp)/p.bp*100);const td=Number(p.prev)?(p.cp-Number(p.prev))*p.q*1000:NaN;
+     DATA.aiPos.map(p=>{const pnl=(p.cp-p.bp)*p.q*1000;const ret=((p.cp-p.bp)/p.bp*100);const isTodayBuy=latestAiDate&&String(p.bd||'').replace('/','-')===latestAiDate.slice(5);const td=isTodayBuy?pnl:(Number(p.prev)?(p.cp-Number(p.prev))*p.q*1000:NaN);
        return `<tr><td class="code">${p.c}</td><td><b>${p.n}</b></td><td class="code">${p.bd}</td><td class="r num">${fmtPx(p.bp)}</td>
        <td class="r num">${fmtPx(p.cp)}</td><td class="r num">${p.q}</td><td class="r num">${(p.cp*p.q*1000).toLocaleString()}</td>
        <td class="r num ${td>=0?'up':'down'}">${Number.isFinite(td)?sgn(Math.round(td).toLocaleString()):'—'}</td>
