@@ -1686,6 +1686,7 @@ async function loadAIDetailData(agentKey){
 
 function vAIDetail(id){
   const a=DATA.agents.find(x=>x.id===id);
+  const latestAiDate=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-').slice(0,10);
   const blk=(title,sub,body)=>`<div class="card"><div class="card-h"><h3>${title}</h3>${sub?`<span class="tag">${sub}</span>`:''}</div>${body}</div>`;
   const tbl=(head,rows)=>`<div class="tbl-wrap"><table><thead><tr>${head.map(h=>`<th class="${h[1]||''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const deepRows=(DATA.aiDeep&&DATA.aiDeep.length)?DATA.aiDeep:[];
@@ -1814,8 +1815,8 @@ function atrCard(r){
   const stopByAtr=trailBase-atr*Number(r.stopMult||1);
   const movingStop=Math.max(stop,stopByAtr);
   const takeActive=trailBase>=take;
-  const takeTrailByAtr=trailBase-atr*Number(r.trailAtr||0.5);
-  const takeTrailByPct=trailBase*(1-Number(r.trailPct||5)/100);
+  const takeTrailByAtr=trailBase+atr*Number(r.trailAtr||0.5);
+  const takeTrailByPct=trailBase*(1+Number(r.trailPct||5)/100);
   const movingTake=takeActive?Math.max(take,takeTrailByAtr,takeTrailByPct):take;
   const rr=(take-Number(r.entry))/(Number(r.entry)-stop);
   return `<div class="atr-watch-card" data-atr-row="${r.c}">
@@ -1829,11 +1830,11 @@ function atrCard(r){
       </div>
       <div class="atr-tile-grid" style="margin-top:12px">
         <div class="atr-big-tile danger"><span>移動停損</span><b data-atr-cell="stop" class="num down">${fmtPx(movingStop)}</b><small>包含初始買入停損價；股價創高後只往上調整</small></div>
-        <div class="atr-big-tile success"><span>移動停利</span><b data-atr-cell="take" class="num up">${fmtPx(movingTake)}</b><small data-atr-cell="take-note">${takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
+        <div class="atr-big-tile success"><span>移動停利</span><b data-atr-cell="take" class="num up">${fmtPx(movingTake)}</b><small data-atr-cell="take-note">${takeActive?'已碰到初始停利位，停利目標跟著新高上調':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
         <div class="atr-big-tile"><span>追蹤最高價</span><b data-atr-cell="high" class="num">${fmtPx(trailBase)}</b><small>移動停損與停利皆依此價格往上調整</small></div>
         <div class="atr-big-tile"><span>距離現價</span><b data-atr-cell="gap" class="num">${Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—'}</b><small>低於移動停損即出場觀察</small></div>
       </div>
-      <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 初始停利 ${r.takeMult||1.5} 倍 · 停利啟動後用 ${r.trailAtr||0.5} ATR 或 ${r.trailPct||5}% 追蹤 · 出場看移動停損或已啟動後的移動停利</div>
+      <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 初始停利 ${r.takeMult||1.5} 倍 · 停利啟動後用新高 + ${r.trailAtr||0.5} ATR 或 +${r.trailPct||5}% 上調目標 · 出場看移動停損，停利看上調後目標</div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn line sm" data-atr-remove="${r.c}">移除觀察</button></div>
     </div>
   </div>`;

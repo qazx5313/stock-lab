@@ -957,11 +957,11 @@ function updateLiveDom(){
       const trailBase=Math.max(Number(r.high||0),px,Number(r.entry||0));
       const movingStop=Math.max(stop,trailBase-atr*Number(r.stopMult||1));
       const takeActive=trailBase>=take;
-      const movingTake=takeActive?Math.max(take,trailBase-atr*Number(r.trailAtr||0.5),trailBase*(1-Number(r.trailPct||5)/100)):take;
+      const movingTake=takeActive?Math.max(take,trailBase+atr*Number(r.trailAtr||0.5),trailBase*(1+Number(r.trailPct||5)/100)):take;
       const set=(name,val)=>{const el=row.querySelector(`[data-atr-cell="${name}"]`);if(el)el.textContent=val;};
       set('px',fmtPx(px)); set('stop',fmtPx(movingStop)); set('take',fmtPx(movingTake)); set('high',fmtPx(trailBase)); set('gap',Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—');
       const note=row.querySelector('[data-atr-cell="take-note"]');
-      if(note) note.textContent=takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利';
+      if(note) note.textContent=takeActive?'已碰到初始停利位，停利目標跟著新高上調':'尚未碰到初始停利位，目前先看初始停利';
     });
   }
 }
