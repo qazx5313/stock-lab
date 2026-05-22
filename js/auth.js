@@ -64,7 +64,6 @@ function isPageMaintenance(id){
 }
 function hasAccess(id){
   if(id==='home' || id==='map') return true;
-  if(id==='aiCompany') return hasAccess('ai');
   if(isAdmin()) return true;
   const u=authUser();
   if(!u) return false;
@@ -78,7 +77,6 @@ function isPageAllowed(id){
   if(!authUser()) return false;
   if(id==='admin' || id==='status') return isAdmin();
   if(isAdmin()) return true;
-  if(id==='aiCompany') return hasAccess('ai');
   return hasAccess(id);
 }
 function remainingDays(){

@@ -22,7 +22,6 @@ const PAGES=[
   {id:'observe',t:'觀察報告',s:'管理員發布觀察股票',ic:I.report,grp:'每日盤後'},
   {id:'report',t:'每日報告',s:'盤後自動產生報告',ic:I.report,grp:'每日盤後'},
   {id:'ai',t:'AI 量化模擬操盤實驗室',s:'AI 機器人回測與模擬交易',ic:I.ai,grp:'實驗室'},
-  {id:'aiCompany',t:'AI 自動營運公司',s:'24/7 AI 公司總部控制台',ic:I.ai,grp:'實驗室'},
   {id:'admin',t:'後台管理',s:'股票 / 題材 / 參數設定',ic:I.admin,grp:'系統'},
   {id:'status',t:'資料更新狀態',s:'每日抓取結果監控',ic:I.status,grp:'系統'},
   {id:'account',t:'帳號登入 / 申請',s:'會員申請、登入與權限狀態',ic:I.account,grp:'帳號',topOnly:true},
@@ -36,7 +35,6 @@ function visiblePages(){
     if(!authUser()) return false;
     if(p.id==='admin' || p.id==='status') return isAdmin();
     if(isAdmin()) return true;
-    if(p.id==='aiCompany') return isAdmin() || hasAccess('ai');
     return hasAccess(p.id);
   });
 }
@@ -80,10 +78,10 @@ function go(id){
       v.innerHTML=vMaintenance(id);
     }else if(!isPageAllowed(id)){
       v.innerHTML=vLoginRequired(id);
-    }else if(!DATA_REAL_READY && !['account','admin','status','aiCompany'].includes(id)){
+    }else if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
       v.innerHTML=vDataUnavailable();
     }else{
-      v.innerHTML=({home:vHome,map:vMap,watch:vWatch,atr:vATR,screen:vScreen,stock:vStock,observe:vObserve,report:vReport,ai:vAI,aiCompany:vAICompany,account:vAccount,admin:vAdmin,status:vStatus}[id])();
+      v.innerHTML=({home:vHome,map:vMap,watch:vWatch,atr:vATR,screen:vScreen,stock:vStock,observe:vObserve,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
     }
   }catch(err){
     console.error('頁面渲染錯誤 ['+id+']:', err);
