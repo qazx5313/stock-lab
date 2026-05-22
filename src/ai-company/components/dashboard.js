@@ -63,15 +63,15 @@ function aiCoEmployeeCard(e,wide=false){
     </div>
     <div class="ai-co-bot-row">
       <div class="ai-co-bot">${aiCoEsc(e.code)}</div>
-      <div class="ai-co-progress"><span style="width:${pct}%"></span></div>
-      <b>${pct}%</b>
+      <div class="ai-co-progress" data-ai-progress="${pct}"><span style="width:${pct}%"></span></div>
+      <b data-ai-progress-label>${pct}%</b>
     </div>
     ${wide?aiCoTradingFlow():`<div class="ai-co-mini-grid">
       <div><span>今日任務</span><b>${aiCoNum(e.tasks)}</b></div>
       <div><span>已完成</span><b>${aiCoNum(e.done)}</b></div>
       <div><span>健康分</span><b>${aiCoNum(e.score)}</b></div>
     </div>`}
-    <div class="ai-co-updated"><span class="dot"></span> 最新更新 ${aiCoNow()}</div>
+    <div class="ai-co-updated"><span class="dot"></span> 最新更新 <b data-ai-pulse-time>${aiCoNow()}</b></div>
   </article>`;
 }
 function aiCoTradingFlow(){
@@ -100,18 +100,19 @@ function aiCoHero(){
         <span>系統健康指數</span><b>98.6 / 100</b><small>${m.twseText}</small>
       </div>
       <div class="ai-co-hud bottom">
-        <span>今日任務完成度</span><div><i style="width:${pct}%"></i></div><b>${pct}%</b>
+        <span>今日任務完成度</span><div class="ai-co-progress" data-ai-progress="${pct}"><span style="width:${pct}%"></span></div><b data-ai-progress-label>${pct}%</b>
       </div>
     </div>
   </section>`;
 }
 function aiCoTimeline(){
   const logs=Array.isArray(window.AI_COMPANY_LOGS)?AI_COMPANY_LOGS:[];
-  return `<aside class="ai-co-timeline"><div class="ai-co-panel-head"><h3>即時任務紀錄</h3><select><option>全部員工</option></select></div>
+  return `<section class="ai-co-panel ai-co-timeline"><div class="ai-co-panel-head"><h3>即時任務紀錄</h3><select><option>全部員工</option></select></div>
+    <div class="ai-co-live-strip"><i></i><b id="aiCoLiveTask">AI 總主管：同步最新任務狀態</b><span><em id="aiCoLiveCount">150</em> 件處理中</span></div>
     <div class="ai-co-time-list">${logs.map(l=>`<div class="ai-co-time-item ${l.tone}">
       <span class="time">${l.time}</span><i>${l.agent.slice(0,1)}</i><div><b>${aiCoEsc(l.agent)}</b><p>${aiCoEsc(l.text)}</p></div><em>${l.state==='ok'?'✓':'!'}</em>
     </div>`).join('')}</div>
-  </aside>`;
+  </section>`;
 }
 function aiCoWatchlistPanel(){
   const rows=aiCoStocks();
@@ -155,16 +156,73 @@ function aiCoMeetingPanel(){
     <button class="ai-co-wide-btn">查看會議流程</button></section>`;
 }
 function aiCoSectionPlaceholder(name){
-  const map={
-    supervisor:'AI 總主管會依任務狀態自動派工，並將高風險事項送審。',
-    tasks:'任務佇列會記錄派工、執行、重試、完成與失敗狀態。',
-    employees:'每位 AI 員工都有職責、權限、禁止動作、回報與績效。',
-    screener:'股票篩選中心會整合技術、籌碼、題材、基本面與風控分數。',
-    trading:'模擬操盤室只做模擬交易，不會真實下單。',
-    backtest:'回測實驗室會驗證類似條件勝率、報酬與最大回撤。',
-    review:'檢討會議室會產生改善建議，但不直接修改正式策略。',
-    approvals:'老闆審核中心負責批准或拒絕高風險事項。',
-    settings:'設定中心預留 API、排程、員工啟用停用與權限管理。'
+  const pages={
+    supervisor:()=>aiCoSupervisorPage(),
+    tasks:()=>aiCoTasksPage(),
+    employees:()=>aiCoEmployeesPage(),
+    screener:()=>aiCoScreenerPage(),
+    trading:()=>aiCoTradingRoomPage(),
+    backtest:()=>aiCoBacktestPage(),
+    review:()=>aiCoReviewPage(),
+    approvals:()=>aiCoApprovalsPage(),
+    settings:()=>aiCoSettingsPage()
   };
-  return `<section class="ai-co-panel ai-co-placeholder"><h3>${aiCoEsc(name)}</h3><p>${map[name]||'此區塊已預留後續擴充。'}</p></section>`;
+  return (pages[name]||(()=>aiCoSupervisorPage()))();
+}
+
+function aiCoPageTitle(title,sub){
+  return `<header class="ai-co-title ai-co-sub-title"><h1>${aiCoEsc(title)}</h1><p>${aiCoEsc(sub)}</p></header>`;
+}
+function aiCoSupervisorPage(){
+  const agents=aiCoAgents();
+  return `${aiCoPageTitle('主管辦公室','總主管即時派工、監控異常，必要時送到老闆審核。')}
+  <section class="ai-co-super-grid">
+    <article class="ai-co-panel ai-co-command-card"><h3>AI 總主管決策台</h3><p id="aiCoLiveTask">正在檢查資料更新、候選股票與風控狀態。</p>
+      <div class="ai-co-command-metrics">${[['員工在線','16 / 16'],['排隊任務','28'],['風控阻擋','7'],['待審核','3']].map(x=>`<div><span>${x[0]}</span><b>${x[1]}</b></div>`).join('')}</div>
+    </article>
+    ${aiCoTimeline()}
+  </section>
+  <section class="ai-co-employees compact">${agents.slice(0,4).map(e=>aiCoEmployeeCard(e)).join('')}</section>`;
+}
+function aiCoTasksPage(){
+  const logs=Array.isArray(window.AI_COMPANY_LOGS)?window.AI_COMPANY_LOGS:[];
+  const rows=logs.concat(logs).slice(0,10);
+  return `${aiCoPageTitle('即時任務','所有任務會自動刷新狀態，方便看 AI 公司是不是真的有在運轉。')}
+  <section class="ai-co-panel ai-co-task-board">
+    ${rows.map((l,i)=>`<div class="ai-co-task-row"><span>${l.time}</span><b>${aiCoEsc(l.agent)}</b><p>${aiCoEsc(l.text)}</p><div class="ai-co-progress" data-ai-progress="${62+(i*5)%30}"><span style="width:${62+(i*5)%30}%"></span></div><em data-ai-progress-label>${62+(i*5)%30}%</em></div>`).join('')}
+  </section>`;
+}
+function aiCoEmployeesPage(){
+  return `${aiCoPageTitle('員工列表','每位 AI 員工都有固定職責、任務數與健康狀態。')}
+  <section class="ai-co-employees full">${aiCoAgents().map(e=>aiCoEmployeeCard(e,e.id==='trader')).join('')}</section>`;
+}
+function aiCoScreenerPage(){
+  return `${aiCoPageTitle('股票篩選中心','整合即時資料、盤後資料與策略條件，產出觀察清單。')}
+  <section class="ai-co-bottom-grid">${aiCoWatchlistPanel()}${aiCoDistribution()}${aiCoPerformance()}</section>`;
+}
+function aiCoTradingRoomPage(){
+  const agents=aiCoAgents();
+  return `${aiCoPageTitle('模擬操盤室','只做模擬交易，不會真實下單；符合條件才進入候選、買進、追蹤與出場。')}
+  <section class="ai-co-panel ai-co-trading-room"><div class="ai-co-panel-head"><h3>交易流程監控</h3><span>模擬中</span></div>${aiCoTradingFlow()}</section>
+  <section class="ai-co-employees compact">${agents.filter(a=>['trader','risk','review'].includes(a.id)).map(e=>aiCoEmployeeCard(e,true)).join('')}</section>`;
+}
+function aiCoBacktestPage(){
+  const rows=aiCoStocks();
+  return `${aiCoPageTitle('回測實驗室','回測結果用來檢討策略，不直接代表未來績效。')}
+  <section class="ai-co-panel"><table class="ai-co-table"><thead><tr><th>策略</th><th>樣本</th><th>勝率</th><th>平均報酬</th><th>最大回撤</th></tr></thead><tbody>
+  ${rows.map((r,i)=>`<tr><td>${aiCoEsc(r.n)} 條件回測</td><td>${48+i*12}</td><td>${(54+i*3).toFixed(1)}%</td><td class="up">+${(1.2+i*.4).toFixed(2)}%</td><td class="down">-${(3.8+i*.7).toFixed(2)}%</td></tr>`).join('')}
+  </tbody></table></section>`;
+}
+function aiCoReviewPage(){
+  return `${aiCoPageTitle('檢討會議室','盤後自動整理勝敗原因、風控事件與明日優化方向。')}
+  <section class="ai-co-bottom-grid">${aiCoMeetingPanel()}${aiCoPerformance()}${aiCoTimeline()}</section>`;
+}
+function aiCoApprovalsPage(){
+  return `${aiCoPageTitle('老闆審核中心','高風險交易、策略升版、資料異常修復都必須等待審核。')}
+  <section class="ai-co-bottom-grid">${aiCoApprovalPanel()}${aiCoTimeline()}</section>`;
+}
+function aiCoSettingsPage(){
+  const items=['啟用即時資料','盤後自動檢討','高風險需審核','禁止真實下單','異常自動停機'];
+  return `${aiCoPageTitle('設定中心','這裡放 AI 公司獨立設定，之後只改此資料夾即可。')}
+  <section class="ai-co-panel ai-co-settings">${items.map((x,i)=>`<label><span>${x}</span><input type="checkbox" ${i<4?'checked':''}></label>`).join('')}</section>`;
 }
