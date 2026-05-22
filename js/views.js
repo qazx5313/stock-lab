@@ -730,28 +730,32 @@ function vStock(){
     ['獲利2 ×1.40',fc.tp2,'warm'],
     ['獲利3 ×1.70',fc.tp3,'hot']
   ];
-  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
-   <div class="card card-pad">
-     <div style="display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start">
-       <div style="flex:1;min-width:220px">
-         <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
-           <h2 style="font-size:22px;font-weight:800"><span class="code" style="font-size:18px;color:var(--ink-2)">${s.c}</span> ${s.n}</h2>
-           <span class="badge">${s.market}</span><span class="badge obs">${s.industry}</span><span class="badge hot">${s.theme}</span>
-         </div>
-         <div style="margin-top:10px;color:var(--ink-2);font-size:13px">題材定位：${s.role}</div>
-      </div>
-      <div style="text-align:right">
-        <div class="num ${headCls}" style="font-size:30px;font-weight:800">${fmtPx(s.px)}</div>
-        <div class="num ${headCls}" style="font-weight:700">
-          ${headArrow} ${Number.isFinite(chg)?sgn(chg.toFixed(2)):''}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}
-          ${Number.isFinite(vol)?`　量 ${fmtLots(vol)} 張`:''}
-        </div>
-      </div>
-    </div>
-     <div style="display:flex;gap:8px;margin-top:14px">
-       <input id="stkInput" placeholder="輸入股票代號（示範：1815）" style="flex:1;max-width:260px;padding:9px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--mono);font-size:14px;outline:none">
-       <button class="btn sm" id="stkSearchBtn">查詢</button>
-       <button class="btn line sm" id="watchToggleBtn" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
+  return `<div class="fade workspace-page">
+   <div class="card stock-hero">
+     <div class="stock-identity">
+       <h2><span class="code" style="font-size:20px;color:var(--ink-2)">${s.c}</span> ${esc(s.n||s.c)} <span class="star">★</span></h2>
+       <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px">
+         <span class="badge">${esc(s.market||'—')}</span><span class="badge obs">${esc(s.industry||'—')}</span><span class="badge hot">${esc(s.theme||'—')}</span>
+       </div>
+       <div style="margin-top:12px;color:var(--ink-2);font-size:13px;font-weight:700">題材定位：${esc(s.role||'—')}</div>
+       <div style="margin-top:8px;color:var(--ink-2);font-size:13px;font-weight:700">K 線型態：${esc((stockDecisionInfo(s).signals||[])[0]?.name||'等待確認')}</div>
+     </div>
+     <div class="stock-price">
+       <div class="num ${headCls} value">${fmtPx(s.px)}</div>
+       <div class="num ${headCls}" style="font-size:15px;font-weight:900;margin-top:6px">
+         ${headArrow} ${Number.isFinite(chg)?sgn(chg.toFixed(2)):''}${Number.isFinite(dp)?`（${sgn(dp.toFixed(2))}%）`:''}
+       </div>
+       <div style="font-size:12.5px;color:var(--ink-2);font-weight:800;margin-top:8px">成交量　${Number.isFinite(vol)?fmtLots(vol)+' 張':'—'}</div>
+     </div>
+     <div class="stock-search">
+       <div style="display:flex;gap:8px">
+         <input id="stkInput" placeholder="輸入股票代號（範例：1815）" style="flex:1;min-width:0;padding:10px 13px;border:1px solid var(--border);border-radius:10px;font-family:var(--mono);font-size:14px;outline:none">
+         <button class="btn sm" id="stkSearchBtn">查詢</button>
+         <button class="btn line sm" id="watchToggleBtn" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
+       </div>
+       <div class="quote-mini-grid">
+         ${[['開盤',s.series?.at(-1)?.o],['最高',s.series?.at(-1)?.h],['最低',s.series?.at(-1)?.l],['成交值',s.series?.at(-1)?.a]].map(r=>`<div><span>${r[0]}</span><b class="num">${Number.isFinite(Number(r[1]))?fmtPx(r[1]):'—'}</b></div>`).join('')}
+       </div>
      </div>
    </div>
 
@@ -1415,50 +1419,74 @@ function vReport(){
   const draft=reportDraft();
   const customContent=String(draft.content||'').trim();
   const customPicks=reportPickRows();
+  const reportMetric=(label,value,detail,cls='')=>`<div class="metric-panel">
+    <div><div class="label">${label}</div><div class="num value ${cls}">${value}</div></div>
+    <div class="detail">${detail}</div>
+  </div>`;
   if(customContent){
-    return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
-      <div class="card">
-        <div class="card-h"><h3>${DATA.meta.date}（${DATA.meta.weekday}）盤後報告</h3><span class="tag">管理員編輯版</span></div>
-        <div class="card-pad" style="line-height:1.85;font-size:14.5px;white-space:pre-wrap">${esc(customContent)}</div>
+    return `<div class="fade workspace-page">
+      <div class="workspace-hero compact">
+        <div>
+          <div class="workspace-kicker">Daily Report</div>
+          <div class="workspace-title">${DATA.meta.date} 盤後報告</div>
+          <div class="workspace-sub">管理員編輯版 · 可於後台調整文字與推薦股票。</div>
+        </div>
       </div>
-      <div class="card"><div class="card-h"><h3>推薦股票</h3><span class="tag">管理員可於後台修改</span></div>
+      <div class="soft-card">
+        <div class="card-h"><h3>報告內容</h3><span class="tag">管理員編輯版</span></div>
+        <div class="soft-card-pad" style="line-height:1.85;font-size:14.5px;white-space:pre-wrap">${esc(customContent)}</div>
+      </div>
+      <div class="soft-card"><div class="card-h"><h3>推薦股票</h3><span class="tag">管理員可於後台修改</span></div>
         <div class="quote-list">${customPicks.map(p=>quoteStockCard({...stockKnownInfo(p.c),...p,theme:p.t}, {actions:`<span class="badge hot">分數 ${p.fs??'—'}</span><span class="muted" style="font-size:12px">${esc(p.ai||'')}</span>`})).join('')}</div>
       </div>
     </div>`;
   }
   const note=String(draft.content||'').trim();
-  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
-   <div class="card">
-     <div class="card-h"><h3>${DATA.meta.date}（${DATA.meta.weekday}）盤後報告</h3>
-       <span class="tag">${sourceReal?'Supabase 真實資料':'資料不足，顯示可用資料'}</span></div>
-     <div class="card-pad" style="line-height:1.85;font-size:14.5px">
-       <p><b>一、今日市場總結</b><br>
-       加權指數 <b class="num ${dcls(m.twse.dp)}">${fmtPx(m.twse.v)}</b>（${sgn(Number(m.twse.dp||0).toFixed(2))}%），
-       櫃買指數 <b class="num ${dcls(m.tpex.dp)}">${fmtPx(m.tpex.v)}</b>（${sgn(Number(m.tpex.dp||0).toFixed(2))}%）。
-       上漲 ${m.up} 家、下跌 ${m.down} 家。${sourceReal?'':'目前資料來源不足，請先執行資料更新。'}</p>
-
-       <p style="margin-top:14px"><b>二、今日強勢題材</b></p>
-       <ol style="margin:6px 0 0 22px">
-       ${topThemes.length?topThemes.map(t=>`<li style="margin:3px 0">${t.name}　<span class="muted" style="font-size:13px">熱度 ${t.score} · ${t.status} · 平均 ${t.gain}</span></li>`).join(''):'<li class="muted">尚無題材熱度資料</li>'}
-       </ol>
-
-       <p style="margin-top:14px"><b>三、今日精選股票</b></p>
-       ${topPicks.length?`<div class="quote-list" style="margin-top:8px">${topPicks.map(p=>quoteStockCard(p,{actions:`<span class="badge hot">總分 ${p.fs??p.total??'—'}</span><span class="muted" style="font-size:12px">${esc(p.ai||'')}</span>`})).join('')}</div>`:'<div class="muted" style="margin-top:8px">尚無精選股票資料</div>'}
-
-       <p style="margin-top:14px"><b>四、今日風險股票</b><br>
-       ${risks.length?risks.map(r=>`${r.c} ${r.n}（${r.type}）`).join('、'):'尚無真實風險清單資料'}。</p>
-
-       <p style="margin-top:14px"><b>五、今日重大公告</b><br>
-       ${topNews.length?topNews.map(n=>`${n.c&&n.c!=='-'?n.c+' '+n.n+'：':''}${n.title}`).join('；'):'尚無重大公告資料'}。</p>
-
-       <p style="margin-top:14px"><b>六、明日觀察重點</b><br>
-       觀察 ${topThemes.slice(0,3).map(t=>t.name).join('、')||'主流題材'} 是否延續量價強度，並追蹤精選股是否維持技術分與籌碼分同步改善。</p>
-       ${note?`<p style="margin-top:14px"><b>管理員備註</b><br>${esc(note).replace(/\n/g,'<br>')}</p>`:''}
+  return `<div class="fade workspace-page">
+   <div class="workspace-hero compact">
+     <div>
+       <div class="workspace-kicker">Daily Report</div>
+       <div class="workspace-title">${DATA.meta.date} 盤後報告</div>
+       <div class="workspace-sub">${sourceReal?'資料庫盤後資料':'資料尚未完整'} · 更新時間 ${esc(DATA.meta.updated||'—')}</div>
+     </div>
+     <div class="workspace-actions"><button class="btn line sm" onclick="window.print()">匯出報告</button></div>
+   </div>
+   <div class="metric-strip">
+     ${reportMetric('加權指數',fmtPx(m.twse.v),`成交金額 ${m.twse.amount?fmtTwAmount(m.twse.amount):'—'} · 上漲 ${m.twseUp??m.up} / 下跌 ${m.twseDown??m.down}`,dcls(m.twse.dp))}
+     ${reportMetric('櫃買指數',fmtPx(m.tpex.v),`成交金額 ${m.tpex.amount?fmtTwAmount(m.tpex.amount):'—'} · 上漲 ${m.tpexUp??'—'} / 下跌 ${m.tpexDown??'—'}`,dcls(m.tpex.dp))}
+     ${reportMetric('市場情緒 / 恐慌指數',String(m.fear??'—'),`${m.regime||'市場震盪'} · 較上日 ${Number.isFinite(Number(m.fearDelta))?sgn(Number(m.fearDelta).toFixed(0)):'—'}`,'')}
+     ${reportMetric('市場觀察重點',topThemes[0]?.name||'—',`${topNews[0]?.title||'追蹤主流題材與資金流向'}`,'')}
+   </div>
+   <div class="two-col">
+     <div class="soft-card">
+       <div class="card-h"><h3>今日市場總結</h3></div>
+       <div class="soft-card-pad" style="line-height:1.9;font-size:15px;color:var(--ink-2)">
+         加權指數 <b class="num ${dcls(m.twse.dp)}">${fmtPx(m.twse.v)}</b>（${sgn(Number(m.twse.dp||0).toFixed(2))}%），
+         櫃買指數 <b class="num ${dcls(m.tpex.dp)}">${fmtPx(m.tpex.v)}</b>（${sgn(Number(m.tpex.dp||0).toFixed(2))}%）。
+         市場上漲 ${m.up} 家、下跌 ${m.down} 家。觀察 ${topThemes.slice(0,3).map(t=>t.name).join('、')||'主流題材'} 是否延續量價強度。
+         ${note?`<div style="margin-top:14px;white-space:pre-wrap;color:var(--ink)">${esc(note)}</div>`:''}
+       </div>
+     </div>
+     <div class="soft-card">
+       <div class="card-h"><h3>今日強勢題材</h3><a class="more" data-view="map">查看題材地圖 →</a></div>
+       <div class="tbl-wrap"><table><tbody>
+         ${topThemes.length?topThemes.map((t,i)=>`<tr><td class="code">${i+1}</td><td><b>${esc(t.name)}</b></td><td class="r num up">${esc(String(t.score??'—'))}</td><td class="r">${esc(t.status||'—')}</td><td class="r num ${String(t.gain||'').includes('-')?'down':'up'}">${esc(t.gain||'—')}</td></tr>`).join(''):`<tr><td class="muted">尚無題材熱度資料</td></tr>`}
+       </tbody></table></div>
      </div>
    </div>
-   <div class="card card-pad" style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">
-     <span class="badge ${sourceReal?'good':'warm'}">${sourceReal?'真實資料報告':'等待資料更新'}</span>
-     <span style="font-size:13px;color:var(--ink-2)">報告內容只使用目前資料庫已載入的市場、題材、候選股與公告資料，不再混入固定範例文字。</span>
+   <div class="soft-card">
+     <div class="card-h"><h3>今日精選股票</h3><span class="more">查看更多精選股票 →</span></div>
+     <div class="quote-list" style="grid-template-columns:repeat(auto-fit,minmax(280px,1fr));display:grid">
+       ${topPicks.length?topPicks.slice(0,3).map(p=>quoteStockCard(p,{compact:true,actions:`<span class="badge hot">總分 ${p.fs??p.total??'—'}</span>`})).join(''):`<div class="muted">尚無精選股票資料</div>`}
+     </div>
+   </div>
+   <div class="two-col">
+     <div class="soft-card"><div class="card-h"><h3>今日重大公告</h3></div>
+       <div class="mops-list">${topNews.length?topNews.map(n=>`<div class="mops-item"><span class="mops-label info">${esc(n.type||'公告')}</span><div><b>${esc(n.title||'—')}</b><div class="code muted">${esc(n.c&&n.c!=='-'?n.c+' '+(n.n||''):'')}　${esc(n.time||'')}</div></div></div>`).join(''):`<div class="soft-card-pad muted">尚無重大公告資料。</div>`}</div>
+     </div>
+     <div class="soft-card"><div class="card-h"><h3>風險提醒</h3></div>
+       <div class="soft-card-pad" style="line-height:1.9">${risks.length?risks.slice(0,6).map(r=>`<div><span class="badge warm">${esc(r.type||'風險')}</span> <b>${esc(r.c)} ${esc(r.n||'')}</b></div>`).join(''):'<span class="muted">尚無真實風險清單資料。</span>'}</div>
+     </div>
    </div>
   </div>`;
 }
@@ -1467,40 +1495,45 @@ function vReport(){
 let AI_VIEW=null;
 function vAI(){
   if(AI_VIEW) return vAIDetail(AI_VIEW);
-  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
-   <div class="card card-pad" style="background:linear-gradient(120deg,#EFF6FF,#fff)">
-     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
-       <div style="width:42px;height:42px;border-radius:12px;background:var(--primary);display:flex;align-items:center;justify-content:center">
-         <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3"/></svg></div>
-       <div><b style="font-size:17px">AI 量化模擬操盤實驗室</b>
-       <div style="font-size:12.5px;color:var(--ink-2);margin-top:2px">候選池 → AI 初篩 → 歷史回測 → FinMind 詳細分析 → 模擬交易 → 多 AI 檢討 → 策略升版</div></div>
+  return `<div class="fade workspace-page">
+   <div class="workspace-hero">
+     <div class="workspace-icon">
+       <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M18.4 5.6l-2.1 2.1M7.7 16.3l-2.1 2.1"/></svg>
      </div>
+     <div>
+       <div class="workspace-kicker">Quant Lab</div>
+       <div class="workspace-title">AI 量化模擬操盤實驗室</div>
+       <div class="workspace-sub">從資料準備到策略升版，AI 驅動全流程策略研究與模擬驗證。</div>
+     </div>
+     <div class="workspace-actions"><span class="pill">最新更新：${esc(DATA.meta.updated||'—')}</span></div>
    </div>
 
-   <div style="display:flex;gap:8px;overflow-x:auto;padding-bottom:4px;font-size:12px;color:var(--ink-2)">
+   <div class="strategy-toolbar">
      ${['主系統盤後資料','每日篩選候選池','3 AI 各自選股','主庫歷史回測','FinMind 詳細分析','AI 綜合評分','模擬買進','持股追蹤','多 AI 檢討','策略升版'].map((s,i,a)=>
-       `<span style="background:#fff;border:1px solid var(--border);padding:7px 12px;border-radius:99px;white-space:nowrap;font-weight:600">${i+1}. ${s}</span>${i<a.length-1?'<span style="display:flex;align-items:center;color:var(--ink-3)">›</span>':''}`).join('')}
+       `<span class="strategy-step"><b>${i+1}</b>${s}</span>${i<a.length-1?'<span style="display:flex;align-items:center;color:var(--ink-3)">›</span>':''}`).join('')}
    </div>
 
-   <div class="grid stagger" style="grid-template-columns:repeat(auto-fit,minmax(300px,1fr))">
-   ${DATA.agents.map(a=>`<div class="card" style="cursor:pointer;transition:.15s" data-ai="${a.id}" onmouseover="this.style.boxShadow='var(--shadow-lg)'" onmouseout="this.style.boxShadow='var(--shadow)'">
-     <div class="card-pad" style="border-bottom:1px solid var(--border-soft)">
-       <div style="display:flex;align-items:center;gap:10px"><b style="font-size:16px">${a.name}</b>
+   <div class="strategy-grid stagger">
+   ${DATA.agents.map((a,idx)=>`<div class="strategy-card" style="cursor:pointer;transition:.15s" data-ai="${a.id}" onmouseover="this.style.boxShadow='var(--shadow-lg)'" onmouseout="this.style.boxShadow='var(--shadow)'">
+     <div class="strategy-card-head">
+       <div class="strategy-icon">${idx===2?'KC':idx===3?'MA':'AI'}</div>
+       <div style="min-width:0;flex:1">
+       <div style="display:flex;align-items:center;gap:10px"><h3>${a.name}</h3>
        <span class="badge ${a.status==='運行中'?'cool':'obs'}" style="margin-left:auto">${a.status}</span></div>
        <div style="font-size:12px;color:var(--ink-3);margin-top:3px">${a.type} · 策略 ${a.ver}</div>
-       <p style="font-size:12.5px;color:var(--ink-2);margin-top:9px;line-height:1.5">${a.desc}</p>
+       <p>${a.desc}</p>
+       </div>
      </div>
-     <div class="grid" style="grid-template-columns:1fr 1fr;gap:0">
+     <div class="strategy-stats">
        ${[['今日初篩',a.pre+' 檔'],['回測通過',a.passed+' 檔'],['今日模擬買進',a.buy+' 檔'],['回測平均勝率',a.wr],
           ['累積報酬率',a.cum,'up'],['本月報酬',a.mon,'up'],['勝率',a.win],['最大回撤',a.mdd,'down']].map((r,i)=>
-         `<div style="padding:13px 18px;border-right:${i%2===0?'1px solid var(--border-soft)':'none'};border-bottom:1px solid var(--border-soft)">
-         <div style="font-size:11px;color:var(--ink-3);font-weight:600">${r[0]}</div>
-         <div class="num ${r[2]||''}" style="font-size:17px;font-weight:800;margin-top:2px">${r[1]}</div></div>`).join('')}
+         `<div class="strategy-stat"><span>${r[0]}</span><b class="num ${r[2]||''}">${r[1]}</b></div>`).join('')}
      </div>
-     <div class="card-pad" style="display:flex;align-items:center"><span style="font-size:12px;color:var(--ink-2)">目前持股 <b>${a.pos}</b> 檔</span>
-       <span class="more" style="margin-left:auto">查看 AI 詳細 →</span></div>
+     <div class="card-pad" style="display:flex;align-items:center;gap:10px"><button class="btn line sm">查看 AI 詳細</button><button class="btn sm">模擬進場</button>
+       <span class="more" style="margin-left:auto;font-size:12px;color:var(--ink-2)">持股 ${a.pos} 檔</span></div>
    </div>`).join('')}
    </div>
+   <div class="card card-pad" style="background:var(--blue-tint);border-color:var(--blue-soft);font-size:13px;color:var(--ink-2)">提示：所有策略回測與模擬交易結果僅供參考，請搭配風險控管機制使用。</div>
   </div>`;
 }
 
@@ -1737,16 +1770,17 @@ function atrCard(r){
   const takeTrailByPct=trailBase*(1-Number(r.trailPct||5)/100);
   const movingTake=takeActive?Math.max(take,takeTrailByAtr,takeTrailByPct):take;
   const rr=(take-Number(r.entry))/(Number(r.entry)-stop);
-  return `<div class="card atr-card">
-    <div class="card-h"><h3><span class="code">${r.c}</span> ${esc(s.n||r.n||r.c)}</h3><span class="badge ${r.dir==='short'?'bad':'good'}">${r.dir==='short'?'做空':'做多'} ▲</span></div>
+  return `<div class="atr-watch-card">
+    <div class="atr-watch-head"><h3><span class="code">${r.c}</span> ${esc(s.n||r.n||r.c)}</h3><span class="badge ${r.dir==='short'?'bad':'good'}">${r.dir==='short'?'做空':'做多'} ▲</span><span class="badge obs">觀察中</span></div>
     <div class="card-pad">
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px">
-        ${[['現價',fmtPx(px),''],['ATR 值',fmtPx(atr),'cool'],['買入價',fmtPx(r.entry),''],['風險報酬比',Number.isFinite(rr)?`1 : ${rr.toFixed(2)}`:'—','']].map(x=>`<div class="mini-tile"><span>${x[0]}</span><b class="num ${x[2]}">${x[1]}</b></div>`).join('')}
+      <div class="atr-tile-grid">
+        ${[['現價',fmtPx(px),''],['ATR 值',fmtPx(atr),'cool'],['買入價',fmtPx(r.entry),''],['風險報酬比',Number.isFinite(rr)?`1 : ${rr.toFixed(2)}`:'—','']].map(x=>`<div class="atr-big-tile"><span>${x[0]}</span><b class="num ${x[2]}">${x[1]}</b></div>`).join('')}
       </div>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:12px">
-        <div class="mini-tile danger"><span>移動停損</span><b class="num down">${fmtPx(movingStop)}</b><small>包含初始買入停損價；股價創高後只往上調整</small></div>
-        <div class="mini-tile success"><span>移動停利</span><b class="num up">${fmtPx(movingTake)}</b><small>${takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
-        <div class="mini-tile cool"><span>追蹤最高價</span><b class="num">${fmtPx(trailBase)}</b><small>移動停損與停利皆依此價格往上調整</small></div>
+      <div class="atr-tile-grid" style="margin-top:12px">
+        <div class="atr-big-tile danger"><span>移動停損</span><b class="num down">${fmtPx(movingStop)}</b><small>包含初始買入停損價；股價創高後只往上調整</small></div>
+        <div class="atr-big-tile success"><span>移動停利</span><b class="num up">${fmtPx(movingTake)}</b><small>${takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
+        <div class="atr-big-tile"><span>追蹤最高價</span><b class="num">${fmtPx(trailBase)}</b><small>移動停損與停利皆依此價格往上調整</small></div>
+        <div class="atr-big-tile"><span>距離現價</span><b class="num">${Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—'}</b><small>低於移動停損即出場觀察</small></div>
       </div>
       <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 初始停利 ${r.takeMult||1.5} 倍 · 停利啟動後用 ${r.trailAtr||0.5} ATR 或 ${r.trailPct||5}% 追蹤 · 出場看移動停損或已啟動後的移動停利</div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn line sm" data-atr-remove="${r.c}">移除觀察</button></div>
@@ -1755,10 +1789,20 @@ function atrCard(r){
 }
 function vATR(){
   const rows=atrRows();
-  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
-    <div class="card card-pad">
-      <h3 style="font-size:20px;margin-bottom:14px">ATR 停利停損 + 移動停利</h3>
-      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;align-items:end">
+  return `<div class="fade workspace-page">
+    <div class="workspace-hero compact">
+      <div class="workspace-icon" style="width:54px;height:54px;border-radius:16px">
+        <svg width="27" height="27" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"><path d="M3 17l6-6 4 4 7-9"/><path d="M14 6h6v6"/></svg>
+      </div>
+      <div>
+        <div class="workspace-kicker">ATR Risk Control</div>
+        <div class="workspace-title">ATR 停利停損</div>
+        <div class="workspace-sub">設定買入價與 ATR 參數，追蹤移動停損與移動停利，不在此頁放走勢圖。</div>
+      </div>
+    </div>
+    <div class="card atr-form-card">
+      <h3 style="font-size:18px;margin-bottom:14px">ATR 停利停損 + 移動停利</h3>
+      <div class="atr-form-grid">
         <div class="field"><label>股票代號</label><input id="atrSymbol" placeholder="2330"></div>
         <div class="field"><label>買入價</label><input id="atrEntry" type="number" step="0.01" placeholder="買入價"></div>
         <div class="field"><label>ATR 週期</label><input id="atrPeriod" type="number" value="14"></div>
@@ -1770,7 +1814,7 @@ function vATR(){
       </div>
       <div id="atrMsg" class="muted" style="font-size:13px;margin-top:10px"></div>
     </div>
-    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:14px">
+    <div class="atr-watch-grid">
       ${rows.length?rows.map(atrCard).join(''):`<div class="card card-pad muted" style="font-size:13.5px">尚未加入 ATR 觀察股票。</div>`}
     </div>
   </div>`;
@@ -1780,24 +1824,43 @@ function observeCards(){
   if(!rows.length) return `<div class="card card-pad muted" style="font-size:13.5px">目前尚無管理員發布的觀察報告。</div>`;
   return rows.map(r=>{
     const s=stockKnownInfo(r.symbol||r.c);
-    return `<div class="quote-card no-side observe-card">
-      <div class="quote-main">
-        <div class="quote-title lnk" data-stock="${s.c}"><span class="code">${s.c}</span> <b>${esc(s.n||r.name||s.c)}</b></div>
-        <div class="quote-stats">
-          <div><span>收盤價</span><b class="num ${dcls(Number(s.dp))}">${fmtPx(s.px)}</b></div>
-          <div><span>漲跌幅</span><b class="num ${dcls(Number(s.dp))}">${Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</b></div>
-          <div><span>成交量(張)</span><b class="num">${Number.isFinite(Number(s.vol))?fmtLots(s.vol):'—'}</b></div>
-        </div>
-        <div class="quote-tags"><span class="badge">${esc(s.industry||s.t||'—')}</span><span class="badge obs">${esc(r.category||'觀察')}</span></div>
-        <div style="font-size:13px;line-height:1.7;margin-top:12px;color:var(--ink-2)">${esc(r.note||'管理員尚未填寫觀察備註')}</div>
+    return `<div class="clean-row">
+      <div class="clean-symbol">
+        <span class="code">${esc(s.c)}</span>
+        <b class="lnk" data-stock="${s.c}">${esc(s.n||r.name||s.c)}</b>
+        <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px"><span class="badge">${esc(s.industry||s.t||'—')}</span><span class="badge obs">${esc(r.category||'觀察')}</span></div>
+      </div>
+      <div class="clean-metrics">
+        <div class="clean-metric"><span>收盤價</span><b class="num ${dcls(Number(s.dp))}">${fmtPx(s.px)}</b></div>
+        <div class="clean-metric"><span>漲跌幅</span><b class="num ${dcls(Number(s.dp))}">${Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</b></div>
+        <div class="clean-metric"><span>成交量</span><b class="num">${Number.isFinite(Number(s.vol))?fmtLots(s.vol)+' 張':'—'}</b></div>
+      </div>
+      <div style="min-width:0">
+        <div style="font-size:12px;color:var(--primary);font-weight:900;margin-bottom:5px">觀察重點</div>
+        <div style="font-size:14px;line-height:1.75;color:var(--ink)">${esc(r.note||'管理員尚未填寫觀察備註')}</div>
+        <div style="display:flex;justify-content:flex-end;margin-top:8px"><span class="badge cool">觀察中</span></div>
       </div>
     </div>`;
   }).join('');
 }
 function vObserve(){
-  return `<div class="fade" style="display:flex;flex-direction:column;gap:18px">
-    <div class="card card-pad"><h3 style="font-size:20px;margin-bottom:6px">觀察報告</h3><div class="muted" style="font-size:13.5px">由管理員發布觀察股票與觀察理由，一般會員可在前台查看。</div></div>
-    <div class="quote-list">${observeCards()}</div>
+  return `<div class="fade workspace-page">
+    <div class="workspace-hero">
+      <div class="workspace-icon" style="background:linear-gradient(135deg,#DBEAFE,#EFF6FF);color:var(--primary)">
+        <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4h12a3 3 0 0 1 3 3v13H7a3 3 0 0 1-3-3V4z"/><path d="M8 8h7M8 12h7M8 16h4"/><circle cx="17" cy="17" r="3"/><path d="M19.5 19.5 22 22"/></svg>
+      </div>
+      <div>
+        <div class="workspace-kicker">Observation</div>
+        <div class="workspace-title">精選觀察報告</div>
+        <div class="workspace-sub">由管理員發布的觀察股票與觀察理由，一般會員可在前台查看。</div>
+      </div>
+      <div class="workspace-feature-strip">
+        <div class="workspace-feature"><i>★</i><div><b>專業觀點</b><span>聚焦值得追蹤的標的</span></div></div>
+        <div class="workspace-feature"><i>⟳</i><div><b>即時更新</b><span>依資料庫最新內容呈現</span></div></div>
+        <div class="workspace-feature"><i>盾</i><div><b>嚴選標的</b><span>避免分散到低品質訊號</span></div></div>
+      </div>
+    </div>
+    <div class="soft-card clean-list">${observeCards()}</div>
   </div>`;
 }
 
