@@ -77,6 +77,11 @@ function fmtPct(v){
   if(!Number.isFinite(n)) return '—';
   return `${n>0?'+':''}${n.toFixed(2)}%`;
 }
+function fmtAmountValue(v){
+  const n=Number(v);
+  if(!Number.isFinite(n) || n<=0) return '—';
+  return typeof fmtTwAmount==='function' ? fmtTwAmount(n) : n.toLocaleString('en-US');
+}
 function quoteStockCard(s,opts={}){
   const side=String(s.market||s.m||'').toUpperCase()==='TPEX'?'櫃':'市';
   const px=Number(s.px), dp=Number(s.dp), ch=Number(s.chg||s.change);
@@ -357,7 +362,8 @@ function stockKnownInfo(sym){
     px:isFinite(Number(price.close))?Number(price.close):((hit&&isFinite(Number(hit.px)))?Number(hit.px):NaN),
     chg:isFinite(Number(price.change))?Number(price.change):((hit&&isFinite(Number(hit.chg)))?Number(hit.chg):NaN),
     dp:isFinite(Number(price.change_percent))?Number(price.change_percent):((hit&&isFinite(Number(hit.dp)))?Number(hit.dp):NaN),
-    vol:isFinite(Number(price.volume))?Number(price.volume):(hit&&hit.vol)
+    vol:isFinite(Number(price.volume))?Number(price.volume):(hit&&hit.vol),
+    amount:isFinite(Number(price.amount))?Number(price.amount):(hit&&hit.amount)
   };
 }
 function addWatchStock(stock){
@@ -687,7 +693,7 @@ function stockDecisionInfo(s){
 }
 function stockDecisionPanel(s){
   const d=stockDecisionInfo(s);
-  return `<div class="decision-card">
+  return `<div class="decision-card pro-decision">
     <div class="decision-head">
       <div>
         <div class="decision-title"><span class="code">${esc(s.c)}</span> ${esc(s.n||s.c)}</div>
@@ -714,7 +720,15 @@ function stockDecisionPanel(s){
   </div>`;
 }
 function vStock(){
-  const s=DATA.stock;
+  const known=stockKnownInfo(DATA.stock&&DATA.stock.c);
+  const s={...DATA.stock,...known,
+    n:(known.n&&known.n!==known.c)?known.n:DATA.stock.n,
+    series:DATA.stock.series,
+    inst:DATA.stock.inst, margin:DATA.stock.margin, foreignCost:DATA.stock.foreignCost,
+    revenue:DATA.stock.revenue, ann:DATA.stock.ann, role:DATA.stock.role||known.t||known.industry,
+    theme:DATA.stock.theme||known.t, industry:DATA.stock.industry||known.industry,
+    market:DATA.stock.market||known.market
+  };
   const fc=s.foreignCost||{};
   const revenue=Array.isArray(s.revenue)?s.revenue:[];
   const latestRevenue=revenue[0]||null;
@@ -730,7 +744,9 @@ function vStock(){
     ['獲利2 ×1.40',fc.tp2,'warm'],
     ['獲利3 ×1.70',fc.tp3,'hot']
   ];
-  return `<div class="fade workspace-page">
+  const latestBar=s.series&&s.series.length?s.series[s.series.length-1]:{};
+  const liveAmount=Number.isFinite(Number(s.amount))?Number(s.amount):Number(latestBar.a);
+  return `<div class="fade workspace-page stock-workspace">
    <div class="card stock-hero">
      <div class="stock-identity">
        <h2><span class="code" style="font-size:20px;color:var(--ink-2)">${s.c}</span> ${esc(s.n||s.c)} <span class="star">★</span></h2>
@@ -741,11 +757,12 @@ function vStock(){
        <div style="margin-top:8px;color:var(--ink-2);font-size:13px;font-weight:700">K 線型態：${esc((stockDecisionInfo(s).signals||[])[0]?.name||'等待確認')}</div>
      </div>
      <div class="stock-price">
-       <div class="num ${headCls} value">${fmtPx(s.px)}</div>
-       <div class="num ${headCls}" style="font-size:15px;font-weight:900;margin-top:6px">
+       <div class="num ${headCls} value" data-stock-live="px">${fmtPx(s.px)}</div>
+       <div class="num ${headCls}" data-stock-live="chg" style="font-size:15px;font-weight:900;margin-top:6px">
          ${headArrow} ${Number.isFinite(chg)?sgn(chg.toFixed(2)):''}${Number.isFinite(dp)?`（${sgn(dp.toFixed(2))}%）`:''}
        </div>
-       <div style="font-size:12.5px;color:var(--ink-2);font-weight:800;margin-top:8px">成交量　${Number.isFinite(vol)?fmtLots(vol)+' 張':'—'}</div>
+       <div style="font-size:12.5px;color:var(--ink-2);font-weight:800;margin-top:8px">成交量　<span data-stock-live="vol">${Number.isFinite(vol)?fmtLots(vol)+' 張':'—'}</span></div>
+       <div style="font-size:12px;color:var(--ink-3);font-weight:800;margin-top:4px">更新時間　${esc(DATA.meta.realtimeUpdated||DATA.meta.updated||'—')}</div>
      </div>
      <div class="stock-search">
        <div style="display:flex;gap:8px">
@@ -754,7 +771,7 @@ function vStock(){
          <button class="btn line sm" id="watchToggleBtn" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
        </div>
        <div class="quote-mini-grid">
-         ${[['開盤',s.series?.at(-1)?.o],['最高',s.series?.at(-1)?.h],['最低',s.series?.at(-1)?.l],['成交值',s.series?.at(-1)?.a]].map(r=>`<div><span>${r[0]}</span><b class="num">${Number.isFinite(Number(r[1]))?fmtPx(r[1]):'—'}</b></div>`).join('')}
+         ${[['開盤',latestBar.o,'px'],['最高',latestBar.h,'px'],['最低',latestBar.l,'px'],['成交值',liveAmount,'amount']].map(r=>`<div><span>${r[0]}</span><b class="num" ${r[2]==='amount'?'data-stock-live="amount"':''}>${r[2]==='amount'?fmtAmountValue(r[1]):(Number.isFinite(Number(r[1]))?fmtPx(r[1]):'—')}</b></div>`).join('')}
        </div>
      </div>
    </div>
@@ -916,6 +933,16 @@ async function loadStockSeries(sym){
         DATA.stock.levelText=`近20日支撐 ${fmtPx(sup)} / 壓力 ${fmtPx(res)}`;
       }
       await loadStockRealDetails(sym);
+      try{
+        const rq=await sbGet(`realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&symbol=eq.${sym}&order=updated_at.desc&limit=1`,1);
+        if(Array.isArray(rq)&&rq.length&&typeof applyRealtimeQuotes==='function') applyRealtimeQuotes(rq,{merge:true});
+        const live=stockKnownInfo(sym);
+        if(Number.isFinite(Number(live.px))) DATA.stock.px=Number(live.px);
+        if(Number.isFinite(Number(live.chg))) DATA.stock.chg=Number(live.chg);
+        if(Number.isFinite(Number(live.dp))) DATA.stock.dp=Number(live.dp);
+        if(Number.isFinite(Number(live.vol))) DATA.stock.vol=Number(live.vol);
+        if(Number.isFinite(Number(live.amount))) DATA.stock.amount=Number(live.amount);
+      }catch(_){}
     }else{
       DATA.stock.series=null; // 無足夠真實資料 -> 由繪圖 fallback
     }
@@ -1756,6 +1783,23 @@ function atrKey(){
 }
 function atrRows(){return readStore(atrKey(),[]);}
 function setAtrRows(rows){writeStore(atrKey(),rows);}
+function syncAtrRowsWithLive(){
+  const rows=atrRows();
+  let changed=false;
+  const next=rows.map(r=>{
+    const s=stockKnownInfo(r.c);
+    const px=Number(s.px||r.current||r.entry);
+    if(!Number.isFinite(px)) return r;
+    const high=Math.max(Number(r.high||0),px,Number(r.entry||0));
+    if(px!==Number(r.current)||high!==Number(r.high||0)){
+      changed=true;
+      return {...r,current:px,high,updatedAt:new Date().toISOString()};
+    }
+    return r;
+  });
+  if(changed) setAtrRows(next);
+  return next;
+}
 function atrCard(r){
   const s=stockKnownInfo(r.c);
   const px=Number(s.px||r.current||r.entry||0);
@@ -1770,17 +1814,20 @@ function atrCard(r){
   const takeTrailByPct=trailBase*(1-Number(r.trailPct||5)/100);
   const movingTake=takeActive?Math.max(take,takeTrailByAtr,takeTrailByPct):take;
   const rr=(take-Number(r.entry))/(Number(r.entry)-stop);
-  return `<div class="atr-watch-card">
+  return `<div class="atr-watch-card" data-atr-row="${r.c}">
     <div class="atr-watch-head"><h3><span class="code">${r.c}</span> ${esc(s.n||r.n||r.c)}</h3><span class="badge ${r.dir==='short'?'bad':'good'}">${r.dir==='short'?'做空':'做多'} ▲</span><span class="badge obs">觀察中</span></div>
     <div class="card-pad">
       <div class="atr-tile-grid">
-        ${[['現價',fmtPx(px),''],['ATR 值',fmtPx(atr),'cool'],['買入價',fmtPx(r.entry),''],['風險報酬比',Number.isFinite(rr)?`1 : ${rr.toFixed(2)}`:'—','']].map(x=>`<div class="atr-big-tile"><span>${x[0]}</span><b class="num ${x[2]}">${x[1]}</b></div>`).join('')}
+        <div class="atr-big-tile"><span>現價</span><b data-atr-cell="px" class="num">${fmtPx(px)}</b></div>
+        <div class="atr-big-tile"><span>ATR 值</span><b class="num cool">${fmtPx(atr)}</b></div>
+        <div class="atr-big-tile"><span>買入價</span><b class="num">${fmtPx(r.entry)}</b></div>
+        <div class="atr-big-tile"><span>風險報酬比</span><b class="num">${Number.isFinite(rr)?`1 : ${rr.toFixed(2)}`:'—'}</b></div>
       </div>
       <div class="atr-tile-grid" style="margin-top:12px">
-        <div class="atr-big-tile danger"><span>移動停損</span><b class="num down">${fmtPx(movingStop)}</b><small>包含初始買入停損價；股價創高後只往上調整</small></div>
-        <div class="atr-big-tile success"><span>移動停利</span><b class="num up">${fmtPx(movingTake)}</b><small>${takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
-        <div class="atr-big-tile"><span>追蹤最高價</span><b class="num">${fmtPx(trailBase)}</b><small>移動停損與停利皆依此價格往上調整</small></div>
-        <div class="atr-big-tile"><span>距離現價</span><b class="num">${Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—'}</b><small>低於移動停損即出場觀察</small></div>
+        <div class="atr-big-tile danger"><span>移動停損</span><b data-atr-cell="stop" class="num down">${fmtPx(movingStop)}</b><small>包含初始買入停損價；股價創高後只往上調整</small></div>
+        <div class="atr-big-tile success"><span>移動停利</span><b data-atr-cell="take" class="num up">${fmtPx(movingTake)}</b><small data-atr-cell="take-note">${takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利'}</small></div>
+        <div class="atr-big-tile"><span>追蹤最高價</span><b data-atr-cell="high" class="num">${fmtPx(trailBase)}</b><small>移動停損與停利皆依此價格往上調整</small></div>
+        <div class="atr-big-tile"><span>距離現價</span><b data-atr-cell="gap" class="num">${Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—'}</b><small>低於移動停損即出場觀察</small></div>
       </div>
       <div class="muted" style="font-size:12.5px;margin-top:12px">ATR 週期 ${r.period||14} · 停損 ${r.stopMult||1} 倍 · 初始停利 ${r.takeMult||1.5} 倍 · 停利啟動後用 ${r.trailAtr||0.5} ATR 或 ${r.trailPct||5}% 追蹤 · 出場看移動停損或已啟動後的移動停利</div>
       <div style="display:flex;justify-content:flex-end;margin-top:12px"><button class="btn line sm" data-atr-remove="${r.c}">移除觀察</button></div>
@@ -1788,7 +1835,7 @@ function atrCard(r){
   </div>`;
 }
 function vATR(){
-  const rows=atrRows();
+  const rows=syncAtrRowsWithLive();
   return `<div class="fade workspace-page">
     <div class="workspace-hero compact">
       <div class="workspace-icon" style="width:54px;height:54px;border-radius:16px">
@@ -1824,16 +1871,16 @@ function observeCards(){
   if(!rows.length) return `<div class="card card-pad muted" style="font-size:13.5px">目前尚無管理員發布的觀察報告。</div>`;
   return rows.map(r=>{
     const s=stockKnownInfo(r.symbol||r.c);
-    return `<div class="clean-row">
+    return `<div class="clean-row observe-clean-row" data-live-row="${s.c}">
       <div class="clean-symbol">
         <span class="code">${esc(s.c)}</span>
         <b class="lnk" data-stock="${s.c}">${esc(s.n||r.name||s.c)}</b>
         <div style="display:flex;gap:7px;flex-wrap:wrap;margin-top:10px"><span class="badge">${esc(s.industry||s.t||'—')}</span><span class="badge obs">${esc(r.category||'觀察')}</span></div>
       </div>
       <div class="clean-metrics">
-        <div class="clean-metric"><span>收盤價</span><b class="num ${dcls(Number(s.dp))}">${fmtPx(s.px)}</b></div>
-        <div class="clean-metric"><span>漲跌幅</span><b class="num ${dcls(Number(s.dp))}">${Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</b></div>
-        <div class="clean-metric"><span>成交量</span><b class="num">${Number.isFinite(Number(s.vol))?fmtLots(s.vol)+' 張':'—'}</b></div>
+        <div class="clean-metric"><span>收盤價</span><b data-live-cell="px" class="num ${dcls(Number(s.dp))}">${fmtPx(s.px)}</b></div>
+        <div class="clean-metric"><span>漲跌幅</span><b data-live-cell="dp" class="num ${dcls(Number(s.dp))}">${Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—'}</b></div>
+        <div class="clean-metric"><span>成交量</span><b data-live-cell="vol" class="num">${Number.isFinite(Number(s.vol))?fmtLots(s.vol)+' 張':'—'}</b></div>
       </div>
       <div style="min-width:0">
         <div style="font-size:12px;color:var(--primary);font-weight:900;margin-bottom:5px">觀察重點</div>

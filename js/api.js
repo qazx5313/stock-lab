@@ -786,6 +786,8 @@ function liveSymbolRows(){
   (typeof watchlist==='function'?watchlist():[]).forEach(add);
   (DATA.picks||[]).slice(0,12).forEach(add);
   (DATA.screen||[]).slice(0,20).forEach(add);
+  (DATA.observations||[]).slice(0,30).forEach(r=>add(r.symbol||r.c));
+  if(typeof atrRows==='function') (atrRows()||[]).slice(0,30).forEach(r=>add(r.c));
   (DATA.aiCand||[]).slice(0,20).forEach(add);
   (DATA.aiPos||[]).slice(0,20).forEach(add);
   if(DATA.stock&&DATA.stock.c) add(DATA.stock.c);
@@ -815,6 +817,7 @@ async function refreshLiveEdge(){
       DATA.stock.chg=Number(q.change);
       DATA.stock.dp=Number(q.change_percent);
       DATA.stock.vol=Number(q.volume);
+      DATA.stock.amount=Number(q.amount);
     }
     if(typeof renderTxFuture==='function') renderTxFuture();
     if(typeof updateLiveDom==='function') updateLiveDom();
@@ -867,6 +870,57 @@ function updateLiveDom(){
       if(px) px.textContent=fmtPx(s.px);
       if(dp){dp.textContent=isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—';dp.className=`r num ${dcls(Number(s.dp))}`;}
       if(vol) vol.textContent=`${fmtLots(s.vol)} 張`;
+    });
+  }
+  if(CUR==='observe' && typeof stockKnownInfo==='function'){
+    (DATA.observations||[]).forEach(r=>{
+      const s=stockKnownInfo(r.symbol||r.c);
+      const row=document.querySelector(`[data-live-row="${s.c}"]`);
+      if(!row) return;
+      const px=row.querySelector('[data-live-cell="px"]');
+      const dp=row.querySelector('[data-live-cell="dp"]');
+      const vol=row.querySelector('[data-live-cell="vol"]');
+      if(px){px.textContent=fmtPx(s.px);px.className=`num ${dcls(Number(s.dp))}`;}
+      if(dp){dp.textContent=Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—';dp.className=`num ${dcls(Number(s.dp))}`;}
+      if(vol) vol.textContent=`${fmtLots(s.vol)} 張`;
+    });
+  }
+  if(CUR==='stock' && DATA.stock&&DATA.stock.c&&typeof stockKnownInfo==='function'){
+    const s=stockKnownInfo(DATA.stock.c);
+    if(Number.isFinite(Number(s.px))){
+      DATA.stock.px=s.px; DATA.stock.chg=s.chg; DATA.stock.dp=s.dp; DATA.stock.vol=s.vol; DATA.stock.amount=s.amount;
+      const px=document.querySelector('[data-stock-live="px"]');
+      const chg=document.querySelector('[data-stock-live="chg"]');
+      const vol=document.querySelector('[data-stock-live="vol"]');
+      const amount=document.querySelector('[data-stock-live="amount"]');
+      if(px){px.textContent=fmtPx(s.px);px.className=`num ${dcls(Number(s.dp))} value`;}
+      if(chg){
+        const d=Number(s.chg), p=Number(s.dp);
+        chg.textContent=`${Number.isFinite(p)&&p>=0?'▲':'▼'} ${Number.isFinite(d)?sgn(d.toFixed(2)):''}${Number.isFinite(p)?`（${sgn(p.toFixed(2))}%）`:''}`;
+        chg.className=`num ${dcls(d)}`;
+      }
+      if(vol) vol.textContent=Number.isFinite(Number(s.vol))?`${fmtLots(s.vol)} 張`:'—';
+      if(amount) amount.textContent=typeof fmtAmountValue==='function'?fmtAmountValue(s.amount):(Number.isFinite(Number(s.amount))?Number(s.amount).toLocaleString('en-US'):'—');
+    }
+  }
+  if(CUR==='atr' && typeof syncAtrRowsWithLive==='function'){
+    const rows=syncAtrRowsWithLive();
+    rows.forEach(r=>{
+      const row=document.querySelector(`[data-atr-row="${r.c}"]`);
+      if(!row) return;
+      const s=stockKnownInfo(r.c);
+      const px=Number(s.px||r.current||r.entry||0);
+      const atr=Number(r.atr||px*0.035||0);
+      const stop=Number(r.stop||Number(r.entry)-atr*Number(r.stopMult||1));
+      const take=Number(r.take||Number(r.entry)+atr*Number(r.takeMult||1.5));
+      const trailBase=Math.max(Number(r.high||0),px,Number(r.entry||0));
+      const movingStop=Math.max(stop,trailBase-atr*Number(r.stopMult||1));
+      const takeActive=trailBase>=take;
+      const movingTake=takeActive?Math.max(take,trailBase-atr*Number(r.trailAtr||0.5),trailBase*(1-Number(r.trailPct||5)/100)):take;
+      const set=(name,val)=>{const el=row.querySelector(`[data-atr-cell="${name}"]`);if(el)el.textContent=val;};
+      set('px',fmtPx(px)); set('stop',fmtPx(movingStop)); set('take',fmtPx(movingTake)); set('high',fmtPx(trailBase)); set('gap',Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—');
+      const note=row.querySelector('[data-atr-cell="take-note"]');
+      if(note) note.textContent=takeActive?'已碰到初始停利位，開始移動停利':'尚未碰到初始停利位，目前先看初始停利';
     });
   }
 }

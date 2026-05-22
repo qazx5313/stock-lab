@@ -272,7 +272,7 @@
   .soft-card{background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
   .soft-card-pad{padding:18px 20px}
   .clean-list{display:flex;flex-direction:column}
-  .clean-row{display:grid;grid-template-columns:170px minmax(0,1fr) auto;gap:18px;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border-soft)}
+  .clean-row{display:grid;grid-template-columns:180px minmax(360px,.75fr) minmax(340px,1fr);gap:18px;align-items:center;padding:18px 20px;border-bottom:1px solid var(--border-soft)}
   .clean-row:last-child{border-bottom:0}
   .clean-symbol b{display:block;font-size:24px;color:var(--primary);font-weight:950;line-height:1.1}
   .clean-symbol .code{display:inline-flex;border:1px solid var(--border);border-radius:7px;padding:3px 8px;margin-bottom:7px;background:#fff}
@@ -281,6 +281,10 @@
   .clean-metric:last-child{border-right:0}
   .clean-metric span{display:block;font-size:11px;color:var(--ink-2);font-weight:850}
   .clean-metric b{display:block;margin-top:4px;font-size:18px;font-weight:950}
+  .observe-clean-row{grid-template-columns:180px minmax(420px,1fr) minmax(360px,430px)}
+  .observe-clean-row .clean-metrics{min-width:0;grid-template-columns:repeat(3,minmax(110px,1fr))}
+  .observe-clean-row .clean-metric{min-height:56px;display:flex;flex-direction:column;justify-content:center}
+  .observe-clean-row .clean-metric b{font-size:19px}
   .strategy-toolbar{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px}
   .strategy-step{
     display:inline-flex;align-items:center;gap:8px;background:#fff;border:1px solid var(--border);
@@ -298,9 +302,10 @@
   .strategy-stat:nth-child(2n){border-right:0}
   .strategy-stat span{display:block;font-size:11px;color:var(--ink-3);font-weight:900}
   .strategy-stat b{display:block;font-size:18px;font-weight:950;margin-top:3px}
+  .stock-workspace{max-width:none}
   .stock-hero{
-    display:grid;grid-template-columns:minmax(280px,1fr) minmax(220px,.55fr) minmax(380px,.9fr);
-    gap:18px;align-items:center;padding:20px 22px;
+    display:grid;grid-template-columns:minmax(330px,1.05fr) minmax(230px,.52fr) minmax(520px,1.08fr);
+    gap:24px;align-items:center;padding:20px 24px;
   }
   .stock-identity h2{font-size:30px;font-weight:950;letter-spacing:-.7px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
   .stock-identity .star{color:#FBBF24;font-size:24px}
@@ -311,18 +316,25 @@
   .quote-mini-grid div{padding:8px 12px;border-right:1px solid var(--border-soft)}
   .quote-mini-grid span{display:block;font-size:11px;color:var(--ink-2);font-weight:850}
   .quote-mini-grid b{display:block;margin-top:4px;font-size:14px;font-weight:900}
-  .atr-form-card{padding:22px 24px}
-  .atr-form-grid{display:grid;grid-template-columns:repeat(7,minmax(110px,1fr)) auto;gap:12px;align-items:end}
-  .atr-watch-grid{display:grid;grid-template-columns:repeat(3,minmax(280px,1fr));gap:16px}
-  .atr-watch-card{background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
-  .atr-watch-head{display:flex;align-items:center;gap:10px;padding:16px 18px;border-bottom:1px solid var(--border-soft)}
+  .atr-form-card{padding:24px 28px}
+  .atr-form-grid{display:grid;grid-template-columns:repeat(7,minmax(112px,1fr)) minmax(150px,auto);gap:14px;align-items:end}
+  .atr-watch-grid{display:grid;grid-template-columns:repeat(3,minmax(310px,1fr));gap:18px;align-items:start}
+  .atr-watch-card{background:#fff;border:1px solid var(--border);border-radius:18px;box-shadow:var(--shadow);overflow:hidden}
+  .atr-watch-head{display:flex;align-items:center;gap:10px;padding:17px 20px;border-bottom:1px solid var(--border-soft)}
   .atr-watch-head h3{font-size:17px;font-weight:950}
-  .atr-tile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-  .atr-big-tile{border:1px solid var(--border-soft);border-radius:12px;background:#F8FAFC;padding:14px}
+  .atr-tile-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+  .atr-big-tile{border:1px solid var(--border-soft);border-radius:12px;background:#F8FAFC;padding:15px 16px;min-height:96px}
   .atr-big-tile span{display:block;font-size:11px;color:var(--ink-2);font-weight:900}
-  .atr-big-tile b{display:block;font-size:23px;font-weight:950;margin-top:6px}
+  .atr-big-tile b{display:block;font-size:24px;font-weight:950;margin-top:7px}
+  .atr-big-tile small{display:block;font-size:11px;color:var(--ink-3);font-weight:750;line-height:1.45;margin-top:7px}
   .atr-big-tile.danger{background:#FEF2F2;border-color:#FECACA}
   .atr-big-tile.success{background:#F0FDF4;border-color:#BBF7D0}
+  .pro-decision .decision-head{display:flex;align-items:center;background:#fff;padding:18px 22px 16px}
+  .pro-decision .decision-summary{font-size:20px;font-weight:950;color:var(--ink);line-height:1.6}
+  .pro-decision .decision-body{grid-template-columns:minmax(440px,1.05fr) minmax(520px,1fr)}
+  .pro-decision .decision-notes{padding:20px 22px}
+  .pro-decision .decision-metrics{grid-template-columns:repeat(4,minmax(0,1fr));background:#FBFDFF;padding:16px}
+  .pro-decision .decision-metric{background:#F8FAFC;border-color:#E5EDF7;min-height:92px}
   .toggle-row{display:flex;align-items:center;justify-content:space-between;gap:12px}
   .toggle{width:42px;height:24px;border-radius:999px;background:#CBD5E1;position:relative;flex-shrink:0}
   .toggle:after{content:"";position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;left:3px;top:3px;transition:.15s;box-shadow:var(--shadow)}
@@ -449,9 +461,11 @@
     .workspace-actions{margin-left:0;justify-content:flex-start}
     .workspace-feature-strip{min-width:0;width:100%;grid-template-columns:1fr}
     .metric-strip,.two-col,.strategy-grid,.stock-hero,.atr-watch-grid{grid-template-columns:1fr}
-    .clean-row{grid-template-columns:1fr;gap:12px}
+    .clean-row,.observe-clean-row{grid-template-columns:1fr;gap:12px}
     .clean-metrics{border-left:0;border-right:0;grid-template-columns:repeat(3,minmax(0,1fr))}
     .atr-form-grid{grid-template-columns:1fr}
+    .pro-decision .decision-body{grid-template-columns:1fr}
+    .pro-decision .decision-metrics{grid-template-columns:repeat(2,minmax(0,1fr))}
     .workspace-title{font-size:23px}
   }
   @media(min-width:981px){.mob-only{display:none!important}}
