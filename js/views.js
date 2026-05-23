@@ -182,15 +182,40 @@ function trendMini(title,o,color){
 function marketSummaryCard(title,o,extra='',chart=null){
   const d=Number(o&&o.d), dp=Number(o&&o.dp), v=Number(o&&o.v);
   const liveKey=title==='台指期'?'txf':(title==='加權指數'?'twse':(title==='櫃買指數'?'tpex':''));
-  return `<div class="pick-card best market-card" ${liveKey?`data-live-card="${liveKey}"`:''}>
-    <div class="pick-top">
+  return `<div class="market-summary-card market-card" ${liveKey?`data-live-card="${liveKey}"`:''}>
+    <div class="market-summary-main">
       <div style="min-width:0;flex:1">
-        <div class="pick-code" ${liveKey?`data-live="${liveKey}-name"`:''}>${esc(title)}</div>
-        <div class="pick-name num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-price"`:''}>${Number.isFinite(v)?fmtPx(v):'—'}</div>
-        <div class="num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''} style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
+        <div class="market-summary-label" ${liveKey?`data-live="${liveKey}-name"`:''}>${esc(title)}</div>
+        <div class="market-summary-value num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-price"`:''}>${Number.isFinite(v)?fmtPx(v):'—'}</div>
+        <div class="market-summary-diff num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''}>${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
       </div>
     </div>
-    ${extra?`<div class="flow-list" style="margin-top:10px">${extra}</div>`:''}
+    ${extra?`<div class="market-summary-meta">${extra}</div>`:''}
+  </div>`;
+}
+function fearSummaryCard(){
+  const m=DATA.market||{};
+  const vix=Number(m.vix&&m.vix.v);
+  const up=Number(m.up)||0, down=Number(m.down)||0;
+  const total=Math.max(1,up+down+(Number(m.flat)||0));
+  const fallback=Math.round((down/total)*100);
+  const fear=Math.max(0,Math.min(100,Math.round(Number.isFinite(vix)?vix:fallback)));
+  const label=fear>=70?'恐慌':fear>=55?'偏恐慌':fear>=40?'中性震盪':'偏樂觀';
+  return `<div class="market-summary-card fear-summary-card">
+    <div class="market-summary-main">
+      <div style="min-width:0;flex:1">
+        <div class="market-summary-label">恐慌指數</div>
+        <div class="market-summary-value">${fear}</div>
+        <div class="market-summary-diff">${label}</div>
+      </div>
+      <div class="fear-mini-meter" aria-label="fear ${fear}">
+        <div class="fear-mini-arc"><div class="fear-mini-needle" style="transform:rotate(${Math.round(-90+fear*1.8)}deg)"></div></div>
+      </div>
+    </div>
+    <div class="market-summary-meta">
+      <div><span>來源</span><b>${Number.isFinite(vix)?'TAIFEX 波動率':'市場漲跌估算'}</b></div>
+      <div><span>數值</span><b>${Number.isFinite(vix)?fmtPx(vix):`${fear}/100`}</b></div>
+    </div>
   </div>`;
 }
 function fearIndexPanel(){
@@ -210,12 +235,26 @@ function fearIndexPanel(){
    </div>`;
 }
 function capitalFlowPanel(){
-  const themes=(DATA.themes||[]).slice(0,8);
+  const flow=(DATA.themes||[]).map(t=>{
+    const raw=String(t.gain||'0').replace('%','').replace('+','').trim();
+    const gain=Number(raw);
+    return {...t,gainVal:Number.isFinite(gain)?gain:0,displayName:typeof themeDisplayName==='function'?themeDisplayName(t.name):t.name};
+  }).filter(t=>t.displayName).sort((a,b)=>a.gainVal-b.gainVal).slice(-10);
+  const max=Math.max(1,...flow.map(t=>Math.abs(t.gainVal)));
   return `<div class="card">
-    <div class="card-h"><h3>資金流向</h3><span class="tag">類股成交金額 · 熱度</span><span class="more" data-go="map">類股地圖 →</span></div>
-    <div class="tbl-wrap"><table><thead><tr><th>類股</th><th class="r">平均漲幅</th><th>熱度</th><th>狀態</th></tr></thead><tbody>
-      ${themes.map(t=>`<tr><td><b class="lnk" data-go="map">${esc(typeof themeDisplayName==='function'?themeDisplayName(t.name):t.name)}</b><div style="font-size:11px;color:var(--ink-3);margin-top:2px">${esc(t.chain||'')}</div></td><td class="r num ${String(t.gain).startsWith('-')?'down':'up'}">${t.gain}</td><td>${scoreCell(t.score)}</td><td>${thBadge(t.status)}</td></tr>`).join('')}
-    </tbody></table></div>
+    <div class="card-h"><h3>資金流向</h3><span class="tag">類股漲跌排行</span><span class="more" data-go="map">類股地圖 →</span></div>
+    <div class="flow-board">
+      ${flow.map(t=>{
+        const positive=t.gainVal>=0;
+        const h=Math.max(14,Math.round(Math.abs(t.gainVal)/max*116));
+        return `<button class="flow-bar ${positive?'pos':'neg'}" data-go="map" title="${esc(t.displayName)} ${t.gain}">
+          <span class="flow-pct">${Number.isFinite(t.gainVal)?`${t.gainVal>0?'+':''}${t.gainVal.toFixed(2)}%`:'—'}</span>
+          <i style="height:${h}px"></i>
+          <b>${esc(String(t.displayName||'').replace(/指數?$/,''))}</b>
+        </button>`;
+      }).join('')}
+    </div>
+    <div class="flow-note">紅色代表資金偏多，綠色代表偏弱；依目前類股平均漲跌排序。</div>
   </div>`;
 }
 function vHome(){
@@ -231,14 +270,14 @@ function vHome(){
      <span class="badge obs">最後更新 ${DATA.meta.updated}</span>
    </div>
 
-   <div class="pick-grid">
+   <div class="market-summary-grid">
      ${marketSummaryCard('台指期',m.txFut,`<div class="flow-row"><span>時段</span><span data-live="txf-session-label">${txfSession(m.txFut)==='night'?'夜盤':'早盤'}</span></div><div class="flow-row"><span>更新</span><span data-live="txf-time">${m.txFut&&m.txFut.quote_time||'—'}</span></div>`,txfActiveChart(m.txFut))}
      ${marketSummaryCard('加權指數',m.twse,`<div class="flow-row"><span>成交金額</span><span>${m.amtTwse||'—'}</span></div>`,m.twseChart)}
      ${marketSummaryCard('櫃買指數',m.tpex,`<div class="flow-row"><span>成交金額</span><span>${m.amtTpex||'—'}</span></div>`,m.tpexChart)}
+     ${fearSummaryCard()}
    </div>
 
-   <div class="grid" style="grid-template-columns:320px 1fr">
-     ${fearIndexPanel()}
+   <div class="grid" style="grid-template-columns:1fr">
      ${capitalFlowPanel()}
    </div>
 

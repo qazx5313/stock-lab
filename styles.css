@@ -107,6 +107,29 @@
   .pick-reason{font-size:12.5px;color:var(--ink-2);line-height:1.55;min-height:40px}
   .pick-tags{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
   .dash-metrics{display:grid;grid-template-columns:1.05fr 1.2fr 1fr .9fr;gap:16px}
+  .market-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+  .market-summary-card{
+    background:linear-gradient(145deg,#FFFFFF,#F8FAFC);
+    border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);
+    padding:16px;min-width:0;display:flex;flex-direction:column;gap:12px;
+  }
+  .market-summary-main{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .market-summary-label{font-size:13px;color:var(--ink-2);font-weight:900;margin-bottom:6px}
+  .market-summary-value{font-family:var(--mono);font-size:27px;font-weight:950;line-height:1.08;letter-spacing:-.4px}
+  .market-summary-diff{font-family:var(--mono);font-size:13px;font-weight:900;margin-top:8px}
+  .market-summary-meta{
+    display:grid;grid-template-columns:1fr;gap:8px;
+    border-top:1px solid var(--border-soft);padding-top:10px;margin-top:auto;
+  }
+  .market-summary-meta .flow-row,
+  .market-summary-meta>div{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12.5px;font-weight:850}
+  .market-summary-meta span{color:var(--ink-2);font-weight:800}
+  .market-summary-meta b{font-weight:950}
+  .fear-summary-card{background:linear-gradient(145deg,#FFFFFF,#FFF7ED)}
+  .fear-mini-meter{width:86px;height:54px;display:flex;align-items:flex-end;justify-content:center;flex-shrink:0}
+  .fear-mini-arc{width:86px;height:45px;border-radius:86px 86px 0 0;background:conic-gradient(from 270deg,#22C55E 0deg,#FACC15 90deg,#EF4444 180deg,#E5E7EB 181deg);position:relative;overflow:hidden}
+  .fear-mini-arc:after{content:"";position:absolute;inset:13px 13px 0;background:#fff;border-radius:80px 80px 0 0}
+  .fear-mini-needle{position:absolute;width:35px;height:4px;background:var(--ink);left:42px;bottom:7px;border-radius:99px;transform-origin:2px center;z-index:2}
   .fear-panel{text-align:center}
   .fear-panel .sec-title{text-align:left}
   .meter{height:106px;display:flex;align-items:flex-end;justify-content:center;padding-bottom:8px}
@@ -123,6 +146,19 @@
   .barline i:nth-child(3){background:#CBD5E1}
   .flow-list{display:flex;flex-direction:column;gap:9px;margin-top:6px}
   .flow-row{display:flex;align-items:center;justify-content:space-between;font-size:13.5px;font-weight:800}
+  .flow-board{
+    min-height:220px;padding:18px 18px 16px;
+    display:grid;grid-template-columns:repeat(10,minmax(64px,1fr));gap:10px;align-items:end;
+    background:#070A0F;border-top:1px solid var(--border-soft);
+    overflow-x:auto;
+  }
+  .flow-bar{height:176px;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;gap:6px;min-width:64px}
+  .flow-bar i{display:block;width:100%;max-width:46px;border-radius:8px 8px 2px 2px;background:var(--up);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12)}
+  .flow-bar.neg i{background:#00C853}
+  .flow-pct{font-family:var(--mono);font-size:13px;font-weight:950;color:#FF4D4D;white-space:nowrap}
+  .flow-bar.neg .flow-pct{color:#30FF6A}
+  .flow-bar b{color:#F8FAFC;font-size:12.5px;font-weight:850;writing-mode:horizontal-tb;white-space:nowrap;max-width:74px;overflow:hidden;text-overflow:ellipsis}
+  .flow-note{font-size:12.5px;color:var(--ink-2);font-weight:700;padding:10px 18px 14px;border-top:1px solid var(--border-soft)}
   .dashboard-table-grid{display:grid;grid-template-columns:1.2fr .8fr;gap:16px}
   .compare-mini td,.compare-mini th{text-align:center}
   .compare-mini td:first-child,.compare-mini th:first-child{text-align:left}
@@ -455,7 +491,7 @@
     }
     .mob-nav a.active{color:var(--primary)}
     .mob-nav svg{width:21px;height:21px}
-    .pick-grid,.dash-metrics,.dashboard-table-grid{grid-template-columns:1fr}
+    .pick-grid,.dash-metrics,.market-summary-grid,.dashboard-table-grid{grid-template-columns:1fr}
     .account-grid,.admin-online-grid{grid-template-columns:1fr}
     .map-controls{grid-template-columns:1fr;align-items:stretch}
     .map-count{justify-content:flex-start;padding-bottom:0}
