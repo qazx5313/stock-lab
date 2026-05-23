@@ -449,24 +449,53 @@ function stockKnownInfo(sym){
   const base=(DATA.stockMap&&DATA.stockMap[c])||{};
   const live=(DATA.realtimeMap&&DATA.realtimeMap[c])||{};
   const daily=(DATA.priceMap&&DATA.priceMap[c])||{};
-  const useLive=live&&Number.isFinite(Number(live.close))&&(isRealtimeQuoteTimeNow() || !daily.date || String(live.date||'').slice(0,10)>=String(daily.date||'').slice(0,10));
-  const price=useLive?{...daily,...live}:daily;
+  const liveDate=String(live.date||live.quote_date||'').slice(0,10);
+  const dailyDate=String(daily.date||daily.quote_date||'').slice(0,10);
+  const liveFresh=!!(live&&Number.isFinite(Number(live.close))) && (
+    (typeof isRealtimeQuoteTimeNow==='function' && isRealtimeQuoteTimeNow()) ||
+    !dailyDate ||
+    (liveDate && liveDate>=dailyDate)
+  );
+  const pickNum=(key,...fallbacks)=>{
+    const lv=Number(live&&live[key]);
+    const dv=Number(daily&&daily[key]);
+    if(Number.isFinite(lv) && (liveFresh || !Number.isFinite(dv))) return lv;
+    if(Number.isFinite(dv)) return dv;
+    if(Number.isFinite(lv)) return lv;
+    for(const v of fallbacks){
+      const n=Number(v);
+      if(Number.isFinite(n)) return n;
+    }
+    return NaN;
+  };
+  const pickStr=key=>{
+    if(liveFresh && live&&live[key]) return live[key];
+    return (daily&&daily[key]) || (live&&live[key]) || '';
+  };
   const pools=[DATA.stock, ...(DATA.screen||[]), ...(DATA.picks||[])];
   (DATA.themes||[]).forEach(t=>Array.isArray(t.stocks)&&pools.push(...t.stocks));
   const hit=pools.find(s=>String(s&&s.c)===c && s.n && s.n!==c && s.n!=='尚無名稱') ||
             pools.find(s=>String(s&&s.c)===c);
+  const tags=Array.isArray(base.theme_tags)?base.theme_tags.filter(Boolean):[];
+  const primaryTheme=tags[0] || base.industry || (hit&&hit.t) || (hit&&hit.theme) || (hit&&hit.level) || (hit&&hit.industry) || '—';
+  const role=tags.length?tags.join(' / '):((hit&&hit.role) || primaryTheme);
   return {
     ...(hit||{}),
     c,
     n:(hit&&hit.n&&hit.n!==c&&hit.n!=='尚無名稱')?hit.n:(base.name||c),
-    t:(hit&&hit.t)||(hit&&hit.level)||base.industry||'—',
-    industry:base.industry||hit&&hit.industry,
-    market:normMarket(price.market||base.market||hit&&hit.market),
-    px:isFinite(Number(price.close))?Number(price.close):((hit&&isFinite(Number(hit.px)))?Number(hit.px):NaN),
-    chg:isFinite(Number(price.change))?Number(price.change):((hit&&isFinite(Number(hit.chg)))?Number(hit.chg):NaN),
-    dp:isFinite(Number(price.change_percent))?Number(price.change_percent):((hit&&isFinite(Number(hit.dp)))?Number(hit.dp):NaN),
-    vol:isFinite(Number(price.volume))?Number(price.volume):(hit&&hit.vol),
-    amount:isFinite(Number(price.amount))?Number(price.amount):(hit&&hit.amount)
+    t:primaryTheme,
+    theme:primaryTheme,
+    role,
+    industry:base.industry || (hit&&hit.industry) || primaryTheme,
+    market:normMarket(pickStr('market')||base.market||(hit&&hit.market)),
+    px:pickNum('close',hit&&hit.px),
+    chg:pickNum('change',hit&&hit.chg,hit&&hit.change),
+    dp:pickNum('change_percent',hit&&hit.dp),
+    vol:pickNum('volume',hit&&hit.vol),
+    amount:pickNum('amount',hit&&hit.amount),
+    date:pickStr('date') || (hit&&hit.date) || '',
+    quote_time:pickStr('quote_time') || '',
+    updated_at:pickStr('updated_at') || ''
   };
 }
 function addWatchStock(stock){
@@ -824,12 +853,13 @@ function stockDecisionPanel(s){
 }
 function vStock(){
   const known=stockKnownInfo(DATA.stock&&DATA.stock.c);
+  const cleanTheme=v=>v&&v!=='—'&&v!=='尚無分類'?v:'';
   const s={...DATA.stock,...known,
     n:(known.n&&known.n!==known.c)?known.n:DATA.stock.n,
     series:DATA.stock.series,
     inst:DATA.stock.inst, margin:DATA.stock.margin, foreignCost:DATA.stock.foreignCost,
-    revenue:DATA.stock.revenue, ann:DATA.stock.ann, role:DATA.stock.role||known.t||known.industry,
-    theme:DATA.stock.theme||known.t, industry:DATA.stock.industry||known.industry,
+    revenue:DATA.stock.revenue, ann:DATA.stock.ann, role:cleanTheme(DATA.stock.role)||known.role||known.t||known.industry,
+    theme:cleanTheme(DATA.stock.theme)||known.t, industry:cleanTheme(DATA.stock.industry)||known.industry,
     market:DATA.stock.market||known.market
   };
   const fc=s.foreignCost||{};
@@ -864,7 +894,7 @@ function vStock(){
        <div class="num ${headCls}" data-stock-live="chg" style="font-size:15px;font-weight:900;margin-top:6px">
          ${headArrow} ${Number.isFinite(chg)?sgn(chg.toFixed(2)):''}${Number.isFinite(dp)?`（${sgn(dp.toFixed(2))}%）`:''}
        </div>
-       <div style="font-size:12.5px;color:var(--ink-2);font-weight:800;margin-top:8px">成交量　<span data-stock-live="vol">${Number.isFinite(vol)?fmtLots(vol)+' 張':'—'}</span></div>
+       <div style="font-size:12.5px;color:var(--ink-2);font-weight:800;margin-top:8px">成交值　<span data-stock-live="amount">${fmtAmountValue(liveAmount)}</span></div>
        <div style="font-size:12px;color:var(--ink-3);font-weight:800;margin-top:4px">更新時間　${esc(DATA.meta.realtimeUpdated||DATA.meta.updated||'—')}</div>
      </div>
      <div class="stock-search">
@@ -874,7 +904,7 @@ function vStock(){
          <button class="btn line sm" id="watchToggleBtn" data-watch-symbol="${s.c}">${isWatched(s.c)?'移出自選':'加入自選'}</button>
        </div>
        <div class="quote-mini-grid">
-         ${[['開盤',latestBar.o,'px'],['最高',latestBar.h,'px'],['最低',latestBar.l,'px'],['成交值',liveAmount,'amount']].map(r=>`<div><span>${r[0]}</span><b class="num" ${r[2]==='amount'?'data-stock-live="amount"':''}>${r[2]==='amount'?fmtAmountValue(r[1]):(Number.isFinite(Number(r[1]))?fmtPx(r[1]):'—')}</b></div>`).join('')}
+         ${[['開盤',latestBar.o,'px'],['最高',latestBar.h,'px'],['最低',latestBar.l,'px'],['成交量',vol,'vol']].map(r=>`<div><span>${r[0]}</span><b class="num" ${r[2]==='vol'?'data-stock-live="vol"':''}>${r[2]==='vol'?(Number.isFinite(Number(r[1]))?fmtLots(r[1])+' 張':'—'):(Number.isFinite(Number(r[1]))?fmtPx(r[1]):'—')}</b></div>`).join('')}
        </div>
      </div>
    </div>
@@ -960,6 +990,56 @@ function vStock(){
 
 /* 手繪 canvas 圖表（無外部依賴，GitHub Pages 直接可用） */
 /* 抓該股真實歷史，轉成 K 線格式存 DATA.stock.series */
+function refreshStockSeriesWithLiveQuote(sym,live){
+  const series=Array.isArray(DATA.stock&&DATA.stock.series)?DATA.stock.series:null;
+  const px=Number(live&&live.px);
+  if(!series || !series.length || !Number.isFinite(px)) return;
+  const date=String((live&&live.date)||(DATA.meta&&DATA.meta.date)||'').replaceAll('/','-').slice(0,10);
+  const last=series[series.length-1];
+  const prev=series[series.length-2];
+  if(date && last && String(last.d||'').slice(0,10)===date){
+    last.c=px;
+    last.h=Math.max(Number(last.h)||px,px);
+    last.l=Math.min(Number(last.l)||px,px);
+    if(Number.isFinite(Number(live.vol))) last.v=Number(live.vol);
+    if(Number.isFinite(Number(live.amount))) last.a=Number(live.amount);
+  }else if(date && (!last || date>String(last.d||'').slice(0,10))){
+    const open=Number(last&&last.c)||px;
+    series.push({
+      o:open,h:Math.max(open,px),l:Math.min(open,px),c:px,
+      v:Number.isFinite(Number(live.vol))?Number(live.vol):0,
+      a:Number.isFinite(Number(live.amount))?Number(live.amount):0,
+      d:date
+    });
+  }
+  const tail=series[series.length-1];
+  const before=series[series.length-2]||prev;
+  if(tail){
+    DATA.stock.px=tail.c;
+    DATA.stock.vol=Number(tail.v)||DATA.stock.vol||0;
+    DATA.stock.amount=Number(tail.a)||DATA.stock.amount||0;
+    if(before&&before.c){
+      DATA.stock.chg=+(tail.c-before.c).toFixed(2);
+      DATA.stock.dp=+(((tail.c-before.c)/before.c)*100).toFixed(2);
+    }
+  }
+  const closes=series.map(x=>x.c);
+  const highs=series.map(x=>x.h);
+  const lows=series.map(x=>x.l);
+  const kd=calcKDSeries(highs,lows,closes);
+  const rsi=calcRSISeries(closes);
+  const md=calcMACDSeries(closes);
+  const lk=lastNum(kd.k), ld=lastNum(kd.d), lr=lastNum(rsi), lh=lastNum(md.hist);
+  DATA.stock.tech={
+    kd, rsi, macd:md,
+    kdText:lk==null||ld==null?'尚無足夠歷史資料':`K ${lk.toFixed(1)} · D ${ld.toFixed(1)} ${lk>=ld?'偏多':'偏弱'}`,
+    kdClass:lk!=null&&ld!=null?(lk>=ld?'up':'down'):'',
+    macdText:lh==null?'尚無足夠歷史資料':`${lh>=0?'柱狀為正':'柱狀為負'} ${lh.toFixed(3)}`,
+    macdClass:lh!=null?(lh>=0?'up':'down'):'',
+    rsiText:lr==null?'尚無足夠歷史資料':`${lr.toFixed(1)} ${lr>=70?'過熱':lr>=50?'偏強':lr<=30?'偏弱':'中性'}`,
+    rsiClass:lr!=null?(lr>=50?'up':'down'):''
+  };
+}
 async function loadStockSeries(sym){
   try{
     DATA.stock.c=sym;
@@ -1040,6 +1120,7 @@ async function loadStockSeries(sym){
         const rq=await sbGet(`realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&symbol=eq.${sym}&order=updated_at.desc&limit=1`,1);
         if(Array.isArray(rq)&&rq.length&&typeof applyRealtimeQuotes==='function') applyRealtimeQuotes(rq,{merge:true});
         const live=stockKnownInfo(sym);
+        refreshStockSeriesWithLiveQuote(sym,live);
         if(Number.isFinite(Number(live.px))) DATA.stock.px=Number(live.px);
         if(Number.isFinite(Number(live.chg))) DATA.stock.chg=Number(live.chg);
         if(Number.isFinite(Number(live.dp))) DATA.stock.dp=Number(live.dp);

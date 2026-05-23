@@ -389,6 +389,7 @@ function applyRealtimeQuotes(rows, options={}){
         DATA.realtimeMap.TAIWANVIX=q;
       }else{
         DATA.market.txFut={name:r.name||'台指期',v:price,d:q.change,dp:q.change_percent,source:r.source||'TAIFEX_MIS_RT',quote_time:r.quote_time,updated_at:r.updated_at};
+        DATA.realtimeMap[sym]=q;
         appendTxfChartPoints(DATA.market.txFut, r);
       }
       return;
@@ -853,7 +854,7 @@ async function refreshRealtimeOnly(){
       return false;
     }
     const rq=await sbGet('realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&order=updated_at.desc',20000);
-    applyRealtimeQuotes(rq);
+    applyRealtimeQuotes(rq,{merge:true});
     saveRealCache();
     if(typeof renderTxFuture==='function') renderTxFuture();
     if(typeof updateLiveDom==='function') updateLiveDom();
@@ -975,11 +976,13 @@ function updateLiveDom(){
       const row=document.querySelector(`[data-live-row="${s.c}"]`);
       if(!row) return;
       const px=row.querySelector('[data-live-cell="px"]');
+      const chg=row.querySelector('[data-live-cell="chg"]');
       const dp=row.querySelector('[data-live-cell="dp"]');
       const vol=row.querySelector('[data-live-cell="vol"]');
       if(px) px.textContent=fmtPx(s.px);
+      if(chg){chg.textContent=Number.isFinite(Number(s.chg))?sgn(Number(s.chg).toFixed(2)):'—';chg.className=`num ${dcls(Number(s.dp))}`;}
       if(dp){dp.textContent=isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—';dp.className=`r num ${dcls(Number(s.dp))}`;}
-      if(vol) vol.textContent=`${fmtLots(s.vol)} 張`;
+      if(vol) vol.textContent=Number.isFinite(Number(s.vol))?`${fmtLots(s.vol)} 張`:'—';
     });
   }
   if(CUR==='observe' && typeof stockKnownInfo==='function'){
@@ -992,14 +995,15 @@ function updateLiveDom(){
       const vol=row.querySelector('[data-live-cell="vol"]');
       if(px){px.textContent=fmtPx(s.px);px.className=`num ${dcls(Number(s.dp))}`;}
       if(dp){dp.textContent=Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—';dp.className=`num ${dcls(Number(s.dp))}`;}
-      if(vol) vol.textContent=`${fmtLots(s.vol)} 張`;
+      if(vol) vol.textContent=Number.isFinite(Number(s.vol))?`${fmtLots(s.vol)} 張`:'—';
     });
   }
   if(CUR==='stock' && DATA.stock&&DATA.stock.c&&typeof stockKnownInfo==='function'){
     const s=stockKnownInfo(DATA.stock.c);
-    if(Number.isFinite(Number(s.px))){
-      DATA.stock.px=s.px; DATA.stock.chg=s.chg; DATA.stock.dp=s.dp; DATA.stock.vol=s.vol; DATA.stock.amount=s.amount;
-      const px=document.querySelector('[data-stock-live="px"]');
+      if(Number.isFinite(Number(s.px))){
+        DATA.stock.px=s.px; DATA.stock.chg=s.chg; DATA.stock.dp=s.dp; DATA.stock.vol=s.vol; DATA.stock.amount=s.amount;
+        if(typeof refreshStockSeriesWithLiveQuote==='function') refreshStockSeriesWithLiveQuote(DATA.stock.c,s);
+        const px=document.querySelector('[data-stock-live="px"]');
       const chg=document.querySelector('[data-stock-live="chg"]');
       const vol=document.querySelector('[data-stock-live="vol"]');
       const amount=document.querySelector('[data-stock-live="amount"]');
@@ -1181,7 +1185,7 @@ function updateTxFutureDom(){
   if(day) day.className=`session-tag ${sess==='day'?'on':''}`;
   if(night) night.className=`session-tag ${sess==='night'?'on':''}`;
   liveText('[data-live="txf-time"]',f.quote_time||'—','muted code');
-  liveText('[data-live="txf-name"]',f.name||'台指期','k');
+  liveText('[data-live="txf-name"]',f.name||'台指期','market-summary-label');
   const price=card.querySelector('[data-live="txf-price"]');
   if(price){
     price.textContent=Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—';

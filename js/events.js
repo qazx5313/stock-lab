@@ -461,7 +461,12 @@ if(authUser()){
   });
 }
 /* 背景嘗試載入真實資料，成功後重繪當前頁；失敗時顯示錯誤，不顯示 MOCK 股票資料 */
-loadReal().then(()=>{ go(CUR||'home'); });
+loadReal().then(()=>{
+  go(CUR||'home');
+  if(typeof refreshLiveEdge==='function' && DATA_REAL_READY && !document.hidden){
+    refreshLiveEdge();
+  }
+});
 
 setInterval(()=>{
   if(typeof refreshRealtimeOnly==='function' && DATA_REAL_READY && !document.hidden){
