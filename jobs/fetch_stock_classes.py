@@ -290,45 +290,89 @@ def clean_industry(name):
     return s.replace("業業", "業")
 
 
-def build_moneydj_class_rows(classes, stocks, prices):
+def tag_list(v):
+    if isinstance(v, list):
+        return [str(x).strip() for x in v if str(x).strip()]
+    if isinstance(v, str):
+        return [x.strip() for x in re.split(r"[、,，\s]+", v) if x.strip()]
+    return []
+
+
+def build_official_groups(stocks, prices):
     groups = defaultdict(dict)
-    stock_updates = {}
+    for sym, stock in stocks.items():
+        if not is_symbol(sym):
+            continue
+        market = norm_market(stock.get("market"))
+        industry = industry_name(stock.get("industry"))
+        if not market or not industry:
+            continue
+        key = (market_label(market), industry)
+        groups[key][sym] = {
+            "symbol": sym,
+            "name": stock.get("name") or sym,
+            "market": market,
+            "industry": industry,
+            "fine_tag": "",
+            "price": prices.get(sym) or {},
+        }
+    return groups
+
+
+def apply_moneydj_fine_tags(classes, stocks, prices, groups):
+    stock_updates = {
+        sym: {
+            "symbol": sym,
+            "name": stock.get("name") or sym,
+            "market": norm_market(stock.get("market")),
+            "industry": industry_name(stock.get("industry")),
+            "theme_tags": sorted(set(tag_list(stock.get("theme_tags")) + ([industry_name(stock.get("industry"))] if industry_name(stock.get("industry")) else []))),
+        }
+        for sym, stock in stocks.items()
+        if is_symbol(sym) and norm_market(stock.get("market"))
+    }
     for cls in classes:
-        industry = industry_name(cls.get("name"))
-        if not industry:
+        fine_tag = industry_name(cls.get("name"))
+        if not fine_tag:
             continue
         for member in cls.get("members") or []:
             sym = str(member.get("symbol") or "").strip()
             if not is_symbol(sym):
                 continue
             stock = stocks.get(sym) or {}
-            price = prices.get(sym) or {}
-            market = norm_market(stock.get("market") or price.get("market"))
+            market = norm_market(stock.get("market"))
             if not market:
                 continue
+            official_industry = industry_name(stock.get("industry"))
             label = market_label(market)
-            key = (label, industry)
+            key = (label, fine_tag)
             groups[key][sym] = {
                 "symbol": sym,
-                "name": member.get("name") or stock.get("name"),
+                "name": stock.get("name") or member.get("name") or sym,
                 "market": market,
-                "industry": industry,
-                "price": price,
+                "industry": official_industry or fine_tag,
+                "fine_tag": fine_tag,
+                "price": prices.get(sym) or {},
             }
-            tags = set(stock.get("theme_tags") or [])
-            tags.add(industry)
-            current = stock_updates.get(sym, {})
-            merged_tags = set(current.get("theme_tags") or [])
-            merged_tags.update(tags)
+            current = stock_updates.get(sym) or {
+                "symbol": sym,
+                "name": stock.get("name") or member.get("name") or sym,
+                "market": market,
+                "industry": official_industry or fine_tag,
+                "theme_tags": [],
+            }
+            merged_tags = set(tag_list(current.get("theme_tags")))
+            if official_industry:
+                merged_tags.add(official_industry)
+            merged_tags.add(fine_tag)
             stock_updates[sym] = {
                 "symbol": sym,
-                "name": member.get("name") or stock.get("name") or sym,
+                "name": stock.get("name") or member.get("name") or sym,
                 "market": market,
-                "industry": stock.get("industry") or industry,
+                "industry": official_industry or fine_tag,
                 "theme_tags": sorted(x for x in merged_tags if x),
             }
-    theme_rows, link_rows = build_group_rows(groups)
-    return theme_rows, link_rows, list(stock_updates.values())
+    return groups, list(stock_updates.values())
 
 
 def build_group_rows(groups):
@@ -379,7 +423,7 @@ def build_group_rows(groups):
                 "theme_id": tid,
                 "symbol": sym,
                 "role": "成分",
-                "supply_chain_level": industry,
+                "supply_chain_level": member.get("fine_tag") or industry,
                 "relevance_score": score,
                 "note": "",
             })
@@ -388,21 +432,6 @@ def build_group_rows(groups):
 
 def themeDisplay(name):
     return re.sub(r"^(上市|上櫃)\s*[·・]\s*", "", str(name or "")).strip()
-
-
-def build_class_rows(stocks, prices, latest):
-    groups = defaultdict(list)
-    for sym, stock in stocks.items():
-        price = prices.get(sym) or {}
-        industry = industry_name(stock.get("industry"))
-        if not industry:
-            continue
-        market = norm_market(price.get("market") or stock.get("market"))
-        if not market:
-            continue
-        key = (market_label(market), industry)
-        groups[key].append({"symbol": sym, "name": stock.get("name"), "market": stock.get("market"), "industry": industry, "price": price})
-    return build_group_rows(groups)
 
 
 def main():
@@ -414,6 +443,18 @@ def main():
     latest = latest_date()
     prices = latest_prices(latest)
     stocks = stock_rows()
+    official = {str(r.get("symbol") or "").strip(): r for r in profile_rows if is_symbol(r.get("symbol"))}
+    for sym, row in official.items():
+        prev = stocks.get(sym) or {}
+        tags = set(tag_list(prev.get("theme_tags")))
+        tags.update(row.get("theme_tags") or [])
+        stocks[sym] = {
+            **prev,
+            **row,
+            "market": norm_market(row.get("market")),
+            "industry": industry_name(row.get("industry")),
+            "theme_tags": sorted(x for x in tags if x),
+        }
 
     moneydj_classes, moneydj_failed, moneydj_total = [], 0, 0
     try:
@@ -421,12 +462,25 @@ def main():
     except Exception as e:  # noqa
         log(f"  MoneyDJ classes skipped: {e}")
 
+    groups = build_official_groups(stocks, prices)
+    stock_updates = []
     if moneydj_classes:
-        theme_rows, link_rows, stock_updates = build_moneydj_class_rows(moneydj_classes, stocks, prices)
-        if stock_updates:
-            sb_upsert("stocks", stock_updates, on_conflict="symbol")
+        groups, stock_updates = apply_moneydj_fine_tags(moneydj_classes, stocks, prices, groups)
     else:
-        theme_rows, link_rows = build_class_rows(stocks, prices, latest)
+        stock_updates = [
+            {
+                "symbol": sym,
+                "name": row.get("name") or sym,
+                "market": norm_market(row.get("market")),
+                "industry": industry_name(row.get("industry")),
+                "theme_tags": sorted(set(tag_list(row.get("theme_tags")) + ([industry_name(row.get("industry"))] if industry_name(row.get("industry")) else []))),
+            }
+            for sym, row in stocks.items()
+            if is_symbol(sym) and norm_market(row.get("market"))
+        ]
+    if stock_updates:
+        sb_upsert("stocks", stock_updates, on_conflict="symbol")
+    theme_rows, link_rows = build_group_rows(groups)
     if not theme_rows or not link_rows:
         msg = (
             f"no class rows built; twse_profiles={len(twse_rows)}; "

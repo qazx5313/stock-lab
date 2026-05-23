@@ -7,10 +7,28 @@ function bindPage(id){
   document.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{
     const list=typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]);
     const t=list.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;go('map');}});
+  const mapThemeSelect=document.getElementById('mapThemeSelect');
+  if(mapThemeSelect) mapThemeSelect.onchange=()=>{
+    MAP_SEL=mapThemeSelect.value||'';
+    MAP_QUERY='';
+    go('map');
+  };
+  const mapStockSearch=document.getElementById('mapStockSearch');
+  if(mapStockSearch) mapStockSearch.onchange=()=>{
+    MAP_QUERY=mapStockSearch.value||'';
+    go('map');
+  };
+  if(mapStockSearch) mapStockSearch.onkeydown=e=>{
+    if(e.key==='Enter'){
+      MAP_QUERY=mapStockSearch.value||'';
+      go('map');
+    }
+  };
   document.querySelectorAll('[data-map-market]').forEach(el=>el.onclick=()=>{
     MAP_MARKET=el.dataset.mapMarket==='TPEX'?'TPEX':'TWSE';
     const first=(typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]))[0];
     MAP_SEL=first?first.id:'';
+    MAP_QUERY='';
     go('map');
   });
   const loginBtn=document.getElementById('loginBtn');

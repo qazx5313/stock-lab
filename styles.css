@@ -398,6 +398,17 @@
   .seg{display:inline-flex;background:var(--border-soft);border-radius:var(--r-sm);padding:3px}
   .seg button{padding:7px 14px;border-radius:7px;font-size:12.5px;font-weight:700;color:var(--ink-2)}
   .seg button.on{background:#fff;color:var(--primary);box-shadow:var(--shadow)}
+  .map-controls{
+    display:grid;grid-template-columns:auto minmax(280px,420px) minmax(220px,1fr) auto;
+    align-items:end;gap:14px;
+  }
+  .map-select-field label,.map-search-field label{margin-bottom:5px}
+  .map-count{
+    display:flex;align-items:baseline;gap:6px;justify-content:flex-end;
+    min-width:92px;padding-bottom:7px;color:var(--ink-2);font-size:12px;font-weight:800;
+  }
+  .map-count b{font-size:22px;color:var(--primary);line-height:1}
+  .map-count span{white-space:nowrap}
 
   .ph{
     display:flex;align-items:center;justify-content:center;gap:8px;
@@ -446,6 +457,8 @@
     .mob-nav svg{width:21px;height:21px}
     .pick-grid,.dash-metrics,.dashboard-table-grid{grid-template-columns:1fr}
     .account-grid,.admin-online-grid{grid-template-columns:1fr}
+    .map-controls{grid-template-columns:1fr;align-items:stretch}
+    .map-count{justify-content:flex-start;padding-bottom:0}
     .decision-head{flex-direction:column}
     .decision-body{grid-template-columns:1fr}
     .decision-notes{border-right:0;border-bottom:1px solid var(--border-soft)}
