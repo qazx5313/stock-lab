@@ -5,6 +5,7 @@ const DATA = {
   realtimeMap:{},
   maintenance:{},
   observations:[],
+  marketCalendar:[],
   atrWatch:[],
   onlineCount:0,
   onlineStats:{members:0,guests:0,total:0},

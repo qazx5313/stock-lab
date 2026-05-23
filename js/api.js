@@ -6,6 +6,7 @@ const STATUS_LABELS={
   tpex_inst:'TPEX 法人買賣超',
   fetch_twse_margin:'TWSE 融資融券',
   fetch_mops_announcements:'MOPS 重大訊息',
+  fetch_spf_calendar:'永豐財經行事曆',
   fetch_monthly_revenue:'MOPS 月營收',
   fetch_mis_daily_prices:'MIS 即時盤後報價',
   fetch_realtime_quotes:'MIS 即時盤中報價',
@@ -413,7 +414,7 @@ const REAL_CACHE_TTL=1000*60*60*72;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
   'agents','aiCand','aiBack','aiDeep','aiTrades','aiReviews','aiVersions',
-  'dataStatus','appSettings','realNewsLoaded','stockMap','priceMap','realtimeMap','maintenance'
+  'dataStatus','appSettings','realNewsLoaded','marketCalendar','stockMap','priceMap','realtimeMap','maintenance'
 ];
 function saveRealCache(){
   try{
@@ -692,6 +693,31 @@ async function loadReal(){
         DATA.realNewsLoaded = false;
       }
     }catch(e){ DATA.realNewsLoaded = false; console.warn('公告載入略過:',e); }
+
+    // ---- 市場行事曆：讀永豐期貨一週財經行事曆 ----
+    try{
+      const select='event_date,event_time,country,title,category,importance,source_url,report_title,published_at';
+      let rows = await sbGet(
+        `market_calendar_events?select=${select}&event_date=gte.${d}&order=event_date.asc,event_time.asc&limit=80`, 80);
+      if(!Array.isArray(rows) || !rows.length){
+        rows = await sbGet(
+          `market_calendar_events?select=${select}&order=event_date.desc,event_time.asc&limit=80`, 80);
+      }
+      DATA.marketCalendar = (Array.isArray(rows)?rows:[]).map(r=>({
+        date:String(r.event_date||'').slice(0,10),
+        time:r.event_time||'全天',
+        country:r.country||'全球',
+        title:r.title||'財經事件',
+        category:r.category||'財經',
+        importance:Number(r.importance)||1,
+        url:r.source_url||'',
+        reportTitle:r.report_title||'',
+        publishedAt:r.published_at||''
+      })).sort((a,b)=>String(a.date).localeCompare(String(b.date)) || String(a.time).localeCompare(String(b.time)));
+    }catch(e){
+      DATA.marketCalendar = [];
+      console.warn('市場行事曆載入略過:',e);
+    }
 
     // ---- 每日篩選：讀 candidate_pool（均線 + 量能條件）----
     try{

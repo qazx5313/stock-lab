@@ -49,7 +49,15 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python fetch_index.py
 
-      - name: 4) Repair missing recent K bars
+      - name: 4) Fetch SPF market calendar
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python fetch_spf_calendar.py
+
+      - name: 5) Repair missing recent K bars
         if: always()
         working-directory: jobs
         env:
@@ -58,7 +66,7 @@ jobs:
           REPAIR_LOOKBACK_DAYS: "3"
         run: python repair_missing_prices.py
 
-      - name: 5) Build stock industry classes
+      - name: 6) Build stock industry classes
         if: always()
         working-directory: jobs
         env:
@@ -66,7 +74,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python fetch_stock_classes.py
 
-      - name: 6) Validate close prices with TWSE MIS
+      - name: 7) Validate close prices with TWSE MIS
         if: always()
         working-directory: jobs
         env:
@@ -75,7 +83,7 @@ jobs:
           MIS_VALIDATE_MAX_SYMBOLS: "220"
         run: python validate_mis_quotes.py
 
-      - name: 7) Compute daily signals
+      - name: 8) Compute daily signals
         if: always()
         working-directory: jobs
         env:
@@ -83,7 +91,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_signals.py
 
-      - name: 8) Run AI lab
+      - name: 9) Run AI lab
         if: always()
         working-directory: jobs
         env:
@@ -95,7 +103,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_ai_lab.py
 
-      - name: 9) Data quality cleanup
+      - name: 10) Data quality cleanup
         if: always()
         working-directory: jobs
         env:

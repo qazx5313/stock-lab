@@ -98,6 +98,23 @@ create table if not exists mops_announcements(
 create index if not exists idx_mops_date on mops_announcements(date);
 create index if not exists idx_mops_symbol on mops_announcements(symbol);
 
+create table if not exists market_calendar_events(
+  event_date date,
+  event_time text,
+  country text,
+  title text,
+  category text,
+  importance int default 1,
+  source text default 'SPF',
+  source_url text,
+  report_title text,
+  published_at date,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now(),
+  primary key(event_date,event_time,country,title,source)
+);
+create index if not exists idx_market_calendar_date on market_calendar_events(event_date);
+
 create table if not exists monthly_revenue(
   year_month text,             -- 例 2026-04
   symbol text,
@@ -370,6 +387,7 @@ begin
   foreach t in array array[
     'stocks','daily_prices','institutional_trades','margin_trades',
     'mops_announcements','monthly_revenue','themes','theme_stocks',
+    'market_calendar_events',
     'daily_signals','candidate_pool','ai_agents','ai_candidates',
     'ai_backtests','ai_deep_analysis','ai_positions','ai_trades',
     'ai_reviews','ai_strategy_versions','data_status',

@@ -27,7 +27,7 @@ function vHome(){
    <div class="grid" style="grid-template-columns:1fr 1fr">
      <div class="card">
        <div class="card-h"><h3>市場行事曆</h3><span class="tag">Macro / Earnings</span></div>
-       <div class="card-pad muted" style="font-size:13.5px;line-height:1.7">待 GitHub Actions 連接 MacroMicro 行事曆後顯示每日總經公布與美股財報時程。</div>
+       ${marketCalendarPanel()}
      </div>
      <div class="card">
        <div class="card-h"><h3>重大公告 / 風險提醒</h3><span class="tag">News & Risk</span></div>
@@ -36,4 +36,3 @@ function vHome(){
    </div>
   </div>`;
 }
-

@@ -131,6 +131,36 @@ function mopsNewsPanel(){
     </div>
   </div>`;
 }
+function marketCalendarPanel(){
+  const rows=(DATA.marketCalendar||[]).slice(0,8);
+  if(!rows.length) return `<div class="card-pad muted" style="font-size:13.5px">尚無市場行事曆資料。請先執行 GitHub Actions 的永豐財經行事曆抓取任務。</div>`;
+  const cats=['全部',...new Set(rows.map(r=>r.category||'財經').filter(Boolean))].slice(0,5);
+  const counts=Object.fromEntries(cats.map(c=>[c,c==='全部'?rows.length:rows.filter(r=>r.category===c).length]));
+  const dates=[...new Set(rows.map(r=>r.date).filter(Boolean))].slice(0,7);
+  const labelClass=(cat,imp)=>{
+    if(Number(imp)>=3) return 'bad';
+    if(cat==='休市') return 'gov';
+    if(cat==='財經' || cat==='經濟數據') return 'info';
+    return 'good';
+  };
+  return `<div class="mops-panel">
+    <div class="mops-chips">
+      ${cats.filter(c=>counts[c]).map((c,i)=>`<span class="mops-chip ${i===0?'on':''}">${esc(c)} ${counts[c]}</span>`).join('')}
+    </div>
+    <div class="mops-dates">
+      ${dates.map((d,i)=>`<span class="mops-date ${i===0?'on':''}">${i===0?'最新':d.slice(5).replace('-','/')}</span>`).join('')}
+    </div>
+    <div class="mops-list">
+      ${rows.map(r=>`<div class="mops-item">
+        <span class="mops-label ${labelClass(r.category,r.importance)}">${esc(r.category||'財經')}</span>
+        <div>
+          <b>${esc(r.title)}</b>
+          <div class="muted code">${esc(r.country||'全球')}　${esc(String(r.date||'').replaceAll('-','/'))} ${esc(r.time||'')}</div>
+        </div>
+      </div>`).join('')}
+    </div>
+  </div>`;
+}
 function txfSession(f){
   if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.futuresSession){
     return DATA_CENTER.session.futuresSession(f);
