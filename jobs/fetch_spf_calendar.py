@@ -10,11 +10,11 @@ import datetime as dt
 import re
 from html.parser import HTMLParser
 from io import BytesIO
-from urllib.parse import urljoin
+from urllib.parse import quote, urljoin
 
 import requests
 
-from sb_common import log, mark_status, sb_upsert
+from sb_common import log, mark_status, sb_delete, sb_upsert
 
 
 LIST_URL = "https://www.spf.com.tw/sinopacSPF/research/list.do?id=180fdcacb04000005fa4adef23dd5137"
@@ -91,14 +91,15 @@ def download_pdf(url):
     return r.content
 
 
-def extract_pdf_text(pdf_bytes):
+def extract_pdf_text(pdf_bytes, first_page_only=True):
     try:
         from pypdf import PdfReader
     except ImportError as exc:
         raise RuntimeError("缺少 pypdf，請先 pip install -r requirements.txt") from exc
     reader = PdfReader(BytesIO(pdf_bytes))
     pages = []
-    for page in reader.pages:
+    page_iter = reader.pages[:1] if first_page_only else reader.pages
+    for page in page_iter:
         pages.append(page.extract_text() or "")
     return "\n".join(pages)
 
@@ -130,6 +131,9 @@ COUNTRIES = [
 
 def split_region_title(text):
     s = re.sub(r"\s+", " ", text).strip(" -　")
+    m = re.match(r"^[【\[](?P<country>[^】\]]+)[】\]]\s*(?P<title>.+)$", s)
+    if m:
+        return m.group("country").strip(), m.group("title").strip()
     for c in COUNTRIES:
         if s.startswith(c):
             return c, s[len(c):].strip(" -　")
@@ -169,30 +173,56 @@ def normalize_lines(text):
     return lines
 
 
+def parse_table_text(text):
+    """永豐第一頁是「日期 / 時間 / 事件」表格，用表格模式解析，避免第二頁雜表或表頭碎片混入。"""
+    flat = re.sub(r"\s+", " ", text.replace("～", "~")).strip()
+    flat = re.sub(r"本週大財經\s*(?:\(?\d{4}/\d{1,2}/\d{1,2}\s*~\s*\d{1,2}/\d{1,2}\)?)?", " ", flat)
+    row_re = re.compile(
+        r"(?:(?P<date>\d{1,2}/\d{1,2})\s*(?:\([^)]*\))?\s*)?"
+        r"(?P<time>全天|\d{1,2}:\d{2})\s*"
+        r"(?P<body>[【\[][^】\]]+[】\]].*?)"
+        r"(?=(?:\d{1,2}/\d{1,2}\s*(?:\([^)]*\))?\s*)?(?:全天|\d{1,2}:\d{2})\s*[【\[]|$)"
+    )
+    out = []
+    current_md = None
+    for m in row_re.finditer(flat):
+        if m.group("date"):
+            current_md = m.group("date")
+        if not current_md:
+            continue
+        body = re.sub(r"\s+", " ", m.group("body")).strip()
+        if not re.match(r"^[【\[][^】\]]+[】\]]", body):
+            continue
+        out.append((current_md, m.group("time"), body))
+    return out
+
+
 def parse_events(text, report_title, pdf_url):
     year, start, _end, week_label = parse_week(report_title, text)
     rows = []
-    current_date = None
-    date_re = re.compile(r"^(?P<md>\d{1,2}/\d{1,2})(?:\s*\([^)]*\))?\s*(?P<rest>.*)$")
-    time_re = re.compile(r"^(?P<time>全天|\d{1,2}:\d{2}|未定|N/?A|--|—|-)\s+(?P<rest>.+)$", re.I)
 
-    for line in normalize_lines(text):
-        m = date_re.match(line)
-        rest = line
-        if m:
-            month, day = map(int, m.group("md").split("/"))
-            current_date = dt.date(year, month, day)
-            rest = m.group("rest").strip()
-        if not current_date or not rest:
-            continue
-        tm = time_re.match(rest)
-        if tm:
-            event_time = tm.group("time")
-            rest = tm.group("rest").strip()
-        else:
-            event_time = "全天"
+    parsed = parse_table_text(text)
+    if not parsed:
+        current_md = None
+        date_re = re.compile(r"^(?P<md>\d{1,2}/\d{1,2})(?:\s*\([^)]*\))?\s*(?P<rest>.*)$")
+        time_re = re.compile(r"^(?P<time>全天|\d{1,2}:\d{2})\s+(?P<rest>.+)$", re.I)
+        for line in normalize_lines(text):
+            m = date_re.match(line)
+            rest = line
+            if m:
+                current_md = m.group("md")
+                rest = m.group("rest").strip()
+            if not current_md or not rest or not re.search(r"^(全天|\d{1,2}:\d{2}|[【\[])", rest):
+                continue
+            tm = time_re.match(rest)
+            if tm:
+                parsed.append((current_md, tm.group("time"), tm.group("rest").strip()))
+
+    for md, event_time, rest in parsed:
+        month, day = map(int, md.split("/"))
+        current_date = dt.date(year, month, day)
         region, title = split_region_title(rest)
-        title = title.strip(" -　")
+        title = re.sub(r"\s+", " ", title).strip(" -　⭐★")
         if len(title) < 2:
             continue
         category, importance = classify(title)
@@ -225,6 +255,7 @@ def main():
         rows = parse_events(text, title or "永豐期貨一週財經行事曆", pdf_url)
         if not rows:
             raise RuntimeError("PDF 已下載，但沒有解析到任何行事曆事件")
+        sb_delete("market_calendar_events", f"source=eq.{quote(SOURCE, safe='')}")
         sb_upsert(
             "market_calendar_events",
             rows,
