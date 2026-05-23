@@ -83,21 +83,29 @@ function fmtAmountValue(v){
   return typeof fmtTwAmount==='function' ? fmtTwAmount(n) : n.toLocaleString('en-US');
 }
 function quoteStockCard(s,opts={}){
-  const side=String(s.market||s.m||'').toUpperCase()==='TPEX'?'櫃':'市';
-  const px=Number(s.px), dp=Number(s.dp), ch=Number(s.chg||s.change);
-  const vol=Number(s.vol);
+  const live=(!opts.noLookup && typeof stockKnownInfo==='function' && s&&s.c)?stockKnownInfo(s.c):{};
+  const row={...s};
+  ['px','dp','chg','change','vol','amount'].forEach(k=>{
+    if(live[k]!=null && live[k]!=='' && Number.isFinite(Number(live[k]))) row[k]=live[k];
+  });
+  if(live.n && (!row.n || row.n===row.c || row.n==='尚無名稱')) row.n=live.n;
+  if(live.market && !row.market) row.market=live.market;
+  if(live.industry && !row.t && !row.theme && !row.industry) row.industry=live.industry;
+  const side=String(row.market||row.m||'').toUpperCase()==='TPEX'?'櫃':'市';
+  const px=Number(row.px), dp=Number(row.dp), ch=Number(row.chg||row.change);
+  const vol=Number(row.vol);
   const actions=opts.actions||'';
-  return `<div class="quote-card ${opts.compact?'compact':''} ${opts.hideMarketSide?'no-side':''}" data-live-row="${s.c}">
+  return `<div class="quote-card ${opts.compact?'compact':''} ${opts.hideMarketSide?'no-side':''}" data-live-row="${row.c}">
     ${opts.hideMarketSide?'':`<div class="quote-side">${side}</div>`}
     <div class="quote-main">
-      <div class="quote-title lnk" data-stock="${s.c}"><span class="code">${s.c}</span> <b>${esc(s.n||s.c)}</b></div>
+      <div class="quote-title lnk" data-stock="${row.c}"><span class="code">${row.c}</span> <b>${esc(row.n||row.c)}</b></div>
       <div class="quote-stats">
         <div><span>收盤價</span><b data-live-cell="px" class="num ${dcls(dp)}">${Number.isFinite(px)?fmtPx(px):'—'}</b></div>
-        <div><span>漲跌</span><b class="num ${dcls(dp)}">${Number.isFinite(ch)?sgn(ch.toFixed(2)):'—'}</b></div>
+        <div><span>漲跌</span><b data-live-cell="chg" class="num ${dcls(dp)}">${Number.isFinite(ch)?sgn(ch.toFixed(2)):'—'}</b></div>
         <div><span>漲跌幅</span><b data-live-cell="dp" class="num ${dcls(dp)}">${Number.isFinite(dp)?sgn(dp.toFixed(2))+'%':'—'}</b></div>
         <div><span>成交量(張)</span><b data-live-cell="vol" class="num">${Number.isFinite(vol)?fmtLots(vol):'—'}</b></div>
       </div>
-      ${s.t||s.theme||s.industry?`<div class="quote-tags"><span class="badge">${esc(s.t||s.theme||s.industry)}</span>${s.role?`<span class="badge obs">${esc(s.role)}</span>`:''}</div>`:''}
+      ${row.t||row.theme||row.industry?`<div class="quote-tags"><span class="badge">${esc(row.t||row.theme||row.industry)}</span>${row.role?`<span class="badge obs">${esc(row.role)}</span>`:''}</div>`:''}
     </div>
     ${actions?`<div class="quote-actions">${actions}</div>`:''}
   </div>`;
@@ -347,7 +355,10 @@ function setWatchlist(rows){
 function stockKnownInfo(sym){
   const c=String(sym||'').trim();
   const base=(DATA.stockMap&&DATA.stockMap[c])||{};
-  const price=(DATA.priceMap&&DATA.priceMap[c])||{};
+  const live=(DATA.realtimeMap&&DATA.realtimeMap[c])||{};
+  const daily=(DATA.priceMap&&DATA.priceMap[c])||{};
+  const useLive=live&&Number.isFinite(Number(live.close))&&(isRealtimeQuoteTimeNow() || !daily.date || String(live.date||'').slice(0,10)>=String(daily.date||'').slice(0,10));
+  const price=useLive?{...daily,...live}:daily;
   const pools=[DATA.stock, ...(DATA.screen||[]), ...(DATA.picks||[])];
   (DATA.themes||[]).forEach(t=>Array.isArray(t.stocks)&&pools.push(...t.stocks));
   const hit=pools.find(s=>String(s&&s.c)===c && s.n && s.n!==c && s.n!=='尚無名稱') ||
@@ -358,6 +369,7 @@ function stockKnownInfo(sym){
     n:(hit&&hit.n&&hit.n!==c&&hit.n!=='尚無名稱')?hit.n:(base.name||c),
     t:(hit&&hit.t)||(hit&&hit.level)||base.industry||'—',
     industry:base.industry||hit&&hit.industry,
+    market:normMarket(price.market||base.market||hit&&hit.market),
     px:isFinite(Number(price.close))?Number(price.close):((hit&&isFinite(Number(hit.px)))?Number(hit.px):NaN),
     chg:isFinite(Number(price.change))?Number(price.change):((hit&&isFinite(Number(hit.chg)))?Number(hit.chg):NaN),
     dp:isFinite(Number(price.change_percent))?Number(price.change_percent):((hit&&isFinite(Number(hit.dp)))?Number(hit.dp):NaN),

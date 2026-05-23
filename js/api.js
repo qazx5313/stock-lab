@@ -181,23 +181,81 @@ async function loadLatestPriceMap(symbols, dateHint){
   const wanted=[...new Set((symbols||[]).map(s=>String(s||'').trim()).filter(Boolean))];
   const map={};
   if(!wanted.length) return map;
+  const assign=(sym,row,prefer=false)=>{
+    if(!sym || !wanted.includes(sym)) return;
+    if(prefer || !map[sym]) map[sym]=row;
+  };
   try{
     const rows=await sbGet(
-      `daily_prices?select=symbol,close,change_percent,volume&date=eq.${dateHint}`,20000);
-    (rows||[]).forEach(r=>{const sym=String(r.symbol||'').trim(); if(wanted.includes(sym)) map[sym]=r;});
+      `daily_prices?select=symbol,date,market,close,change,change_percent,volume,amount&date=eq.${dateHint}`,20000);
+    (rows||[]).forEach(r=>assign(String(r.symbol||'').trim(),r));
   }catch(_){}
   const missing=wanted.filter(s=>!map[s]);
   for(const part of chunks(missing,40)){
     try{
       const rows=await sbGet(
-        `daily_prices?select=symbol,date,close,change_percent,volume&symbol=in.(${part.join(',')})&order=date.desc&limit=2000`,2000);
+        `daily_prices?select=symbol,date,market,close,change,change_percent,volume,amount&symbol=in.(${part.join(',')})&order=date.desc&limit=2000`,2000);
       (rows||[]).forEach(r=>{
         const sym=String(r.symbol||'').trim();
-        if(sym && !map[sym]) map[sym]=r;
+        assign(sym,r);
       });
     }catch(_){}
   }
+  try{
+    const liveBySymbol={};
+    for(const part of chunks(wanted,80)){
+      const liveRows=await sbGet(
+        `realtime_quotes?select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,source,updated_at&symbol=in.(${part.join(',')})&order=updated_at.desc&limit=1000`,1000);
+      (liveRows||[]).forEach(r=>{
+        const sym=String(r.symbol||'').trim();
+        if(!sym || !wanted.includes(sym) || liveBySymbol[sym]) return;
+        const q=quoteRowToPrice(r);
+        if(q) liveBySymbol[sym]=q;
+      });
+    }
+    Object.entries(liveBySymbol).forEach(([sym,q])=>{
+      const current=map[sym]||{};
+      const currentDate=String(current.date||dateHint||'').slice(0,10);
+      const liveDate=String(q.date||q.quote_date||'').slice(0,10);
+      const preferLive=isRealtimeQuoteTimeNow() || !currentDate || liveDate>=currentDate;
+      assign(sym,{...current,...q},preferLive);
+    });
+  }catch(_){}
+  if(DATA.realtimeMap){
+    wanted.forEach(sym=>{
+      const q=DATA.realtimeMap[sym];
+      if(!q) return;
+      const current=map[sym]||{};
+      assign(sym,{...current,...q},isRealtimeQuoteTimeNow() || !current.date || String(q.date||'').slice(0,10)>=String(current.date||'').slice(0,10));
+    });
+  }
   return map;
+}
+function quoteRowToPrice(r){
+  const sym=String(r&&r.symbol||'').trim();
+  const price=Number(r&&r.price);
+  if(!sym || !Number.isFinite(price)) return null;
+  const market=String(r.market||'').trim();
+  const source=String(r.source||'');
+  const rawVolume=Number(r.volume);
+  const quoteVolume=Number.isFinite(rawVolume) && /TWSE_MIS_EDGE/i.test(source) && (market==='TWSE' || market==='TPEX')
+    ? rawVolume*1000
+    : rawVolume;
+  return {
+    symbol:sym,
+    name:r.name,
+    market,
+    close:price,
+    price,
+    change:Number(r.change),
+    change_percent:Number(r.change_percent),
+    volume:quoteVolume,
+    amount:Number(r.amount),
+    source:r.source,
+    date:r.quote_date,
+    quote_time:r.quote_time,
+    updated_at:r.updated_at
+  };
 }
 function emptyDist(){return {up:0,down:0,flat:0,limitUp:0,limitDown:0,amount:0,count:0};}
 function addDist(dist,r){
@@ -350,7 +408,7 @@ function applyRealtimeQuotes(rows, options={}){
   }
 }
 const REAL_CACHE_KEY='stockLabRealCache:v16';
-const REAL_CACHE_TTL=1000*60*60*18;
+const REAL_CACHE_TTL=1000*60*60*72;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
   'agents','aiCand','aiBack','aiDeep','aiTrades','aiReviews','aiVersions',
@@ -508,10 +566,7 @@ async function loadReal(){
     if(Array.isArray(sigTop) && sigTop.length){
       const sigSymbols=[...new Set(sigTop.map(s=>String(s.symbol||'').trim()).filter(Boolean))];
       const nameMap = await loadNameMap(sigSymbols,d);
-      // 補當日價格/漲跌/量
-      const pr = await sbGet(
-        `daily_prices?select=symbol,close,change_percent,volume&date=eq.${d}`, 20000);
-      const pm = {}; (pr||[]).forEach(x=>pm[String(x.symbol||'').trim()]=x);
+      const pm = await loadLatestPriceMap(sigSymbols,d);
       DATA.picks = sigTop.map(sg=>{
         const sym=String(sg.symbol||'').trim();
         const p = pm[sym] || (DATA.priceMap&&DATA.priceMap[sym]) || {};
@@ -578,7 +633,20 @@ async function loadReal(){
             px:Number(px.close),dp:Number(px.change_percent),vol:Number(px.volume)
           });
         });
-        DATA.themes.forEach(t=>{t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);});
+        DATA.themes.forEach(t=>{
+          t.stocks=(byTheme[String(t.themeId)]||[]).sort((a,b)=>b.score-a.score);
+          const priced=t.stocks.filter(s=>Number.isFinite(Number(s.dp)));
+          const avg=priced.length?priced.reduce((sum,s)=>sum+Number(s.dp),0)/priced.length:NaN;
+          const amt=t.stocks.reduce((sum,s)=>{
+            const q=(DATA.priceMap&&DATA.priceMap[s.c])||{};
+            return sum+(Number(q.amount)||0);
+          },0);
+          if(Number.isFinite(avg)) t.gain=(avg>=0?'+':'')+avg.toFixed(2)+'%';
+          if(amt>0){
+            const cleanName=String(t.name||'').replace(/^(上市|上櫃)\s*[·・]\s*/,'');
+            t.desc=`${cleanName}：成分 ${t.stocks.length} 檔，平均漲幅 ${Number.isFinite(avg)?avg.toFixed(2):'—'}%，成交金額 ${(amt/100000000).toFixed(2)} 億。`;
+          }
+        });
         DATA.themes=DATA.themes.filter(t=>Array.isArray(t.stocks)&&t.stocks.length);
         if(!DATA.themes.length) DATA.themes=buildClassThemesFromCaches();
         DATA.themeList=DATA.themes.map(t=>t.name);
@@ -962,6 +1030,34 @@ function updateLiveDom(){
       set('px',fmtPx(px)); set('stop',fmtPx(movingStop)); set('take',fmtPx(movingTake)); set('high',fmtPx(trailBase)); set('gap',Number.isFinite(px)&&px?fmtPct((px-movingStop)/px*100):'—');
       const note=row.querySelector('[data-atr-cell="take-note"]');
       if(note) note.textContent=takeActive?'已碰到初始停利位，停利目標跟著新高上調':'尚未碰到初始停利位，目前先看初始停利';
+    });
+  }
+  if(typeof stockKnownInfo==='function'){
+    document.querySelectorAll('[data-live-row]').forEach(row=>{
+      const sym=String(row.getAttribute('data-live-row')||'').trim();
+      if(!/^[1-9]\d{3}$/.test(sym)) return;
+      const s=stockKnownInfo(sym);
+      const px=row.querySelector('[data-live-cell="px"]');
+      const chg=row.querySelector('[data-live-cell="chg"]');
+      const dp=row.querySelector('[data-live-cell="dp"]');
+      const vol=row.querySelector('[data-live-cell="vol"]');
+      const cls=dcls(Number(s.dp));
+      if(px){
+        px.textContent=Number.isFinite(Number(s.px))?fmtPx(s.px):'—';
+        px.className=`num ${cls}`;
+      }
+      if(chg){
+        chg.textContent=Number.isFinite(Number(s.chg))?sgn(Number(s.chg).toFixed(2)):'—';
+        chg.className=`num ${cls}`;
+      }
+      if(dp){
+        dp.textContent=Number.isFinite(Number(s.dp))?sgn(Number(s.dp).toFixed(2))+'%':'—';
+        dp.className=`num ${cls}`;
+      }
+      if(vol){
+        const suffix=/張/.test(vol.textContent||'') || row.classList.contains('observe-clean-row') ? ' 張' : '';
+        vol.textContent=Number.isFinite(Number(s.vol))?fmtLots(s.vol)+suffix:'—';
+      }
     });
   }
 }
