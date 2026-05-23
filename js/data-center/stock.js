@@ -10,11 +10,10 @@ function stockKnownInfo(sym){
   const daily=(DATA.priceMap&&DATA.priceMap[c])||{};
   const liveDate=String(live.date||live.quote_date||'').slice(0,10);
   const dailyDate=String(daily.date||daily.quote_date||'').slice(0,10);
-  const liveFresh=!!(live&&Number.isFinite(Number(live.close))) && (
-    (typeof isRealtimeQuoteTimeNow==='function' && isRealtimeQuoteTimeNow()) ||
-    !dailyDate ||
-    (liveDate && liveDate>=dailyDate)
-  );
+  const sessionStockPick=window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.shouldPreferRealtimeStock
+    ? DATA_CENTER.session.shouldPreferRealtimeStock(live,daily)
+    : ((typeof isRealtimeQuoteTimeNow==='function' && isRealtimeQuoteTimeNow()) || !dailyDate || (liveDate && liveDate>=dailyDate));
+  const liveFresh=!!(live&&Number.isFinite(Number(live.close))) && sessionStockPick;
   const pickNum=(key,...fallbacks)=>{
     const lv=Number(live&&live[key]);
     const dv=Number(daily&&daily[key]);

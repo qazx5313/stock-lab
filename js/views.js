@@ -132,6 +132,9 @@ function mopsNewsPanel(){
   </div>`;
 }
 function txfSession(f){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.futuresSession){
+    return DATA_CENTER.session.futuresSession(f);
+  }
   const txt=String([f&&f.name,f&&f.source,f&&f.quote_time].filter(Boolean).join(' '));
   if(/-M|AfterHours|night|夜/i.test(txt)) return 'night';
   if(/-F|Regular|day|早/i.test(txt)) return 'day';

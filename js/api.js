@@ -217,7 +217,7 @@ async function loadLatestPriceMap(symbols, dateHint){
       const current=map[sym]||{};
       const currentDate=String(current.date||dateHint||'').slice(0,10);
       const liveDate=String(q.date||q.quote_date||'').slice(0,10);
-      const preferLive=isRealtimeQuoteTimeNow() || !currentDate || liveDate>=currentDate;
+      const preferLive=isStockRealtimeNow() || !currentDate;
       assign(sym,{...current,...q},preferLive);
     });
   }catch(_){}
@@ -226,7 +226,7 @@ async function loadLatestPriceMap(symbols, dateHint){
       const q=DATA.realtimeMap[sym];
       if(!q) return;
       const current=map[sym]||{};
-      assign(sym,{...current,...q},isRealtimeQuoteTimeNow() || !current.date || String(q.date||'').slice(0,10)>=String(current.date||'').slice(0,10));
+      assign(sym,{...current,...q},isStockRealtimeNow() || !current.date);
     });
   }
   return map;
@@ -510,7 +510,7 @@ async function loadReal(){
         const breadth=up+down?up/(up+down):0.5;
         DATA.market.status=breadth>=0.58?'偏多格局':(breadth<=0.42?'偏空格局':'多空拉鋸');
         DATA.market.statusNote=`上市 ${twse.up} 漲 / ${twse.down} 跌；上櫃 ${tpex.up} 漲 / ${tpex.down} 跌。漲停 ${limitUp}、跌停 ${limitDown}。`;
-        if(isRealtimeQuoteTimeNow() && DATA.realtimeMap){
+        if(isStockRealtimeNow() && DATA.realtimeMap){
           Object.entries(DATA.realtimeMap).forEach(([sym,q])=>{
             if(/^[1-9]\d{3}$/.test(sym)) DATA.priceMap[sym]={...(DATA.priceMap[sym]||{}),...q};
           });
@@ -545,7 +545,7 @@ async function loadReal(){
           v,
           d:ch,
           dp };
-        const keepRealtime=isRealtimeQuoteTimeNow() && (
+        const keepRealtime=isStockRealtimeNow() && (
           (r.market==='TWSE' && /RT|MIS|INDEX/i.test(String(DATA.market.twse&&DATA.market.twse.source||''))) ||
           (r.market==='TPEX' && /RT|MIS|INDEX/i.test(String(DATA.market.tpex&&DATA.market.tpex.source||'')))
         );
@@ -866,6 +866,9 @@ async function refreshRealtimeOnly(){
 }
 
 function taipeiNowParts(){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.taipeiParts){
+    return DATA_CENTER.session.taipeiParts();
+  }
   const parts=new Intl.DateTimeFormat('en-US',{
     timeZone:'Asia/Taipei',weekday:'short',hour:'2-digit',minute:'2-digit',hour12:false
   }).formatToParts(new Date()).reduce((a,p)=>{a[p.type]=p.value;return a;},{});
@@ -873,11 +876,29 @@ function taipeiNowParts(){
   return {weekday:parts.weekday,hour:hh,minute:mm,total:hh*60+mm};
 }
 function isTaiwanMarketOpenNow(){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.isDayMarketOpen){
+    return DATA_CENTER.session.isDayMarketOpen();
+  }
   const p=taipeiNowParts();
   if(['Sat','Sun'].includes(p.weekday)) return false;
   return p.total>=9*60 && p.total<=13*60+35;
 }
+function isStockRealtimeNow(){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.isStockRealtimeNow){
+    return DATA_CENTER.session.isStockRealtimeNow();
+  }
+  return isTaiwanMarketOpenNow();
+}
+function isFuturesRealtimeNow(){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.isFuturesRealtimeNow){
+    return DATA_CENTER.session.isFuturesRealtimeNow();
+  }
+  return isRealtimeQuoteTimeNow();
+}
 function isRealtimeQuoteTimeNow(){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.isRealtimeNow){
+    return DATA_CENTER.session.isRealtimeNow();
+  }
   const p=taipeiNowParts();
   const daySession=p.total>=8*60+45 && p.total<=13*60+45;
   const nightSession=p.total>=15*60 || p.total<=5*60+5;
@@ -1067,6 +1088,9 @@ function updateLiveDom(){
   }
 }
 function txfSessionKeyFromRow(row){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.futuresSession){
+    return DATA_CENTER.session.futuresSession(row);
+  }
   const txt=String([row&&row.name,row&&row.source,row&&row.quote_time].filter(Boolean).join(' '));
   if(/-M|AfterHours|NIGHT|夜/i.test(txt)) return 'night';
   if(/-F|Regular|DAY|早/i.test(txt)) return 'day';
@@ -1117,6 +1141,9 @@ function appendTxfChartPoint(f,row={}){
   if(points.length>360) points.splice(0,points.length-360);
 }
 function txfSessionProgress(label,key){
+  if(window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.futuresProgress){
+    return DATA_CENTER.session.futuresProgress(label,key);
+  }
   const txt=String(label||'');
   const m=txt.match(/(\d{1,2}):(\d{2})(?::(\d{2}))?/);
   let total=null;

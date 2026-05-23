@@ -8,7 +8,19 @@
   if(!dc) return;
   dc.register('realtime',{
     isMarketOpen(){
+      if(dc.session&&dc.session.isRealtimeNow) return dc.session.isRealtimeNow();
       return typeof isRealtimeQuoteTimeNow==='function' ? isRealtimeQuoteTimeNow() : false;
+    },
+    isStockOpen(){
+      if(dc.session&&dc.session.isStockRealtimeNow) return dc.session.isStockRealtimeNow();
+      return typeof isTaiwanMarketOpenNow==='function' ? isTaiwanMarketOpenNow() : false;
+    },
+    isFuturesOpen(){
+      if(dc.session&&dc.session.isFuturesRealtimeNow) return dc.session.isFuturesRealtimeNow();
+      return this.isMarketOpen();
+    },
+    mode(){
+      return dc.session&&dc.session.current ? dc.session.current() : {};
     },
     apply(rows,options){
       return typeof applyRealtimeQuotes==='function' ? applyRealtimeQuotes(rows||[],options||{}) : 0;
