@@ -182,7 +182,6 @@ function marketSummaryCard(title,o,extra='',chart=null){
         <div class="num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''} style="margin-top:8px;font-weight:800">${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
       </div>
     </div>
-    <div ${liveKey?`data-live-chart="${liveKey}"`:''}>${marketTrendSvg(o,d<0?'#EF4444':'#22C55E',chart,liveKey!=='txf')}</div>
     ${extra?`<div class="flow-list" style="margin-top:10px">${extra}</div>`:''}
   </div>`;
 }
