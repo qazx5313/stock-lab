@@ -952,6 +952,7 @@ function updateLiveDom(){
     updateMarketCardDom('twse',m.twse);
     updateMarketCardDom('tpex',m.tpex);
     updateTxFutureDom();
+    if(typeof updateCapitalFlowDom==='function') updateCapitalFlowDom();
     liveText('[data-live="twse-v"]',fmt(m.twse),`v ${dcls(Number(m.twse&&m.twse.d))}`);
     liveText('[data-live="twse-d"]',diff(m.twse),`d ${dcls(Number(m.twse&&m.twse.d))}`);
     liveText('[data-live="tpex-v"]',fmt(m.tpex),`v ${dcls(Number(m.tpex&&m.tpex.d))}`);
@@ -1135,11 +1136,11 @@ function updateMarketCardDom(key,o){
   const diff=card.querySelector(`[data-live="${key}-diff"]`);
   if(price){
     price.textContent=Number.isFinite(v)?fmtPx(v):'—';
-    price.className=`pick-name num ${cls}`;
+    price.className=`market-summary-value num ${cls}`;
   }
   if(diff){
     diff.textContent=Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—';
-    diff.className=`num ${cls}`;
+    diff.className=`market-summary-diff num ${cls}`;
   }
   const chartEl=card.querySelector(`[data-live-chart="${key}"]`);
   if(chartEl && typeof marketTrendSvg==='function'){
@@ -1162,11 +1163,11 @@ function updateTxFutureDom(){
   const summaryDiff=card.querySelector('[data-live="txf-diff"]');
   if(summaryPrice){
     summaryPrice.textContent=Number.isFinite(v)?fmtPx(v):'—';
-    summaryPrice.className=`pick-name num ${cls}`;
+    summaryPrice.className=`market-summary-value num ${cls}`;
   }
   if(summaryDiff){
     summaryDiff.textContent=Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—';
-    summaryDiff.className=`num ${cls}`;
+    summaryDiff.className=`market-summary-diff num ${cls}`;
   }
   liveText('[data-live="txf-session-label"]',sess==='night'?'夜盤':'早盤','');
   liveText('[data-live="txf-time"]',f.quote_time||'—','');
@@ -1184,12 +1185,12 @@ function updateTxFutureDom(){
   const price=card.querySelector('[data-live="txf-price"]');
   if(price){
     price.textContent=Number.isFinite(v)?v.toLocaleString('en-US',{maximumFractionDigits:2}):'—';
-    setLiveClass(price,'v',cls);
+    setLiveClass(price,'market-summary-value num',cls);
   }
   const diff=card.querySelector('[data-live="txf-diff"]');
   if(diff){
     diff.textContent=Number.isFinite(d)?`${d>0?'+':''}${d.toLocaleString('en-US',{maximumFractionDigits:2})}${Number.isFinite(dp)?` (${dp>0?'+':''}${dp.toFixed(2)}%)`:''}`:'—';
-    setLiveClass(diff,'d',cls);
+    setLiveClass(diff,'market-summary-diff num',cls);
   }
   liveText('[data-live="txf-source"]',String(f.source||'—').replace('TAIFEX_MIS_RT','TAIFEX 即時').replace('TAIFEX_EDGE_RT_NIGHT','TAIFEX 即時').replace('TAIFEX_EDGE_RT_DAY','TAIFEX 即時'),'');
   liveText('[data-live="txf-updated"]',f.updated_at?fmtDoneTime(f.updated_at):'—','');

@@ -234,27 +234,62 @@ function fearIndexPanel(){
      ${Number.isFinite(vix)?`<div class="muted" style="font-size:12.5px;margin-top:8px">TAIFEX 波動率 ${fmtPx(vix)}</div>`:''}
    </div>`;
 }
-function capitalFlowPanel(){
-  const flow=(DATA.themes||[]).map(t=>{
+function capitalFlowRows(){
+  return (DATA.themes||[]).map(t=>{
+    const stocks=Array.isArray(t.stocks)?t.stocks:[];
+    const live=stocks.map(s=>{
+      const info=typeof stockKnownInfo==='function'?stockKnownInfo(s.c):((DATA.stockMap||{})[String(s.c||'')]||s);
+      return Number(info&&info.dp);
+    }).filter(Number.isFinite);
     const raw=String(t.gain||'0').replace('%','').replace('+','').trim();
-    const gain=Number(raw);
-    return {...t,gainVal:Number.isFinite(gain)?gain:0,displayName:typeof themeDisplayName==='function'?themeDisplayName(t.name):t.name};
-  }).filter(t=>t.displayName).sort((a,b)=>a.gainVal-b.gainVal).slice(-10);
-  const max=Math.max(1,...flow.map(t=>Math.abs(t.gainVal)));
-  return `<div class="card">
-    <div class="card-h"><h3>資金流向</h3><span class="tag">類股漲跌排行</span><span class="more" data-go="map">類股地圖 →</span></div>
-    <div class="flow-board">
-      ${flow.map(t=>{
-        const positive=t.gainVal>=0;
-        const h=Math.max(14,Math.round(Math.abs(t.gainVal)/max*116));
-        return `<button class="flow-bar ${positive?'pos':'neg'}" data-go="map" title="${esc(t.displayName)} ${t.gain}">
-          <span class="flow-pct">${Number.isFinite(t.gainVal)?`${t.gainVal>0?'+':''}${t.gainVal.toFixed(2)}%`:'—'}</span>
-          <i style="height:${h}px"></i>
-          <b>${esc(String(t.displayName||'').replace(/指數?$/,''))}</b>
-        </button>`;
-      }).join('')}
+    const fallback=Number(raw);
+    const gainVal=live.length?live.reduce((a,b)=>a+b,0)/live.length:(Number.isFinite(fallback)?fallback:0);
+    return {
+      ...t,
+      gainVal,
+      stockCount:live.length||stocks.length||0,
+      displayName:typeof themeDisplayName==='function'?themeDisplayName(t.name):t.name
+    };
+  }).filter(t=>t.displayName&&t.stockCount);
+}
+function capitalFlowBars(rows,type){
+  const max=Math.max(1,...rows.map(t=>Math.abs(t.gainVal)));
+  if(!rows.length) return `<div class="flow-empty">目前沒有${type==='up'?'上漲':'下跌'}類股資料</div>`;
+  return rows.map(t=>{
+    const positive=t.gainVal>=0;
+    const h=Math.max(18,Math.round(Math.abs(t.gainVal)/max*104));
+    const name=String(t.displayName||'').replace(/指數?$/,'');
+    return `<button class="flow-bar ${positive?'pos':'neg'}" data-go="map" title="${esc(name)} ${t.gainVal.toFixed(2)}%">
+      <span class="flow-pct">${t.gainVal>0?'+':''}${t.gainVal.toFixed(2)}%</span>
+      <i style="height:${h}px"></i>
+      <b>${esc(name)}</b>
+    </button>`;
+  }).join('');
+}
+function capitalFlowMarkup(){
+  const rows=capitalFlowRows();
+  const strong=rows.filter(t=>t.gainVal>=0).sort((a,b)=>b.gainVal-a.gainVal).slice(0,8);
+  const weak=rows.filter(t=>t.gainVal<0).sort((a,b)=>a.gainVal-b.gainVal).slice(0,8);
+  return `<div class="flow-board">
+    <div class="flow-lane">
+      <div class="flow-lane-head"><b>強勢類股</b><span>即時排序</span></div>
+      <div class="flow-bars">${capitalFlowBars(strong,'up')}</div>
     </div>
-    <div class="flow-note">紅色代表資金偏多，綠色代表偏弱；依目前類股平均漲跌排序。</div>
+    <div class="flow-lane">
+      <div class="flow-lane-head"><b>弱勢類股</b><span>即時排序</span></div>
+      <div class="flow-bars">${capitalFlowBars(weak,'down')}</div>
+    </div>
+  </div>
+  <div class="flow-note">紅色代表資金偏多，綠色代表偏弱；依即時報價平均漲跌重新排序。</div>`;
+}
+function updateCapitalFlowDom(){
+  const el=document.querySelector('[data-capital-flow]');
+  if(el) el.innerHTML=capitalFlowMarkup();
+}
+function capitalFlowPanel(){
+  return `<div class="card">
+    <div class="card-h"><h3>資金流向</h3><span class="tag">即時類股強弱</span><span class="more" data-go="map">類股地圖 →</span></div>
+    <div data-capital-flow>${capitalFlowMarkup()}</div>
   </div>`;
 }
 function vHome(){
