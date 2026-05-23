@@ -376,8 +376,18 @@ def top_up_candidates(latest, existing_rows, name_map, price_map):
 
 
 def normalize_theme_stocks(latest, name_map, price_map):
-    themes = rest_get("themes", "select=id,theme_name,description,heat_score,trend_status", page_size=1000)
-    theme_stocks = rest_get("theme_stocks", "select=theme_id,symbol,role,supply_chain_level,relevance_score,note", page_size=1000)
+    themes = rest_get(
+        "themes",
+        "select=id,theme_name,description,heat_score,trend_status",
+        page_size=1000,
+        max_rows=100000,
+    )
+    theme_stocks = rest_get(
+        "theme_stocks",
+        "select=theme_id,symbol,role,supply_chain_level,relevance_score,note",
+        page_size=1000,
+        max_rows=100000,
+    )
     by_theme = defaultdict(list)
     fixed = 0
     missing_name = set()

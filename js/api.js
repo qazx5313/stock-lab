@@ -538,7 +538,7 @@ async function loadReal(){
     try{
       const th = await sbGet(
         'themes?select=id,theme_name,heat_score,trend_status,description'+
-        '&order=heat_score.desc', 200);
+        '&order=heat_score.desc', 5000);
       if(Array.isArray(th) && th.length){
         const seenThemes=new Set();
         DATA.themes = th.map((t,i)=>{
@@ -557,7 +557,7 @@ async function loadReal(){
           return true;
         });
         DATA.themeList = DATA.themes.map(t=>t.name);
-        const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 20000);
+        const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 80000);
         const symbols = [...new Set((ts||[]).map(x=>String(x.symbol||'').trim()).filter(Boolean))];
         const stockMap=await loadNameMap(symbols,d);
         const priceMap=await loadLatestPriceMap(symbols,d);

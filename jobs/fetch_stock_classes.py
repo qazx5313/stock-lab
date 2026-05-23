@@ -3,14 +3,18 @@
 """
 Build the map page from stock industry classes instead of hand-made themes.
 
-Listed/OTC stock classes come from the official company profile OpenAPI mirrors
-for MOPS disclosures. The result is written into themes/theme_stocks so the
-existing front end can render the same card layout without mock topic data.
+Listed/OTC stock classes come from MoneyDJ industry classification pages first,
+then fall back to the official company profile OpenAPI mirrors for MOPS
+disclosures. The result is written into themes/theme_stocks so the existing
+front end can render the same card layout without mock topic data.
 """
 import datetime as dt
+import html
+import os
 import re
 import time
 from collections import defaultdict
+from urllib.parse import urljoin
 
 import requests
 from requests.exceptions import SSLError
@@ -18,6 +22,9 @@ from requests.exceptions import SSLError
 from sb_common import log, mark_status, sb_delete, sb_select, sb_upsert
 
 TIMEOUT = 35
+MONEYDJ_INDEX_URL = "https://www.moneydj.com/Z/ZH/ZHA/ZHA.djhtm"
+MONEYDJ_MAX_CLASSES = int(os.environ.get("MONEYDJ_MAX_CLASSES", "0") or "0")
+MONEYDJ_SLEEP_SEC = float(os.environ.get("MONEYDJ_SLEEP_SEC", "0.12") or "0.12")
 TWSE_INDUSTRY_CODES = {
     "01": "水泥工業",
     "02": "食品工業",
@@ -63,6 +70,12 @@ HEADERS = {
 }
 
 
+def clean_text(v):
+    s = html.unescape(re.sub(r"<[^>]*>", "", str(v or "")))
+    s = s.replace("\xa0", " ").replace("　", " ")
+    return re.sub(r"\s+", " ", s).strip()
+
+
 def is_symbol(v):
     s = str(v or "").strip()
     return len(s) == 4 and s.isdigit() and s[0] != "0"
@@ -102,6 +115,16 @@ def http_json(url):
     if r.status_code != 200:
         raise RuntimeError(f"HTTP {r.status_code}: {url}")
     return r.json()
+
+
+def http_moneydj_html(url):
+    r = requests.get(url, headers=HEADERS, timeout=TIMEOUT)
+    time.sleep(MONEYDJ_SLEEP_SEC)
+    if r.status_code != 200:
+        raise RuntimeError(f"HTTP {r.status_code}: {url}")
+    # MoneyDJ legacy pages are Big5. requests occasionally guesses ISO-8859-1,
+    # so decode explicitly and ignore stray ad-script bytes.
+    return r.content.decode("big5", errors="ignore")
 
 
 def field(row, names):
@@ -171,6 +194,66 @@ def fetch_tpex_company_classes():
     return rows
 
 
+def fetch_moneydj_class_links():
+    page = http_moneydj_html(MONEYDJ_INDEX_URL)
+    matches = re.finditer(
+        r'href\s*=\s*"([^"]*zha/zh00\.djhtm\?a=(C\d+)[^"]*)"[^>]*>(.*?)</a>',
+        page,
+        flags=re.I | re.S,
+    )
+    out = {}
+    for m in matches:
+        code = m.group(2).strip()
+        name = clean_industry(clean_text(m.group(3)))
+        if not code or not name:
+            continue
+        out.setdefault(code, {"code": code, "name": name, "url": urljoin(MONEYDJ_INDEX_URL, m.group(1))})
+    rows = list(out.values())
+    rows.sort(key=lambda r: (r["name"], r["code"]))
+    if MONEYDJ_MAX_CLASSES > 0:
+        rows = rows[:MONEYDJ_MAX_CLASSES]
+    return rows
+
+
+def parse_moneydj_members(page):
+    members = []
+    seen = set()
+    for m in re.finditer(
+        r"Link2Stk\('AS(\d{4})'\)[^>]*>\s*(\d{4})\s*([^<]+?)\s*</a>",
+        page,
+        flags=re.I | re.S,
+    ):
+        sym = m.group(1).strip()
+        if sym != m.group(2).strip() or not is_symbol(sym) or sym in seen:
+            continue
+        name = clean_text(m.group(3))
+        if not name or name == sym:
+            continue
+        seen.add(sym)
+        members.append({"symbol": sym, "name": name})
+    return members
+
+
+def fetch_moneydj_classes():
+    links = fetch_moneydj_class_links()
+    classes = []
+    failed = 0
+    for idx, item in enumerate(links, start=1):
+        try:
+            page = http_moneydj_html(item["url"])
+            members = parse_moneydj_members(page)
+        except Exception as e:  # noqa
+            failed += 1
+            if failed <= 10:
+                log(f"  MoneyDJ {item['code']} {item['name']} failed: {e}")
+            continue
+        if members:
+            classes.append({**item, "members": members})
+        if idx % 100 == 0:
+            log(f"  MoneyDJ classes scanned {idx}/{len(links)}; with_members={len(classes)}")
+    return classes, failed, len(links)
+
+
 def latest_date():
     rows = sb_select("daily_prices", "select=date&order=date.desc&limit=1", page_size=1, max_rows=1)
     return str(rows[0]["date"])[:10] if rows else ""
@@ -197,7 +280,7 @@ def stock_rows():
     for row in rows:
         sym = str(row.get("symbol") or "").strip()
         industry = industry_name(row.get("industry"))
-        if is_symbol(sym) and industry:
+        if is_symbol(sym):
             out[sym] = {**row, "industry": industry}
     return out
 
@@ -207,27 +290,71 @@ def clean_industry(name):
     return s.replace("業業", "業")
 
 
-def build_class_rows(stocks, prices, latest):
-    groups = defaultdict(list)
-    for sym, stock in stocks.items():
-        price = prices.get(sym)
-        if not price or price.get("close") is None:
-            continue
-        industry = industry_name(stock.get("industry"))
+def build_moneydj_class_rows(classes, stocks, prices):
+    groups = defaultdict(dict)
+    stock_updates = {}
+    for cls in classes:
+        industry = industry_name(cls.get("name"))
         if not industry:
             continue
-        key = (market_label(price.get("market") or stock.get("market")), industry)
-        groups[key].append((sym, stock, price))
+        for member in cls.get("members") or []:
+            sym = str(member.get("symbol") or "").strip()
+            if not is_symbol(sym):
+                continue
+            stock = stocks.get(sym) or {}
+            price = prices.get(sym) or {}
+            market = norm_market(stock.get("market") or price.get("market"))
+            if not market:
+                continue
+            label = market_label(market)
+            key = (label, industry)
+            groups[key][sym] = {
+                "symbol": sym,
+                "name": member.get("name") or stock.get("name"),
+                "market": market,
+                "industry": industry,
+                "price": price,
+            }
+            tags = set(stock.get("theme_tags") or [])
+            tags.add(industry)
+            current = stock_updates.get(sym, {})
+            merged_tags = set(current.get("theme_tags") or [])
+            merged_tags.update(tags)
+            stock_updates[sym] = {
+                "symbol": sym,
+                "name": member.get("name") or stock.get("name") or sym,
+                "market": market,
+                "industry": stock.get("industry") or industry,
+                "theme_tags": sorted(x for x in merged_tags if x),
+            }
+    theme_rows, link_rows = build_group_rows(groups)
+    return theme_rows, link_rows, list(stock_updates.values())
+
+
+def build_group_rows(groups):
+    # Accept either {(market, industry): [members...]} or dict members from
+    # MoneyDJ builder; normalize into the list form used below.
+    normalized = defaultdict(list)
+    for key, members in (groups or {}).items():
+        if isinstance(members, dict):
+            normalized[key] = list(members.values())
+        else:
+            normalized[key] = list(members or [])
 
     theme_rows, link_rows = [], []
-    sorted_groups = sorted(groups.items(), key=lambda kv: (kv[0][0], kv[0][1]))
+    sorted_groups = sorted(normalized.items(), key=lambda kv: (kv[0][0], kv[0][1]))
     for idx, ((mk_label, industry), members) in enumerate(sorted_groups, start=1):
         tid = 1000 + idx
-        members.sort(key=lambda x: (to_float(x[2].get("amount")) or 0, to_float(x[2].get("volume")) or 0), reverse=True)
-        changes = [to_float(p.get("change_percent")) for _, _, p in members]
+        members.sort(key=lambda x: (
+            to_float((x.get("price") or {}).get("amount")) or 0,
+            to_float((x.get("price") or {}).get("volume")) or 0,
+            x.get("symbol") or "",
+        ), reverse=True)
+        priced = [m for m in members if (m.get("price") or {}).get("close") is not None]
+        changes = [to_float((m.get("price") or {}).get("change_percent")) for m in priced]
         changes = [x for x in changes if x is not None]
         avg = round(sum(changes) / len(changes), 2) if changes else 0
-        amount = sum(to_float(p.get("amount")) or 0 for _, _, p in members)
+        amount = sum(to_float((m.get("price") or {}).get("amount")) or 0 for m in priced)
         heat = max(1, min(99, int(55 + avg * 4 + min(len(members), 120) / 4)))
         status = "強勢" if avg >= 1.5 else ("偏弱" if avg <= -1.5 else "一般")
         theme_name = f"{mk_label} · {industry}"
@@ -235,14 +362,17 @@ def build_class_rows(stocks, prices, latest):
             "id": tid,
             "theme_name": theme_name,
             "description": (
-                f"{theme_name}：成分 {len(members)} 檔，"
-                f"平均漲幅 {avg:.2f}% ，成交金額 {amount / 100000000:.2f} 億。"
+                f"{themeDisplay(theme_name)}：成分 {len(members)} 檔，"
+                f"有收盤價 {len(priced)} 檔，平均漲幅 {avg:.2f}% ，"
+                f"成交金額 {amount / 100000000:.2f} 億。"
             ),
             "heat_score": heat,
             "trend_status": status,
             "updated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
         })
-        for rank, (sym, stock, price) in enumerate(members, start=1):
+        for rank, member in enumerate(members, start=1):
+            sym = str(member.get("symbol") or "").strip()
+            price = member.get("price") or {}
             cp = to_float(price.get("change_percent")) or 0
             score = max(1, min(99, int(80 - rank / 3 + cp)))
             link_rows.append({
@@ -251,9 +381,28 @@ def build_class_rows(stocks, prices, latest):
                 "role": "成分",
                 "supply_chain_level": industry,
                 "relevance_score": score,
-                "note": f"{mk_label}股票類股分類；收盤 {price.get('close')}；漲跌 {cp:.2f}%",
+                "note": "",
             })
     return theme_rows, link_rows
+
+
+def themeDisplay(name):
+    return re.sub(r"^(上市|上櫃)\s*[·・]\s*", "", str(name or "")).strip()
+
+
+def build_class_rows(stocks, prices, latest):
+    groups = defaultdict(list)
+    for sym, stock in stocks.items():
+        price = prices.get(sym) or {}
+        industry = industry_name(stock.get("industry"))
+        if not industry:
+            continue
+        market = norm_market(price.get("market") or stock.get("market"))
+        if not market:
+            continue
+        key = (market_label(market), industry)
+        groups[key].append({"symbol": sym, "name": stock.get("name"), "market": stock.get("market"), "industry": industry, "price": price})
+    return build_group_rows(groups)
 
 
 def main():
@@ -265,11 +414,24 @@ def main():
     latest = latest_date()
     prices = latest_prices(latest)
     stocks = stock_rows()
-    theme_rows, link_rows = build_class_rows(stocks, prices, latest)
+
+    moneydj_classes, moneydj_failed, moneydj_total = [], 0, 0
+    try:
+        moneydj_classes, moneydj_failed, moneydj_total = fetch_moneydj_classes()
+    except Exception as e:  # noqa
+        log(f"  MoneyDJ classes skipped: {e}")
+
+    if moneydj_classes:
+        theme_rows, link_rows, stock_updates = build_moneydj_class_rows(moneydj_classes, stocks, prices)
+        if stock_updates:
+            sb_upsert("stocks", stock_updates, on_conflict="symbol")
+    else:
+        theme_rows, link_rows = build_class_rows(stocks, prices, latest)
     if not theme_rows or not link_rows:
         msg = (
             f"no class rows built; twse_profiles={len(twse_rows)}; "
-            f"tpex_profiles={len(tpex_rows)}; prices={len(prices)}"
+            f"tpex_profiles={len(tpex_rows)}; moneydj={len(moneydj_classes)}/{moneydj_total}; "
+            f"prices={len(prices)}"
         )
         mark_status("fetch_stock_classes", False, msg)
         raise RuntimeError(msg)
@@ -279,7 +441,8 @@ def main():
     lw = sb_upsert("theme_stocks", link_rows, on_conflict="theme_id,symbol")
     msg = (
         f"twse_profiles={len(twse_rows)}; tpex_profiles={len(tpex_rows)}; "
-        f"classes={tw}; class_stocks={lw}; latest={latest}"
+        f"moneydj_classes={len(moneydj_classes)}/{moneydj_total}; "
+        f"moneydj_failed={moneydj_failed}; classes={tw}; class_stocks={lw}; latest={latest}"
     )
     mark_status("fetch_stock_classes", True, msg)
     log("  " + msg)
