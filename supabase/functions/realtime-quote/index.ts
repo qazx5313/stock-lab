@@ -164,8 +164,17 @@ async function fetchCharts(cookie: string) {
 function isTaifexDaySession() {
   const now = new Date();
   const tw = new Date(now.toLocaleString("en-US", { timeZone: "Asia/Taipei" }));
+  const day = tw.getDay();
+  if (day === 0 || day === 6) return false;
   const hm = tw.getHours() * 100 + tw.getMinutes();
-  return hm >= 845 && hm <= 1345;
+  return hm >= 845 && hm <= 1330;
+}
+
+function taifexSessionPlan() {
+  if (isTaifexDaySession()) {
+    return { key: "day", level: "0", suffix: "-F", referer: TAIFEX_REGULAR };
+  }
+  return { key: "night", level: "1", suffix: "-M", referer: TAIFEX_AFTER_HOURS };
 }
 
 async function searchTaifexTxF(referer: string) {
@@ -213,97 +222,91 @@ function taifexRow(symbol: string, values: Record<string, unknown>) {
 }
 
 async function fetchTaifexTxf() {
-  const plan = [
-    { level: "0", suffix: "-F", referer: TAIFEX_REGULAR },
-    { level: "1", suffix: "-M", referer: TAIFEX_AFTER_HOURS },
-  ];
-  if (!isTaifexDaySession()) plan.reverse();
-  for (const p of plan) {
-    try {
-      const rows = await searchTaifexTxF(p.referer);
-      const symbols = rows
-        .filter((r: Record<string, unknown>) =>
-          r.Level1ID === p.level &&
-          r.KindID === "1" &&
-          r.SymbolType === "F" &&
-          r.CID === "TXF" &&
-          String(r.SymbolID ?? "").endsWith(p.suffix)
-        )
-        .map((r: Record<string, unknown>) => String(r.SymbolID))
-        .filter((s: string) => s && s !== "TXF-S" && s !== "TXF-P")
-        .slice(0, 8);
-      if (!symbols.length) continue;
-      const sid = Math.random().toString(36).slice(2, 10);
-      const ws = new WebSocket(`wss://mis.taifex.com.tw/futures/rt/000/${sid}/websocket`);
-      const messages = await new Promise<unknown[]>((resolve) => {
-        const out: unknown[] = [];
-        let subscribed = false;
-        const subscribe = () => {
-          if (subscribed || ws.readyState !== WebSocket.OPEN) return;
-          subscribed = true;
-          ws.send(JSON.stringify([JSON.stringify({ type: "subscribe", symbols })]));
-        };
-        const done = () => { try { ws.close(); } catch (_) { /* noop */ } resolve(out); };
-        const timer = setTimeout(done, 5500);
-        ws.onopen = () => setTimeout(subscribe, 1200);
-        ws.onmessage = (ev) => {
-          const raw = String(ev.data ?? "");
-          if (raw === "o") {
-            subscribe();
-            return;
-          }
-          if (!raw || raw === "h") return;
-          if (!raw.startsWith("a")) return;
-          try {
-            for (const item of JSON.parse(raw.slice(1))) {
-              const msg = JSON.parse(item);
-              out.push(msg);
-            }
-          } catch (_) {
-            // Ignore malformed websocket frames.
-          }
-          // Keep the socket open for the whole short window so the chart can use
-          // official TAIFEX tick updates instead of a synthetic line.
-        };
-        ws.onerror = () => { clearTimeout(timer); done(); };
-      });
-      const bySymbol = new Map<string, Record<string, unknown>>();
-      const pointsBySymbol = new Map<string, Array<{ t: string; p: number; a: number }>>();
-      for (const msg of messages as Array<Record<string, unknown>>) {
-        if (msg.type !== "quote") continue;
-        const q = msg.quote as Record<string, unknown> | undefined;
-        const symbol = String(q?.symbol ?? "");
-        const values = q?.values as Record<string, unknown> | undefined;
-        if (!symbol || !values) continue;
-        bySymbol.set(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
-        const row = taifexRow(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
-        if (!row || row.price == null || !row.quote_time) continue;
-        const pts = pointsBySymbol.get(symbol) ?? [];
-        pts.push({ t: row.quote_time, p: Number(row.price), a: Number(row.volume ?? 0) });
-        pointsBySymbol.set(symbol, pts);
-      }
-      let best = null as ReturnType<typeof taifexRow> | null;
-      let bestSymbol = "";
-      for (const [symbol, values] of bySymbol.entries()) {
-        const row = taifexRow(symbol, values);
-        if (!row) continue;
-        if (!best || Number(row.volume ?? 0) > Number(best.volume ?? 0)) {
-          best = row;
-          bestSymbol = symbol;
+  const p = taifexSessionPlan();
+  try {
+    const rows = await searchTaifexTxF(p.referer);
+    const symbols = rows
+      .filter((r: Record<string, unknown>) =>
+        r.Level1ID === p.level &&
+        r.KindID === "1" &&
+        r.SymbolType === "F" &&
+        r.CID === "TXF" &&
+        String(r.SymbolID ?? "").endsWith(p.suffix)
+      )
+      .map((r: Record<string, unknown>) => String(r.SymbolID))
+      .filter((s: string) => s && s !== "TXF-S" && s !== "TXF-P")
+      .slice(0, 8);
+    if (!symbols.length) return null;
+    const sid = Math.random().toString(36).slice(2, 10);
+    const ws = new WebSocket(`wss://mis.taifex.com.tw/futures/rt/000/${sid}/websocket`);
+    const messages = await new Promise<unknown[]>((resolve) => {
+      const out: unknown[] = [];
+      let subscribed = false;
+      const subscribe = () => {
+        if (subscribed || ws.readyState !== WebSocket.OPEN) return;
+        subscribed = true;
+        ws.send(JSON.stringify([JSON.stringify({ type: "subscribe", symbols })]));
+      };
+      const done = () => { try { ws.close(); } catch (_) { /* noop */ } resolve(out); };
+      const timer = setTimeout(done, 5500);
+      ws.onopen = () => setTimeout(subscribe, 1200);
+      ws.onmessage = (ev) => {
+        const raw = String(ev.data ?? "");
+        if (raw === "o") {
+          subscribe();
+          return;
         }
-      }
-      if (best) {
-        const uniq = new Map<string, { t: string; p: number; a: number }>();
-        for (const pt of pointsBySymbol.get(bestSymbol) ?? []) {
-          if (!pt.t || !Number.isFinite(pt.p)) continue;
-          uniq.set(pt.t, pt);
+        if (!raw || raw === "h") return;
+        if (!raw.startsWith("a")) return;
+        try {
+          for (const item of JSON.parse(raw.slice(1))) {
+            const msg = JSON.parse(item);
+            out.push(msg);
+          }
+        } catch (_) {
+          // Ignore malformed websocket frames.
         }
-        const chartPoints = [...uniq.values()].slice(-240);
-        return { ...best, chart_points: chartPoints };
-      }
-    } catch {
-      // Try next TAIFEX session.
+        // Keep the socket open for the whole short window so the chart can use
+        // official TAIFEX tick updates instead of a synthetic line.
+      };
+      ws.onerror = () => { clearTimeout(timer); done(); };
+    });
+    const bySymbol = new Map<string, Record<string, unknown>>();
+    const pointsBySymbol = new Map<string, Array<{ t: string; p: number; a: number }>>();
+    for (const msg of messages as Array<Record<string, unknown>>) {
+      if (msg.type !== "quote") continue;
+      const q = msg.quote as Record<string, unknown> | undefined;
+      const symbol = String(q?.symbol ?? "");
+      const values = q?.values as Record<string, unknown> | undefined;
+      if (!symbol || !values) continue;
+      bySymbol.set(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
+      const row = taifexRow(symbol, { ...(bySymbol.get(symbol) ?? {}), ...values });
+      if (!row || row.price == null || !row.quote_time) continue;
+      const pts = pointsBySymbol.get(symbol) ?? [];
+      pts.push({ t: row.quote_time, p: Number(row.price), a: Number(row.volume ?? 0) });
+      pointsBySymbol.set(symbol, pts);
     }
+    let best = null as ReturnType<typeof taifexRow> | null;
+    let bestSymbol = "";
+    for (const [symbol, values] of bySymbol.entries()) {
+      const row = taifexRow(symbol, values);
+      if (!row) continue;
+      if (!best || Number(row.volume ?? 0) > Number(best.volume ?? 0)) {
+        best = row;
+        bestSymbol = symbol;
+      }
+    }
+    if (best) {
+      const uniq = new Map<string, { t: string; p: number; a: number }>();
+      for (const pt of pointsBySymbol.get(bestSymbol) ?? []) {
+        if (!pt.t || !Number.isFinite(pt.p)) continue;
+        uniq.set(pt.t, pt);
+      }
+      const chartPoints = [...uniq.values()].slice(-240);
+      return { ...best, chart_points: chartPoints };
+    }
+  } catch {
+    // Fixed session failed; keep stale Supabase data instead of crossing sessions.
   }
   return null;
 }

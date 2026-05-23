@@ -277,8 +277,16 @@ def normalize_realtime_row(row):
 
 
 def is_taifex_day_session(now_tw):
+    if now_tw.weekday() > 4:
+        return False
     hm = now_tw.hour * 100 + now_tw.minute
-    return 845 <= hm <= 1345
+    return 845 <= hm <= 1330
+
+
+def taifex_session_plan(now_tw):
+    if is_taifex_day_session(now_tw):
+        return "day", "0", "-F", TAIFEX_REGULAR
+    return "night", "1", "-M", TAIFEX_AFTER_HOURS
 
 
 def taifex_search_txf(session, referer, keyword="\u81fa\u6307\u671f"):
@@ -431,46 +439,41 @@ def fetch_taifex_txf(now_tw):
     try:
         sess = requests.Session()
         sess.headers.update({"User-Agent": HEADERS["User-Agent"]})
-        prefer_day = is_taifex_day_session(now_tw)
-        session_plan = [
-            ("0", "-F", TAIFEX_REGULAR),
-            ("1", "-M", TAIFEX_AFTER_HOURS),
+        session_key, level_id, suffix, referer = taifex_session_plan(now_tw)
+        rows = taifex_search_txf(sess, referer)
+        symbols = [
+            r.get("SymbolID")
+            for r in rows
+            if r.get("Level1ID") == level_id
+            and r.get("KindID") == "1"
+            and r.get("SymbolType") == "F"
+            and r.get("CID") == "TXF"
+            and str(r.get("SymbolID") or "").endswith(suffix)
         ]
-        if not prefer_day:
-            session_plan.reverse()
-        rows = taifex_search_txf(sess, session_plan[0][2])
-        for level_id, suffix, referer in session_plan:
-            symbols = [
-                r.get("SymbolID")
-                for r in rows
-                if r.get("Level1ID") == level_id
-                and r.get("KindID") == "1"
-                and r.get("SymbolType") == "F"
-                and r.get("CID") == "TXF"
-                and str(r.get("SymbolID") or "").endswith(suffix)
-            ]
-            symbols = [s for s in symbols if s and s not in ("TXF-S", "TXF-P")][:8]
-            if not symbols:
+        symbols = [s for s in symbols if s and s not in ("TXF-S", "TXF-P")][:8]
+        if not symbols:
+            log(f"  TAIFEX TXF {session_key} no symbols from fixed session")
+            return None
+        by_symbol = {s: {} for s in symbols}
+        for msg in taifex_sockjs_messages(symbols, referer):
+            if msg.get("type") != "quote":
                 continue
-            by_symbol = {s: {} for s in symbols}
-            for msg in taifex_sockjs_messages(symbols, referer):
-                if msg.get("type") != "quote":
-                    continue
-                quote = msg.get("quote") or {}
-                symbol = quote.get("symbol")
-                if symbol in by_symbol:
-                    by_symbol[symbol].update(quote.get("values") or {})
-            best_symbol, best_values = None, None
-            for symbol, values in by_symbol.items():
-                row = taifex_quote_to_row(symbol, values)
-                if not row:
-                    continue
-                if best_values is None or taifex_quote_score(values) > taifex_quote_score(best_values):
-                    best_symbol, best_values = symbol, values
-            if best_symbol and best_values:
-                row = taifex_quote_to_row(best_symbol, best_values)
-                log(f"  TAIFEX TXF {best_symbol} price={row.get('price')} change={row.get('change')} vol={row.get('volume')}")
-                return row
+            quote = msg.get("quote") or {}
+            symbol = quote.get("symbol")
+            if symbol in by_symbol:
+                by_symbol[symbol].update(quote.get("values") or {})
+        best_symbol, best_values = None, None
+        for symbol, values in by_symbol.items():
+            row = taifex_quote_to_row(symbol, values)
+            if not row:
+                continue
+            if best_values is None or taifex_quote_score(values) > taifex_quote_score(best_values):
+                best_symbol, best_values = symbol, values
+        if best_symbol and best_values:
+            row = taifex_quote_to_row(best_symbol, best_values)
+            row["source"] = "TAIFEX_MIS_RT_DAY" if session_key == "day" else "TAIFEX_MIS_RT_NIGHT"
+            log(f"  TAIFEX TXF {session_key} {best_symbol} price={row.get('price')} change={row.get('change')} vol={row.get('volume')}")
+            return row
         return None
     except Exception as exc:
         log(f"  TAIFEX TXF realtime skipped: {exc}")

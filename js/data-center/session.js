@@ -3,12 +3,16 @@
  * 統一管理台灣市場時段與資料模式。
  *
  * 目前規則：
- * - 週一到週五 08:45-13:30：早盤資料 + 即時資料
- * - 13:30 後：盤後資料 + 台指期夜盤即時資料
- * - 夜盤跨日 00:00-05:05：仍視為前一交易日夜盤
+ * - 週一到週五 08:45-13:30：早盤資料 + 即時資料，台指期固定抓早盤網址
+ * - 其他所有時間：盤後資料 + 台指期夜盤即時資料
+ * - 週五 13:30 後一路維持夜盤模式，直到週一 08:45 才恢復早盤
  */
 (function(){
   const dc=window.DATA_CENTER;
+  const TAIFEX_URLS={
+    day:'https://mis.taifex.com.tw/futures/RegularSession/EquityIndices/FuturesDomestic/',
+    night:'https://mis.taifex.com.tw/futures/AfterHoursSession/EquityIndices/FuturesDomestic/'
+  };
   const RULES={
     dayStart:8*60+45,
     dayEnd:13*60+30,
@@ -26,11 +30,11 @@
   function isWeekday(p){
     return ['Mon','Tue','Wed','Thu','Fri'].includes(p.weekday);
   }
-  function isEarlyNightCarry(p){
-    return ['Tue','Wed','Thu','Fri','Sat'].includes(p.weekday) && p.total<=5*60+5;
+  function isDayWindow(p){
+    return isWeekday(p) && p.total>=RULES.dayStart && p.total<=RULES.dayEnd;
   }
   function session(p=taipeiParts()){
-    if(isWeekday(p) && p.total>=RULES.dayStart && p.total<=RULES.dayEnd){
+    if(isDayWindow(p)){
       return {
         id:'day_realtime',
         stockSource:'realtime',
@@ -43,29 +47,16 @@
         useNightFutures:false
       };
     }
-    if((isWeekday(p) && p.total>RULES.dayEnd) || isEarlyNightCarry(p)){
-      return {
-        id:'after_hours_night',
-        stockSource:'after_hours',
-        market:'after_hours',
-        futures:'night',
-        label:'盤後 / 夜盤',
-        useStockRealtime:false,
-        useFuturesRealtime:true,
-        useAfterHours:true,
-        useNightFutures:true
-      };
-    }
     return {
-      id:'after_hours',
+      id:'after_hours_night',
       stockSource:'after_hours',
       market:'after_hours',
-      futures:'day',
-      label:'盤後',
+      futures:'night',
+      label:'盤後 / 夜盤',
       useStockRealtime:false,
-      useFuturesRealtime:false,
+      useFuturesRealtime:true,
       useAfterHours:true,
-      useNightFutures:false
+      useNightFutures:true
     };
   }
   function isRealtimeNow(){
@@ -80,6 +71,9 @@
   }
   function isDayMarketOpen(){
     return session().id==='day_realtime';
+  }
+  function futuresUrl(key=session().futures){
+    return key==='day' ? TAIFEX_URLS.day : TAIFEX_URLS.night;
   }
   function shouldPreferRealtimeStock(live,daily){
     const liveClose=Number(live&&live.close);
@@ -113,6 +107,7 @@
   }
   const manager={
     RULES,
+    TAIFEX_URLS,
     taipeiParts,
     session,
     current:session,
@@ -120,6 +115,7 @@
     isStockRealtimeNow,
     isFuturesRealtimeNow,
     isDayMarketOpen,
+    futuresUrl,
     shouldPreferRealtimeStock,
     futuresSession,
     futuresProgress
