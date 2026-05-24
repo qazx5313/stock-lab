@@ -61,7 +61,15 @@ function vStock(){
    ${stockDecisionPanel(s)}
 
    <div class="card">
-     <div class="card-h"><h3>TradingView 技術分析</h3><span class="tag">近 200 日 K 線 · 成交量 · MA5/10/20/60 · RSI/KD/MACD</span></div>
+     <div class="card-h">
+       <h3>TradingView 技術分析</h3><span class="tag">K 線 · 成交量 · MA5/10/20/60 · RSI/KD/MACD</span>
+       <div class="tv-zoom-controls">
+         <button type="button" class="tv-zoom-btn" data-tv-zoom="in">＋</button>
+         <button type="button" class="tv-zoom-btn" data-tv-zoom="out">－</button>
+         <button type="button" class="tv-zoom-btn wide" data-tv-zoom="reset">重設</button>
+         <span id="tvZoomLabel" class="tv-zoom-label">—</span>
+       </div>
+     </div>
      <div class="tv-wrap">
        <div id="tvStockChart" class="tv-chart"></div>
      </div>
@@ -139,8 +147,34 @@ function vStock(){
 
 /* 手繪 canvas 圖表（無外部依賴，GitHub Pages 直接可用） */
 /* 抓該股真實歷史，轉成 K 線格式存 DATA.stock.series */
-const STOCK_CHART_VISIBLE_DAYS=260;
+const STOCK_CHART_VISIBLE_DAYS=180;
+const STOCK_CHART_MIN_DAYS=45;
+const STOCK_CHART_MAX_DAYS=360;
 const STOCK_HISTORY_FETCH_LIMIT=650;
+let stockChartVisibleDays=STOCK_CHART_VISIBLE_DAYS;
+
+function getStockChartVisibleDays(){
+  return Math.max(STOCK_CHART_MIN_DAYS,Math.min(STOCK_CHART_MAX_DAYS,Number(stockChartVisibleDays)||STOCK_CHART_VISIBLE_DAYS));
+}
+function setStockChartVisibleDays(days){
+  stockChartVisibleDays=Math.max(STOCK_CHART_MIN_DAYS,Math.min(STOCK_CHART_MAX_DAYS,Math.round(Number(days)||STOCK_CHART_VISIBLE_DAYS)));
+  renderTradingViewStockChart();
+}
+function adjustStockChartZoom(direction){
+  const cur=getStockChartVisibleDays();
+  const step=cur>220?40:(cur>100?20:10);
+  if(direction==='in') setStockChartVisibleDays(cur-step);
+  else if(direction==='out') setStockChartVisibleDays(cur+step);
+  else setStockChartVisibleDays(STOCK_CHART_VISIBLE_DAYS);
+}
+function bindStockChartZoomControls(){
+  const label=document.getElementById('tvZoomLabel');
+  const days=getStockChartVisibleDays();
+  if(label) label.textContent=`顯示 ${days} 根`;
+  document.querySelectorAll('[data-tv-zoom]').forEach(btn=>{
+    btn.onclick=()=>adjustStockChartZoom(btn.dataset.tvZoom);
+  });
+}
 
 function refreshStockSeriesWithLiveQuote(sym,live){
   const series=Array.isArray(DATA.stock&&DATA.stock.series)?DATA.stock.series:null;
@@ -330,8 +364,9 @@ function loadLightweightCharts(){
 function renderTradingViewStockChart(){
   const el=document.getElementById('tvStockChart');
   if(!el) return;
-  const chartData=buildStockChartData(DATA.stock&&DATA.stock.series,STOCK_CHART_VISIBLE_DAYS);
+  const chartData=buildStockChartData(DATA.stock&&DATA.stock.series,getStockChartVisibleDays());
   const rows=chartData.rows;
+  bindStockChartZoomControls();
   if(rows.length<2){
     el.innerHTML='<div class="muted" style="padding:18px">此股票 K 棒資料不足，請先更新每日資料。</div>';
     return;
@@ -347,6 +382,10 @@ function renderTradingViewStockChart(){
     drawTradingStyleCanvas(canvas, chartData, {x:ev.clientX-rect.left,y:ev.clientY-rect.top});
   };
   canvas.onmouseleave=()=>drawTradingStyleCanvas(canvas, chartData);
+  canvas.onwheel=ev=>{
+    ev.preventDefault();
+    adjustStockChartZoom(ev.deltaY<0?'in':'out');
+  };
 }
 
 function calcMaRows(rows,len){
@@ -366,7 +405,7 @@ function indicatorRows(rows,vals){
 }
 
 function drawTradingStyleCanvas(canvas, chartData, hover){
-  const payload=Array.isArray(chartData)?buildStockChartData(chartData,STOCK_CHART_VISIBLE_DAYS):(chartData||{});
+  const payload=Array.isArray(chartData)?buildStockChartData(chartData,getStockChartVisibleDays()):(chartData||{});
   const rows=Array.isArray(payload.rows)?payload.rows:[];
   if(!canvas||!rows||rows.length<2) return;
   const indicators=payload.indicators||{};
@@ -677,12 +716,13 @@ function findStableStockChartStart(rows,visibleDays=STOCK_CHART_VISIBLE_DAYS){
 }
 function buildStockChartData(series,visibleDays=STOCK_CHART_VISIBLE_DAYS){
   const clean=normalizeStockSeries(series||[]);
-  const stableStart=findStableStockChartStart(clean,visibleDays);
+  const days=Math.max(STOCK_CHART_MIN_DAYS,Math.min(STOCK_CHART_MAX_DAYS,Number(visibleDays)||STOCK_CHART_VISIBLE_DAYS));
+  const stableStart=findStableStockChartStart(clean,Math.min(clean.length,STOCK_CHART_MAX_DAYS));
   const scoped=clean.slice(stableStart);
   const closes=scoped.map(r=>Number(r.c));
   const highs=scoped.map(r=>Number(r.h));
   const lows=scoped.map(r=>Number(r.l));
-  const start=Math.max(0,scoped.length-visibleDays);
+  const start=Math.max(0,scoped.length-days);
   const slice=arr=>(arr||[]).slice(start);
   const macd=calcMACDSeries(closes);
   const kd=calcKDSeries(highs,lows,closes,9);
