@@ -4,12 +4,20 @@ from phase6_common import log, safe_status
 from sb_common import sb_select, sb_upsert
 
 
+def safe_select(table, query, page_size=20, max_rows=20):
+    try:
+        return sb_select(table, query, page_size=page_size, max_rows=max_rows)
+    except Exception as exc:
+        log(f"  {table} 讀取略過: {exc}")
+        return []
+
+
 def _top(rows, n=5):
     return rows[:n] if rows else []
 
 
 def load_themes():
-    rows = sb_select(
+    rows = safe_select(
         "themes",
         "select=theme_name,description,heat_score,trend_status&order=heat_score.desc",
         page_size=20,
@@ -36,12 +44,12 @@ def main():
         if not report_date:
             raise RuntimeError("找不到 daily_prices 最新交易日")
 
-        indexes = sb_select("market_index", "select=date,market,index_value,change,change_percent,amount&order=date.desc", page_size=10, max_rows=10)
+        indexes = safe_select("market_index", "select=date,market,index_value,change,change_percent,amount&order=date.desc", page_size=10, max_rows=10)
         themes = load_themes()
-        patterns = sb_select("detected_patterns", "select=symbol,name,pattern_type,confidence_score,reason&order=date.desc,confidence_score.desc", page_size=20, max_rows=20)
-        strategy_hits = sb_select("strategy_results", "select=symbol,name,strategy_name,score,reason&order=date.desc,score.desc", page_size=20, max_rows=20)
-        risks = sb_select("mainforce_behaviors", "select=symbol,name,behavior_type,confidence_score,risk_level,evidence&order=date.desc,confidence_score.desc", page_size=20, max_rows=20)
-        ai_actions = sb_select("ai_trades", "select=symbol,trade_type,side,price,reason,trade_date,date&order=id.desc", page_size=12, max_rows=12)
+        patterns = safe_select("detected_patterns", "select=symbol,name,pattern_type,confidence_score,reason&order=date.desc,confidence_score.desc", page_size=20, max_rows=20)
+        strategy_hits = safe_select("strategy_results", "select=symbol,name,strategy_name,score,reason&order=date.desc,score.desc", page_size=20, max_rows=20)
+        risks = safe_select("mainforce_behaviors", "select=symbol,name,behavior_type,confidence_score,risk_level,evidence&order=date.desc,confidence_score.desc", page_size=20, max_rows=20)
+        ai_actions = safe_select("ai_trades", "select=*&order=id.desc", page_size=12, max_rows=12)
 
         twse = next((x for x in indexes if x.get("market") in ("TWSE", "上市", "TAIEX")), None)
         tpex = next((x for x in indexes if x.get("market") in ("TPEX", "上櫃", "TPEx")), None)

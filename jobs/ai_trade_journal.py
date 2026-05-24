@@ -52,6 +52,29 @@ def safe_select(table, query, page_size=250, max_rows=250):
         return []
 
 
+def first_value(row, keys, default=None):
+    for key in keys:
+        value = row.get(key)
+        if value not in (None, ""):
+            return value
+    return default
+
+
+def normalize_date(row, default=None):
+    value = first_value(row, ("trade_date", "date", "buy_date", "sell_date", "entry_date", "exit_date", "created_at", "updated_at"))
+    if value:
+        return str(value)[:10]
+    return default
+
+
+def normalize_trade_type(row, default="檢討"):
+    return first_value(row, ("trade_type", "side", "action", "type", "status"), default)
+
+
+def normalize_reason(row):
+    return first_value(row, ("reason", "note", "buy_reason", "sell_reason", "agent_reason", "decision_reason", "matched_conditions"), "")
+
+
 def synthetic_trade_id(prefix, *parts):
     raw = "|".join(str(p or "") for p in parts)
     return int(prefix) + zlib.crc32(raw.encode("utf-8"))
@@ -69,10 +92,8 @@ def main():
     try:
         stock_map = load_stock_map()
         series = load_price_series()
-        trades = safe_select("ai_trades", "select=id,agent_id,symbol,trade_date,date,trade_type,side,price,trade_price,reason,note&order=id.desc", page_size=250, max_rows=250)
-        if not trades:
-            trades = safe_select("ai_trades", "select=*&order=id.desc", page_size=250, max_rows=250)
-        positions = safe_select("ai_positions", "select=id,agent_id,symbol,name,buy_date,buy_price,current_price,quantity,buy_reason,reason,status&status=eq.持有&order=id.desc", page_size=250, max_rows=250)
+        trades = safe_select("ai_trades", "select=*&order=id.desc", page_size=250, max_rows=250)
+        positions = safe_select("ai_positions", "select=*&status=eq.持有&order=id.desc", page_size=250, max_rows=250)
         rows = []
         review_date = max((prices[-1]["date"] for prices in series.values() if prices), default=None) or dt.date.today().isoformat()
         seen = set()
@@ -80,16 +101,19 @@ def main():
             symbol = str(trade.get("symbol") or "").strip()
             if not symbol:
                 continue
-            trade_id = normalize_trade_id(trade.get("id"), trade.get("agent_id"), symbol, trade.get("trade_date") or trade.get("date"), trade.get("price") or trade.get("trade_price"))
+            trade_date = normalize_date(trade, review_date)
+            trade_id = normalize_trade_id(trade.get("id"), trade.get("agent_id"), symbol, trade_date, trade.get("price") or trade.get("trade_price"))
             prices = series.get(symbol, [])
+            trade["reason"] = normalize_reason(trade)
+            trade["trade_type"] = normalize_trade_type(trade)
             mistake, summary, suggestion = classify_trade(trade, prices)
             rows.append({
                 "trade_id": trade_id,
                 "agent_id": trade.get("agent_id"),
                 "symbol": symbol,
                 "name": stock_name(stock_map, symbol),
-                "trade_date": trade.get("trade_date") or trade.get("date"),
-                "trade_type": trade.get("trade_type") or trade.get("side"),
+                "trade_date": trade_date,
+                "trade_type": normalize_trade_type(trade),
                 "review_date": review_date,
                 "result_summary": summary,
                 "mistake_type": mistake,
@@ -109,7 +133,7 @@ def main():
             pseudo = {
                 "price": pos.get("buy_price"),
                 "trade_price": pos.get("buy_price"),
-                "reason": pos.get("buy_reason") or pos.get("reason"),
+                "reason": normalize_reason(pos),
                 "trade_type": "持股檢討",
             }
             prices = series.get(symbol, [])
