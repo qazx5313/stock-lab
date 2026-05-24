@@ -410,7 +410,12 @@ function drawTradingStyleCanvas(canvas, chartData, hover){
   const rsi55=indicators.rsi55||calcRSISeries(closes,55);
   const hoverIdx=hover&&Number.isFinite(hover.x)?Math.max(0,Math.min(n-1,Math.round((hover.x-L-bw/2)/bw))):n-1;
   const hrow=rows[hoverIdx]||rows[n-1];
-  const hv=(arr)=>{const v=Number(arr&&arr[hoverIdx]);return Number.isFinite(v)?v:null;};
+  const hv=(arr)=>{
+    const raw=arr&&arr[hoverIdx];
+    if(raw==null) return null;
+    const v=Number(raw);
+    return Number.isFinite(v)?v:null;
+  };
   const grid=(p,steps=4)=>{
     x.strokeStyle='#EAF0F7';x.lineWidth=1;
     for(let i=0;i<=steps;i++){const yy=p.y+i*p.h/steps;x.beginPath();x.moveTo(L,yy);x.lineTo(W-R,yy);x.stroke();}
@@ -439,11 +444,18 @@ function drawTradingStyleCanvas(canvas, chartData, hover){
   drawPanelValueLabel(x,panels[4],[['RSI 相對強弱指標',''],['RSI(9)',fmtInd(hv(rsi9)),'#F59E0B'],['RSI(55)',fmtInd(hv(rsi55)),'#06B6D4']]);
   const priceVals=rows.flatMap(r=>[Number(r.h),Number(r.l)]).filter(Number.isFinite);
   const py=axis(panels[0],priceVals,v=>v.toFixed(2)).Y;
-  const drawLine=(vals,color,p=panels[0],fixedAxis=null)=>{
-    const clean=vals.map(Number);
+  const drawLine=(vals,color,p=panels[0],fixedAxis=null,opt={})=>{
+    const clean=(vals||[]).map(v=>v==null?NaN:Number(v));
     const yFn=fixedAxis||axis(p,clean, v=>Math.abs(v)>=10?v.toFixed(2):v.toFixed(3)).Y;
-    x.strokeStyle=color;x.lineWidth=2;x.beginPath();let started=false;
-    clean.forEach((v,i)=>{if(!Number.isFinite(v))return;const xx=X(i),yy=yFn(v);if(!started){x.moveTo(xx,yy);started=true;}else x.lineTo(xx,yy);});
+    x.strokeStyle=color;x.lineWidth=2;x.beginPath();let started=false,prevY=null,prevV=null;
+    clean.forEach((v,i)=>{
+      if(!Number.isFinite(v)){started=false;prevY=null;prevV=null;return;}
+      const xx=X(i),yy=yFn(v);
+      const jumpY=prevY!=null&&Math.abs(yy-prevY)>p.h*(opt.maxPanelJump||.45);
+      const jumpV=prevV!=null&&Math.abs(v-prevV)/Math.max(Math.abs(prevV),1)>Number(opt.maxValueJump||Infinity);
+      if(!started||jumpY||jumpV){x.moveTo(xx,yy);started=true;}else x.lineTo(xx,yy);
+      prevY=yy;prevV=v;
+    });
     x.stroke();
     return yFn;
   };
@@ -456,7 +468,7 @@ function drawTradingStyleCanvas(canvas, chartData, hover){
     x.fillRect(xx-bodyW/2,y1,bodyW,Math.max(2,y2-y1));
   });
   [[ma5,'#F59E0B'],[ma10,'#2563EB'],[ma20,'#7C3AED'],[ma60,'#64748B']].forEach(([vals,color])=>{
-    drawLine(vals,color,panels[0],py);
+    drawLine(vals,color,panels[0],py,{maxValueJump:.18,maxPanelJump:.5});
   });
   const last=rows[rows.length-1];
   if(last&&Number.isFinite(Number(last.c))){
@@ -466,10 +478,10 @@ function drawTradingStyleCanvas(canvas, chartData, hover){
   const vp=panels[1],vmx=Math.max(...vols,1),vY=v=>vp.y+vp.h-(v/vmx)*(vp.h-18);
   rows.forEach((r,i)=>{const v=vols[i],xx=X(i),up=Number(r.c)>=Number(r.o);x.fillStyle=up?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),vY(v),Math.max(2,bw*.64),vp.y+vp.h-vY(v));});
   x.fillStyle='#475569';x.textAlign='left';x.font='11px var(--mono), monospace';x.fillText(Math.round(vmx).toLocaleString('en-US'),W-R+8,vp.y+12);
-  const mp=panels[2],mvals=[...macd.dif,...macd.signal,...macd.hist].map(Number).filter(Number.isFinite);
+  const mp=panels[2],mvals=[...macd.dif,...macd.signal,...macd.hist].filter(v=>v!=null).map(Number).filter(Number.isFinite);
   const mMax=Math.max(...mvals.map(Math.abs),.01),mY=v=>mp.y+mp.h/2-(v/mMax)*(mp.h*.42);
   x.strokeStyle='#CBD5E1';x.beginPath();x.moveTo(L,mY(0));x.lineTo(W-R,mY(0));x.stroke();
-  macd.hist.forEach((v,i)=>{v=Number(v);if(!Number.isFinite(v))return;const xx=X(i),yy=mY(v);x.fillStyle=v>=0?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),Math.min(mY(0),yy),Math.max(2,bw*.64),Math.abs(mY(0)-yy));});
+  macd.hist.forEach((v,i)=>{if(v==null)return;v=Number(v);if(!Number.isFinite(v))return;const xx=X(i),yy=mY(v);x.fillStyle=v>=0?'rgba(220,38,38,.55)':'rgba(22,163,74,.55)';x.fillRect(xx-Math.max(2,bw*.32),Math.min(mY(0),yy),Math.max(2,bw*.64),Math.abs(mY(0)-yy));});
   drawLine(macd.dif,'#2563EB',mp,mY);drawLine(macd.signal,'#F59E0B',mp,mY);
   const kp=panels[3],kY=v=>kp.y+8+(100-v)/100*(kp.h-16);
   axis(kp,[0,50,100],v=>v.toFixed(0));drawLine(kd.k,'#F59E0B',kp,kY);drawLine(kd.d,'#06B6D4',kp,kY);
@@ -616,17 +628,29 @@ function calcMovingAverageValues(vals,len){
   });
   return out;
 }
+function findStableStockChartStart(rows,visibleDays=STOCK_CHART_VISIBLE_DAYS){
+  if(!Array.isArray(rows)||rows.length<2) return 0;
+  const minStart=Math.max(0,rows.length-visibleDays);
+  let start=minStart;
+  for(let i=minStart+1;i<rows.length;i++){
+    const gap=dateGapDays(rows[i-1].d,rows[i].d);
+    if(gap>10 && rows.length-i>=45) start=i;
+  }
+  return start;
+}
 function buildStockChartData(series,visibleDays=STOCK_CHART_VISIBLE_DAYS){
   const clean=normalizeStockSeries(series||[]);
-  const closes=clean.map(r=>Number(r.c));
-  const highs=clean.map(r=>Number(r.h));
-  const lows=clean.map(r=>Number(r.l));
-  const start=Math.max(0,clean.length-visibleDays);
+  const stableStart=findStableStockChartStart(clean,visibleDays);
+  const scoped=clean.slice(stableStart);
+  const closes=scoped.map(r=>Number(r.c));
+  const highs=scoped.map(r=>Number(r.h));
+  const lows=scoped.map(r=>Number(r.l));
+  const start=Math.max(0,scoped.length-visibleDays);
   const slice=arr=>(arr||[]).slice(start);
   const macd=calcMACDSeries(closes);
   const kd=calcKDSeries(highs,lows,closes,9);
   return {
-    rows:clean.slice(start),
+    rows:scoped.slice(start),
     indicators:{
       ma5:slice(calcMovingAverageValues(closes,5)),
       ma10:slice(calcMovingAverageValues(closes,10)),
