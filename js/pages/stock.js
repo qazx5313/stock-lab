@@ -139,8 +139,8 @@ function vStock(){
 
 /* 手繪 canvas 圖表（無外部依賴，GitHub Pages 直接可用） */
 /* 抓該股真實歷史，轉成 K 線格式存 DATA.stock.series */
-const STOCK_CHART_VISIBLE_DAYS=200;
-const STOCK_HISTORY_FETCH_LIMIT=420;
+const STOCK_CHART_VISIBLE_DAYS=260;
+const STOCK_HISTORY_FETCH_LIMIT=650;
 
 function refreshStockSeriesWithLiveQuote(sym,live){
   const series=Array.isArray(DATA.stock&&DATA.stock.series)?DATA.stock.series:null;
@@ -630,13 +630,7 @@ function calcMovingAverageValues(vals,len){
 }
 function findStableStockChartStart(rows,visibleDays=STOCK_CHART_VISIBLE_DAYS){
   if(!Array.isArray(rows)||rows.length<2) return 0;
-  const minStart=Math.max(0,rows.length-visibleDays);
-  let start=minStart;
-  for(let i=minStart+1;i<rows.length;i++){
-    const gap=dateGapDays(rows[i-1].d,rows[i].d);
-    if(gap>10 && rows.length-i>=45) start=i;
-  }
-  return start;
+  return Math.max(0,rows.length-visibleDays);
 }
 function buildStockChartData(series,visibleDays=STOCK_CHART_VISIBLE_DAYS){
   const clean=normalizeStockSeries(series||[]);
