@@ -1,0 +1,66 @@
+name: Yahoo 1Y K Bars Backfill
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "要從 Yahoo 補幾個日曆日的日 K，預設 365"
+        required: true
+        default: "365"
+      symbols:
+        description: "只補指定股票，逗號分隔；空白代表全部普通股"
+        required: false
+        default: ""
+      limit:
+        description: "測試用，只跑前 N 檔；0 代表不限制"
+        required: false
+        default: "0"
+
+jobs:
+  yahoo-kbars:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Backfill Yahoo one-year K bars
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          INPUT_SYMBOLS: ${{ github.event.inputs.symbols }}
+          INPUT_LIMIT: ${{ github.event.inputs.limit }}
+        run: |
+          args=(--days "${{ github.event.inputs.days }}")
+          if [ -n "$INPUT_SYMBOLS" ]; then
+            args+=(--symbols "$INPUT_SYMBOLS")
+          fi
+          if [ -n "$INPUT_LIMIT" ] && [ "$INPUT_LIMIT" != "0" ]; then
+            args+=(--limit "$INPUT_LIMIT")
+          fi
+          python backfill_yahoo_kbars.py "${args[@]}"
+
+      - name: Recompute signals after Yahoo backfill
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python compute_signals.py
+
+      - name: Recompute patterns after Yahoo backfill
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python compute_patterns.py
