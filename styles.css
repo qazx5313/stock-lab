@@ -452,6 +452,8 @@
     align-items:end;gap:14px;
   }
   .map-major-field label,.map-select-field label,.map-search-field label{margin-bottom:5px}
+  .map-search-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
+  .map-search-row .btn{height:40px;padding:0 16px;border-radius:10px}
   .map-count{
     display:flex;align-items:baseline;gap:6px;justify-content:flex-end;
     min-width:92px;padding-bottom:7px;color:var(--ink-2);font-size:12px;font-weight:800;
@@ -507,6 +509,7 @@
     .pick-grid,.dash-metrics,.market-summary-grid,.dashboard-table-grid{grid-template-columns:1fr}
     .account-grid,.admin-online-grid{grid-template-columns:1fr}
     .map-controls{grid-template-columns:1fr;align-items:stretch}
+    .map-search-row{grid-template-columns:1fr}
     .map-count{justify-content:flex-start;padding-bottom:0}
     .decision-head{flex-direction:column}
     .decision-body{grid-template-columns:1fr}

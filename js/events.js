@@ -26,34 +26,28 @@ function bindPage(id){
     go('map');
   };
   const mapStockSearch=document.getElementById('mapStockSearch');
+  const runMapSearch=()=>{
+    if(mapStockSearch) MAP_QUERY=mapStockSearch.value||'';
+    if(typeof mapFindThemeByQuery==='function'){
+      const hit=mapFindThemeByQuery(MAP_QUERY);
+      if(hit){
+        MAP_SEL=hit.id;
+        if(typeof themeParts==='function') MAP_MAJOR=themeParts(hit.name).major;
+      }
+    }
+    go('map');
+  };
   if(mapStockSearch) mapStockSearch.oninput=()=>{
     MAP_QUERY=mapStockSearch.value||'';
-    clearTimeout(window.__mapSearchTimer);
-    window.__mapSearchTimer=setTimeout(()=>{
-      if(typeof mapFindThemeByQuery==='function'){
-        const hit=mapFindThemeByQuery(MAP_QUERY);
-        if(hit && hit.id!==MAP_SEL){
-          MAP_SEL=hit.id;
-          if(typeof themeParts==='function') MAP_MAJOR=themeParts(hit.name).major;
-        }
-      }
-      if(CUR==='map') go('map');
-    },220);
   };
   if(mapStockSearch) mapStockSearch.onkeydown=e=>{
     if(e.key==='Enter'){
-      clearTimeout(window.__mapSearchTimer);
-      MAP_QUERY=mapStockSearch.value||'';
-      if(typeof mapFindThemeByQuery==='function'){
-        const hit=mapFindThemeByQuery(MAP_QUERY);
-        if(hit){
-          MAP_SEL=hit.id;
-          if(typeof themeParts==='function') MAP_MAJOR=themeParts(hit.name).major;
-        }
-      }
-      go('map');
+      e.preventDefault();
+      runMapSearch();
     }
   };
+  const mapSearchBtn=document.getElementById('mapSearchBtn');
+  if(mapSearchBtn) mapSearchBtn.onclick=runMapSearch;
   document.querySelectorAll('[data-map-market]').forEach(el=>el.onclick=()=>{
     MAP_MARKET=el.dataset.mapMarket==='TPEX'?'TPEX':'TWSE';
     const first=(typeof mapThemesForMajor==='function'?mapThemesForMajor(MAP_MAJOR):[])[0]||(typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]))[0];

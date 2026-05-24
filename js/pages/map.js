@@ -38,7 +38,10 @@ function vMap(){
      </div>
      <div class="field map-search-field">
        <label>搜尋題材 / 個股</label>
-       <input id="mapStockSearch" value="${esc(MAP_QUERY)}" list="mapThemeSuggestions" placeholder="輸入題材、細產業、股票代號或名稱">
+       <div class="map-search-row">
+         <input id="mapStockSearch" value="${esc(MAP_QUERY)}" list="mapThemeSuggestions" placeholder="輸入後按 Enter 搜尋">
+         <button id="mapSearchBtn" class="btn primary" type="button">搜尋</button>
+       </div>
        <datalist id="mapThemeSuggestions">${themeOptions}</datalist>
      </div>
      <div class="map-count">
