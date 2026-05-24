@@ -599,6 +599,49 @@ function trimUnstableStockHistory(rows){
   const trimmed=rows.slice(start);
   return trimmed.length>=80?trimmed:rows;
 }
+function medianNumber(values){
+  const vals=(values||[]).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  if(!vals.length) return null;
+  const mid=Math.floor(vals.length/2);
+  return vals.length%2?vals[mid]:(vals[mid-1]+vals[mid])/2;
+}
+function repairStockOutlierBars(rows){
+  if(!Array.isArray(rows)||rows.length<8) return rows||[];
+  const repaired=[];
+  rows.forEach((raw,i)=>{
+    const r={...raw};
+    const prev=repaired[repaired.length-1]||rows[i-1];
+    const next=rows[i+1];
+    const neighbor=medianNumber([
+      rows[i-3]&&rows[i-3].c,
+      rows[i-2]&&rows[i-2].c,
+      prev&&prev.c,
+      next&&next.c,
+      rows[i+2]&&rows[i+2].c,
+      rows[i+3]&&rows[i+3].c
+    ]);
+    const c=Number(r.c),o=Number(r.o);
+    if(!Number.isFinite(c)||c<=0) return;
+    if(neighbor&&neighbor>0){
+      const prevClose=Number(prev&&prev.c);
+      const nextClose=Number(next&&next.c);
+      const prevJump=Number.isFinite(prevClose)&&prevClose>0?Math.abs(c-prevClose)/prevClose:0;
+      const nextJump=Number.isFinite(nextClose)&&nextClose>0?Math.abs(c-nextClose)/nextClose:0;
+      const neighborStable=Number.isFinite(prevClose)&&Number.isFinite(nextClose)&&Math.abs(prevClose-nextClose)/neighbor<0.18;
+      const isolatedClose=Math.abs(c-neighbor)/neighbor>0.28&&(neighborStable||(prevJump>0.25&&nextJump>0.25));
+      if(isolatedClose) return;
+      const coreHigh=Math.max(Number.isFinite(o)?o:c,c,neighbor);
+      const coreLow=Math.min(Number.isFinite(o)?o:c,c,neighbor);
+      const h=Number(r.h),l=Number(r.l);
+      if(Number.isFinite(h)&&h>coreHigh*1.22) r.h=Math.max(Number.isFinite(o)?o:c,c);
+      if(Number.isFinite(l)&&l<coreLow*0.78) r.l=Math.min(Number.isFinite(o)?o:c,c);
+    }
+    r.h=Math.max(Number(r.h)||c,Number(r.o)||c,c);
+    r.l=Math.min(Number(r.l)||c,Number(r.o)||c,c);
+    if(r.h>0&&r.l>0&&r.h>=r.l) repaired.push(r);
+  });
+  return repaired.length>=Math.min(30,rows.length*.7)?repaired:rows;
+}
 function normalizeStockSeries(rows){
   const byDate=new Map();
   (rows||[]).forEach(r=>{
@@ -614,7 +657,7 @@ function normalizeStockSeries(rows){
     const sameBar=p&&['o','h','l','c','v'].every(k=>Number(p[k]||0)===Number(r[k]||0));
     if(!sameBar) out.push(r);
   });
-  return trimUnstableStockHistory(out);
+  return trimUnstableStockHistory(repairStockOutlierBars(out));
 }
 function calcMovingAverageValues(vals,len){
   const out=Array(vals.length).fill(null);

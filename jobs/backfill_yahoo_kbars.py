@@ -156,6 +156,74 @@ def valid_ohlc(open_p, high, low, close):
     return True
 
 
+def median_number(values):
+    vals = []
+    for v in values:
+        num = as_float(v)
+        if num is not None and num > 0:
+            vals.append(num)
+    vals.sort()
+    if not vals:
+        return None
+    mid = len(vals) // 2
+    if len(vals) % 2:
+        return vals[mid]
+    return (vals[mid - 1] + vals[mid]) / 2
+
+
+def repair_ohlc_outliers(rows):
+    """清掉 Yahoo 偶發的孤立錯價或離譜上下影線，避免污染技術指標。"""
+    if len(rows) < 8:
+        return rows
+    repaired = []
+    for i, raw in enumerate(rows):
+        row = dict(raw)
+        prev = repaired[-1] if repaired else (rows[i - 1] if i > 0 else None)
+        nxt = rows[i + 1] if i + 1 < len(rows) else None
+        neighbor = median_number(
+            [
+                rows[i - 3]["close"] if i - 3 >= 0 else None,
+                rows[i - 2]["close"] if i - 2 >= 0 else None,
+                prev.get("close") if prev else None,
+                nxt.get("close") if nxt else None,
+                rows[i + 2]["close"] if i + 2 < len(rows) else None,
+                rows[i + 3]["close"] if i + 3 < len(rows) else None,
+            ]
+        )
+        close = as_float(row.get("close"))
+        open_p = as_float(row.get("open")) or close
+        if not close or close <= 0:
+            continue
+        if neighbor and neighbor > 0:
+            prev_close = as_float(prev.get("close")) if prev else None
+            next_close = as_float(nxt.get("close")) if nxt else None
+            prev_jump = abs(close - prev_close) / prev_close if prev_close else 0
+            next_jump = abs(close - next_close) / next_close if next_close else 0
+            neighbor_stable = (
+                prev_close is not None
+                and next_close is not None
+                and abs(prev_close - next_close) / neighbor < 0.18
+            )
+            if abs(close - neighbor) / neighbor > 0.28 and (
+                neighbor_stable or (prev_jump > 0.25 and next_jump > 0.25)
+            ):
+                continue
+            core_high = max(open_p, close, neighbor)
+            core_low = min(open_p, close, neighbor)
+            high = as_float(row.get("high"))
+            low = as_float(row.get("low"))
+            if high and high > core_high * 1.22:
+                row["high"] = round(max(open_p, close), 4)
+            if low and low < core_low * 0.78:
+                row["low"] = round(min(open_p, close), 4)
+        high = as_float(row.get("high"))
+        low = as_float(row.get("low"))
+        if not valid_ohlc(open_p, high, low, close):
+            continue
+        repaired.append(row)
+    return repaired if len(repaired) >= min(30, int(len(rows) * 0.7)) else rows
+
+
 def fetch_yahoo_chart(sess, symbol, market, start_date, end_date):
     period1 = int(dt.datetime.combine(start_date, dt.time.min, tzinfo=TAIPEI).timestamp())
     period2 = int(dt.datetime.combine(end_date + dt.timedelta(days=1), dt.time.min, tzinfo=TAIPEI).timestamp())
@@ -227,6 +295,7 @@ def parse_chart(symbol, market, chart):
             }
         )
     rows.sort(key=lambda r: r["date"])
+    rows = repair_ohlc_outliers(rows)
     prev_close = None
     for row in rows:
         if prev_close:
