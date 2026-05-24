@@ -6,10 +6,22 @@ function bindPage(id){
     go('stock');});
   document.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{
     const list=typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]);
-    const t=list.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;go('map');}});
+    const t=list.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;if(typeof themeParts==='function') MAP_MAJOR=themeParts(t.name).major;go('map');}});
+  const mapMajorSelect=document.getElementById('mapMajorSelect');
+  if(mapMajorSelect) mapMajorSelect.onchange=()=>{
+    MAP_MAJOR=mapMajorSelect.value||'';
+    const first=(typeof mapThemesForMajor==='function'?mapThemesForMajor(MAP_MAJOR):[])[0];
+    MAP_SEL=first?first.id:'';
+    MAP_QUERY='';
+    go('map');
+  };
   const mapThemeSelect=document.getElementById('mapThemeSelect');
   if(mapThemeSelect) mapThemeSelect.onchange=()=>{
     MAP_SEL=mapThemeSelect.value||'';
+    if(typeof mapMarketThemes==='function' && typeof themeParts==='function'){
+      const t=mapMarketThemes().find(x=>x.id===MAP_SEL);
+      if(t) MAP_MAJOR=themeParts(t.name).major;
+    }
     MAP_QUERY='';
     go('map');
   };
@@ -26,7 +38,7 @@ function bindPage(id){
   };
   document.querySelectorAll('[data-map-market]').forEach(el=>el.onclick=()=>{
     MAP_MARKET=el.dataset.mapMarket==='TPEX'?'TPEX':'TWSE';
-    const first=(typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]))[0];
+    const first=(typeof mapThemesForMajor==='function'?mapThemesForMajor(MAP_MAJOR):[])[0]||(typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]))[0];
     MAP_SEL=first?first.id:'';
     MAP_QUERY='';
     go('map');

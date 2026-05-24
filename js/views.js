@@ -327,28 +327,42 @@ function capitalFlowPanel(){
 }
 /* ============ 2. 股票類股地圖 ============ */
 let MAP_SEL='glassfiber';
-let MAP_MARKET='TWSE';
+let MAP_MAJOR='';
+let MAP_MARKET='';
 let MAP_QUERY='';
 function mapMarketLabel(){
-  return MAP_MARKET==='TPEX'?'上櫃':'上市';
+  return '全部類股';
 }
 function themeDisplayName(name){
-  return String(name||'').replace(/^(上市|上櫃)\s*[·・]\s*/,'');
+  return String(name||'').replace(/^(上市|上櫃)\s*[·・]\s*/,'').trim();
+}
+function themeParts(name){
+  const clean=themeDisplayName(name);
+  const parts=clean.split(/\s*[\/／]\s*/).map(x=>x.trim()).filter(Boolean);
+  const major=parts[0]||clean||'未分類';
+  const fine=parts.length>1?parts.slice(1).join(' / '):major;
+  return {major,fine,label:major===fine?major:`${major} / ${fine}`};
+}
+function mapAllThemes(){
+  const rows=(DATA.themes||[]).filter(t=>Array.isArray(t.stocks)&&t.stocks.length);
+  if(rows.length) return rows;
+  return typeof buildClassThemesFromCaches==='function'?buildClassThemesFromCaches():[];
+}
+function mapIndustryMajors(){
+  const seen=new Set();
+  return mapAllThemes().map(t=>themeParts(t.name).major).filter(m=>{
+    if(!m || seen.has(m)) return false;
+    seen.add(m);
+    return true;
+  });
+}
+function mapThemesForMajor(major){
+  const rows=mapAllThemes();
+  if(!major) return rows;
+  return rows.filter(t=>themeParts(t.name).major===major);
 }
 function mapMarketThemes(){
-  const label=mapMarketLabel();
-  const rows=(DATA.themes||[]).filter(t=>{
-    const n=String(t.name||'').trim();
-    if(label==='上市') return n.includes('上市') && !n.includes('上櫃');
-    return n.includes('上櫃');
-  });
-  if(rows.length) return rows;
-  const built=typeof buildClassThemesFromCaches==='function'?buildClassThemesFromCaches():[];
-  return built.filter(t=>{
-    const n=String(t.name||'').trim();
-    if(label==='上市') return n.includes('上市') && !n.includes('上櫃');
-    return n.includes('上櫃');
-  });
+  return mapAllThemes();
 }
 const SEL=new Set(['今日漲幅 > 3%','站上 20MA','三大法人合計買超','今日強勢題材']);
 const WATCH_KEY='stockLabWatchlist';

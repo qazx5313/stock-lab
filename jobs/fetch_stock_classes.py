@@ -196,20 +196,53 @@ def fetch_tpex_company_classes():
 
 def fetch_moneydj_class_links():
     page = http_moneydj_html(MONEYDJ_INDEX_URL)
-    matches = re.finditer(
-        r'href\s*=\s*"([^"]*zha/zh00\.djhtm\?a=(C\d+)[^"]*)"[^>]*>(.*?)</a>',
-        page,
+    row_re = re.compile(
+        r"<tr>\s*<td[^>]*>\s*<a\s+href=\"([^\"]*z/zh/zha/zh00\.djhtm\?a=(C\d+)[^\"]*)\"[^>]*>"
+        r"(.*?)</a>\s*</td>\s*<td[^>]*>\s*<table[^>]*>(.*?)</table>\s*</td>\s*</tr>",
+        flags=re.I | re.S,
+    )
+    link_re = re.compile(
+        r'<a\s+href="([^"]*z/zh/zha/zh00\.djhtm\?a=(C\d+)[^"]*)"[^>]*>(.*?)</a>',
         flags=re.I | re.S,
     )
     out = {}
-    for m in matches:
-        code = m.group(2).strip()
-        name = clean_industry(clean_text(m.group(3)))
-        if not code or not name:
+    for row in row_re.finditer(page):
+        major = industry_name(row.group(3))
+        if not major:
             continue
-        out.setdefault(code, {"code": code, "name": name, "url": urljoin(MONEYDJ_INDEX_URL, m.group(1))})
+        major_code = row.group(2).strip()
+        major_url = urljoin(MONEYDJ_INDEX_URL, row.group(1))
+        out.setdefault(major_code, {
+            "code": major_code,
+            "major": major,
+            "name": major,
+            "url": major_url,
+        })
+        for m in link_re.finditer(row.group(4)):
+            code = m.group(2).strip()
+            name = industry_name(m.group(3))
+            if not code or not name:
+                continue
+            out.setdefault(code, {
+                "code": code,
+                "major": major,
+                "name": name,
+                "url": urljoin(MONEYDJ_INDEX_URL, m.group(1)),
+            })
+    if not out:
+        matches = re.finditer(
+            r'href\s*=\s*"([^"]*zha/zh00\.djhtm\?a=(C\d+)[^"]*)"[^>]*>(.*?)</a>',
+            page,
+            flags=re.I | re.S,
+        )
+        for m in matches:
+            code = m.group(2).strip()
+            name = industry_name(m.group(3))
+            if not code or not name:
+                continue
+            out.setdefault(code, {"code": code, "major": name, "name": name, "url": urljoin(MONEYDJ_INDEX_URL, m.group(1))})
     rows = list(out.values())
-    rows.sort(key=lambda r: (r["name"], r["code"]))
+    rows.sort(key=lambda r: (r.get("major") or "", r["name"], r["code"]))
     if MONEYDJ_MAX_CLASSES > 0:
         rows = rows[:MONEYDJ_MAX_CLASSES]
     return rows
@@ -307,12 +340,13 @@ def build_official_groups(stocks, prices):
         industry = industry_name(stock.get("industry"))
         if not market or not industry:
             continue
-        key = (market_label(market), industry)
+        key = (industry, industry)
         groups[key][sym] = {
             "symbol": sym,
             "name": stock.get("name") or sym,
             "market": market,
             "industry": industry,
+            "major_tag": industry,
             "fine_tag": "",
             "price": prices.get(sym) or {},
         }
@@ -332,8 +366,9 @@ def apply_moneydj_fine_tags(classes, stocks, prices, groups):
         if is_symbol(sym) and norm_market(stock.get("market"))
     }
     for cls in classes:
+        major_tag = industry_name(cls.get("major")) or industry_name(cls.get("name"))
         fine_tag = industry_name(cls.get("name"))
-        if not fine_tag:
+        if not major_tag or not fine_tag:
             continue
         for member in cls.get("members") or []:
             sym = str(member.get("symbol") or "").strip()
@@ -344,13 +379,13 @@ def apply_moneydj_fine_tags(classes, stocks, prices, groups):
             if not market:
                 continue
             official_industry = industry_name(stock.get("industry"))
-            label = market_label(market)
-            key = (label, fine_tag)
+            key = (major_tag, fine_tag)
             groups[key][sym] = {
                 "symbol": sym,
                 "name": stock.get("name") or member.get("name") or sym,
                 "market": market,
                 "industry": official_industry or fine_tag,
+                "major_tag": major_tag,
                 "fine_tag": fine_tag,
                 "price": prices.get(sym) or {},
             }
@@ -364,6 +399,7 @@ def apply_moneydj_fine_tags(classes, stocks, prices, groups):
             merged_tags = set(tag_list(current.get("theme_tags")))
             if official_industry:
                 merged_tags.add(official_industry)
+            merged_tags.add(major_tag)
             merged_tags.add(fine_tag)
             stock_updates[sym] = {
                 "symbol": sym,
@@ -376,7 +412,7 @@ def apply_moneydj_fine_tags(classes, stocks, prices, groups):
 
 
 def build_group_rows(groups):
-    # Accept either {(market, industry): [members...]} or dict members from
+    # Accept either {(major, fine): [members...]} or dict members from
     # MoneyDJ builder; normalize into the list form used below.
     normalized = defaultdict(list)
     for key, members in (groups or {}).items():
@@ -387,7 +423,9 @@ def build_group_rows(groups):
 
     theme_rows, link_rows = [], []
     sorted_groups = sorted(normalized.items(), key=lambda kv: (kv[0][0], kv[0][1]))
-    for idx, ((mk_label, industry), members) in enumerate(sorted_groups, start=1):
+    for idx, ((major, fine), members) in enumerate(sorted_groups, start=1):
+        major = industry_name(major) or "未分類"
+        fine = industry_name(fine) or major
         tid = 1000 + idx
         members.sort(key=lambda x: (
             to_float((x.get("price") or {}).get("amount")) or 0,
@@ -401,7 +439,7 @@ def build_group_rows(groups):
         amount = sum(to_float((m.get("price") or {}).get("amount")) or 0 for m in priced)
         heat = max(1, min(99, int(55 + avg * 4 + min(len(members), 120) / 4)))
         status = "強勢" if avg >= 1.5 else ("偏弱" if avg <= -1.5 else "一般")
-        theme_name = f"{mk_label} · {industry}"
+        theme_name = major if major == fine else f"{major} / {fine}"
         theme_rows.append({
             "id": tid,
             "theme_name": theme_name,
@@ -423,7 +461,7 @@ def build_group_rows(groups):
                 "theme_id": tid,
                 "symbol": sym,
                 "role": "成分",
-                "supply_chain_level": member.get("fine_tag") or industry,
+                "supply_chain_level": member.get("fine_tag") or fine,
                 "relevance_score": score,
                 "note": "",
             })

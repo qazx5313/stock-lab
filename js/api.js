@@ -275,34 +275,30 @@ function buildClassThemesFromCaches(){
     const st=stockMap[sym]||{}, px=priceMap[sym]||{};
     const industry=String(st.industry||'').trim();
     const market=normMarket(st.market||px.market);
-    if(!/^[1-9]\d{3}$/.test(sym) || !industry || !market) return;
-    const label=market==='TPEX'?'上櫃':'上市';
-    const name=`${label} · ${industry}`;
-    const g=groups[name]||(groups[name]={name,market,label,industry,stocks:[],amount:0,changeSum:0,changeN:0});
+    if(!/^[1-9]\d{3}$/.test(sym) || !industry) return;
+    const name=industry;
+    const g=groups[name]||(groups[name]={name,industry,stocks:[],amount:0,changeSum:0,changeN:0});
     const cp=Number(px.change_percent);
     const amt=Number(px.amount)||0;
     g.amount+=amt;
     if(Number.isFinite(cp)){g.changeSum+=cp;g.changeN++;}
     g.stocks.push({
       c:sym,n:st.name||sym,role:'成分',level:industry,score:70,
-      note:'',px:Number(px.close),dp:cp,vol:Number(px.volume)
+      note:'',market,px:Number(px.close),dp:cp,vol:Number(px.volume)
     });
   });
   return Object.values(groups).map((g,i)=>{
     const avg=g.changeN?g.changeSum/g.changeN:0;
     g.stocks.sort((a,b)=>(Number(b.vol)||0)-(Number(a.vol)||0));
     return {
-      id:`class-${g.market}-${i}`,themeId:`class-${g.market}-${i}`,
+      id:`class-${i}`,themeId:`class-${i}`,
       name:g.name,score:Math.max(1,Math.min(99,Math.round(60+avg*3+Math.min(g.stocks.length,80)/4))),
       gain:(avg>=0?'+':'')+avg.toFixed(2)+'%',vol:'—',
       status:avg>=1.5?'強勢':(avg<=-1.5?'偏弱':'一般'),
       desc:`${g.name}：成分 ${g.stocks.length} 檔，平均漲幅 ${avg.toFixed(2)}%，成交金額 ${(g.amount/100000000).toFixed(2)} 億。`,
       chain:g.industry,stocks:g.stocks
     };
-  }).filter(t=>t.stocks.length).sort((a,b)=>{
-    const am=a.name.startsWith('上市')?0:1, bm=b.name.startsWith('上市')?0:1;
-    return am-bm || b.score-a.score;
-  });
+  }).filter(t=>t.stocks.length).sort((a,b)=>b.score-a.score || a.name.localeCompare(b.name,'zh-Hant'));
 }
 function quoteTimeValue(q={}){
   const updated=Date.parse(q.updated_at||q.updatedAt||'');
