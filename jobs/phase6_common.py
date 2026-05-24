@@ -117,7 +117,7 @@ def latest_trade_date():
 
 def load_stock_map():
     out = {}
-    for row in sb_select("stocks", "select=symbol,name,market,industry,theme", page_size=1000, max_rows=5000):
+    for row in sb_select("stocks", "select=symbol,name,market,industry,theme_tags", page_size=1000, max_rows=5000):
         out[str(row.get("symbol"))] = row
     return out
 

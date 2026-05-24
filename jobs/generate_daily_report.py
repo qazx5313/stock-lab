@@ -8,6 +8,26 @@ def _top(rows, n=5):
     return rows[:n] if rows else []
 
 
+def load_themes():
+    rows = sb_select(
+        "themes",
+        "select=theme_name,description,heat_score,trend_status&order=heat_score.desc",
+        page_size=20,
+        max_rows=20,
+    )
+    out = []
+    for row in rows:
+        out.append({
+            "name": row.get("theme_name"),
+            "hot_score": row.get("heat_score"),
+            "trend_status": row.get("trend_status"),
+            "description": row.get("description"),
+            "amount": None,
+            "avg_change": None,
+        })
+    return out
+
+
 def main():
     key = "phase6_daily_report"
     try:
@@ -17,7 +37,7 @@ def main():
             raise RuntimeError("找不到 daily_prices 最新交易日")
 
         indexes = sb_select("market_index", "select=date,market,index_value,change,change_percent,amount&order=date.desc", page_size=10, max_rows=10)
-        themes = sb_select("themes", "select=name,avg_change,hot_score,amount&order=hot_score.desc", page_size=8, max_rows=8)
+        themes = load_themes()
         patterns = sb_select("detected_patterns", "select=symbol,name,pattern_type,confidence_score,reason&order=date.desc,confidence_score.desc", page_size=20, max_rows=20)
         strategy_hits = sb_select("strategy_results", "select=symbol,name,strategy_name,score,reason&order=date.desc,score.desc", page_size=20, max_rows=20)
         risks = sb_select("mainforce_behaviors", "select=symbol,name,behavior_type,confidence_score,risk_level,evidence&order=date.desc,confidence_score.desc", page_size=20, max_rows=20)
