@@ -220,7 +220,7 @@ def main():
 
     # 1) 抓最近交易日（用 sb_one，PostgREST limit，不套分頁 Range）
     newest = sb_one("daily_prices", "select=date&order=date.desc&limit=1")
-    dates = sb_select("daily_prices", "select=date", page_size=1000)
+    dates = sb_select("daily_prices", "select=date", page_size=1000, max_rows=900000)
     all_d = sorted({str(r["date"])[:10] for r in dates})
     if not all_d:
         log("daily_prices 無資料，結束")
@@ -239,6 +239,7 @@ def main():
         "daily_prices",
         "select=date,symbol,open,high,low,close,change,change_percent,volume,amount&order=date.asc",
         page_size=1000,
+        max_rows=900000,
     )
     series = defaultdict(list)
     for r in prices:
@@ -253,6 +254,7 @@ def main():
         "institutional_trades",
         "select=date,symbol,foreign_buy_sell,total_buy_sell&order=date.asc",
         page_size=1000,
+        max_rows=500000,
     )
     inst_by_sym = defaultdict(list)
     for r in inst:

@@ -122,7 +122,7 @@ def load_stock_map():
     return out
 
 
-def load_price_series(max_rows=260000):
+def load_price_series(max_rows=900000):
     fields = "date,symbol,open,high,low,close,change,change_percent,volume,amount"
     rows = sb_select("daily_prices", f"select={fields}&order=symbol.asc,date.asc", page_size=1000, max_rows=max_rows)
     grouped = defaultdict(list)
@@ -130,20 +130,22 @@ def load_price_series(max_rows=260000):
         symbol = str(row.get("symbol") or "").strip()
         if not symbol:
             continue
+        close = nf(row.get("close"))
+        if close is None:
+            continue
         normalized = {
             "date": row.get("date"),
             "symbol": symbol,
-            "open": nf(row.get("open")),
-            "high": nf(row.get("high")),
-            "low": nf(row.get("low")),
-            "close": nf(row.get("close")),
+            "open": nf(row.get("open"), close),
+            "high": nf(row.get("high"), close),
+            "low": nf(row.get("low"), close),
+            "close": close,
             "change": nf(row.get("change")),
             "change_percent": nf(row.get("change_percent")),
             "volume": nf(row.get("volume"), 0),
             "amount": nf(row.get("amount"), 0),
         }
-        if normalized["close"] is not None:
-            grouped[symbol].append(normalized)
+        grouped[symbol].append(normalized)
     return dict(grouped)
 
 
