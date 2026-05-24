@@ -21,6 +21,30 @@ async function sbGet(path, hi){
   }
   return r.json();
 }
+async function sbGetAll(path, pageSize=1000, maxRows=100000){
+  const out=[];
+  let from=0;
+  while(out.length<maxRows){
+    const to=Math.min(from+pageSize-1, maxRows-1);
+    const headers = {
+      apikey:SB_ANON,
+      Authorization:`Bearer ${SB_ANON}`,
+      'Range-Unit':'items',
+      Range:`${from}-${to}`
+    };
+    const r = await fetch(`${SB_URL}/rest/v1/${path}`, { headers });
+    if(!r.ok){
+      const body = await r.text().catch(()=> '');
+      throw new Error('Supabase '+r.status+' '+body.slice(0,160));
+    }
+    const rows=await r.json();
+    if(!Array.isArray(rows) || !rows.length) break;
+    out.push(...rows);
+    if(rows.length<pageSize) break;
+    from+=pageSize;
+  }
+  return out;
+}
 async function sbWrite(path, body, method='POST'){
   if(!ALLOW_DIRECT_BROWSER_WRITES){
     throw new Error('基於安全性，前端直接寫入 Supabase 已停用；請改用 Edge Function 寫入。');

@@ -405,7 +405,7 @@ function applyRealtimeQuotes(rows, options={}){
     DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
   }
 }
-const REAL_CACHE_KEY='stockLabRealCache:v17';
+const REAL_CACHE_KEY='stockLabRealCache:v18';
 const REAL_CACHE_TTL=1000*60*60*72;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -610,7 +610,9 @@ async function loadReal(){
           return true;
         });
         DATA.themeList = DATA.themes.map(t=>t.name);
-        const ts = await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 80000);
+        const ts = typeof sbGetAll==='function'
+          ? await sbGetAll('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 1000, 100000)
+          : await sbGet('theme_stocks?select=theme_id,symbol,role,supply_chain_level,relevance_score,note', 80000);
         const symbols = [...new Set((ts||[]).map(x=>String(x.symbol||'').trim()).filter(Boolean))];
         const stockMap=await loadNameMap(symbols,d);
         const priceMap=await loadLatestPriceMap(symbols,d);

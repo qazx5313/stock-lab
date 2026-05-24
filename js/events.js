@@ -26,12 +26,16 @@ function bindPage(id){
     go('map');
   };
   const mapStockSearch=document.getElementById('mapStockSearch');
-  if(mapStockSearch) mapStockSearch.onchange=()=>{
+  if(mapStockSearch) mapStockSearch.oninput=()=>{
     MAP_QUERY=mapStockSearch.value||'';
-    go('map');
+    clearTimeout(window.__mapSearchTimer);
+    window.__mapSearchTimer=setTimeout(()=>{
+      if(CUR==='map') go('map');
+    },220);
   };
   if(mapStockSearch) mapStockSearch.onkeydown=e=>{
     if(e.key==='Enter'){
+      clearTimeout(window.__mapSearchTimer);
       MAP_QUERY=mapStockSearch.value||'';
       go('map');
     }
