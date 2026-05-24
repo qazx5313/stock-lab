@@ -343,10 +343,41 @@ function themeParts(name){
   const fine=parts.length>1?parts.slice(1).join(' / '):major;
   return {major,fine,label:major===fine?major:`${major} / ${fine}`};
 }
+function normMapSearchText(v){
+  return String(v||'').toLowerCase().replace(/\s+/g,'').replace(/[\/／・·_\-]/g,'');
+}
 function mapAllThemes(){
   const rows=(DATA.themes||[]).filter(t=>t&&t.name);
   if(rows.length) return rows;
   return typeof buildClassThemesFromCaches==='function'?buildClassThemesFromCaches():[];
+}
+function mapThemeMatchesQuery(t, query){
+  const q=normMapSearchText(query);
+  if(!t || !q) return false;
+  const p=themeParts(t.name);
+  return [t.name,p.major,p.fine,p.label].some(x=>normMapSearchText(x).includes(q));
+}
+function mapFindThemeByQuery(query){
+  const q=normMapSearchText(query);
+  if(!q) return null;
+  const ranked=mapAllThemes().map(t=>{
+    const p=themeParts(t.name);
+    const fine=normMapSearchText(p.fine);
+    const major=normMapSearchText(p.major);
+    const label=normMapSearchText(p.label);
+    const full=normMapSearchText(t.name);
+    let score=0;
+    if(fine===q) score=100;
+    else if(label===q) score=95;
+    else if(major===q) score=88;
+    else if(fine.startsWith(q)) score=82;
+    else if(label.startsWith(q)) score=78;
+    else if(fine.includes(q)) score=72;
+    else if(label.includes(q) || full.includes(q)) score=68;
+    else if(major.includes(q)) score=55;
+    return {t,score,count:Array.isArray(t.stocks)?t.stocks.length:0};
+  }).filter(x=>x.score>0).sort((a,b)=>(b.score-a.score)||(b.count-a.count));
+  return ranked[0]?.t||null;
 }
 function mapIndustryMajors(){
   const seen=new Set();

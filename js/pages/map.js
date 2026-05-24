@@ -8,11 +8,16 @@ function vMap(){
   if(t && t.id!==MAP_SEL) MAP_SEL=t.id;
   const stocks=(t&&Array.isArray(t.stocks))?t.stocks:[];
   const q=String(MAP_QUERY||'').trim().toLowerCase();
-  const visibleStocks=q?stocks.filter(s=>{
+  const queryHitsTheme=q && t && typeof mapThemeMatchesQuery==='function' && mapThemeMatchesQuery(t, q);
+  const visibleStocks=q && !queryHitsTheme?stocks.filter(s=>{
     const st=(DATA.stockMap||{})[String(s.c||'')]||{};
     const hay=[s.c,s.n,s.t,s.level,s.theme,st.name,st.industry,(st.theme_tags||[]).join(' ')].join(' ').toLowerCase();
     return hay.includes(q);
   }):stocks;
+  const themeOptions=mapAllThemes().map(th=>{
+    const p=themeParts(th.name);
+    return `<option value="${esc(p.label)}"></option>`;
+  }).join('');
   if(!t){
     return `<div class="card card-pad fade"><h3>股票類股資料尚未建立</h3><p class="muted" style="margin-top:8px">請先在 GitHub Actions 跑 Daily market data pipeline，等 Build stock industry classes 完成後再重新整理。</p></div>`;
   }
@@ -32,8 +37,9 @@ function vMap(){
        </select>
      </div>
      <div class="field map-search-field">
-       <label>搜尋個股</label>
-       <input id="mapStockSearch" value="${esc(MAP_QUERY)}" placeholder="代號、名稱、標籤">
+       <label>搜尋題材 / 個股</label>
+       <input id="mapStockSearch" value="${esc(MAP_QUERY)}" list="mapThemeSuggestions" placeholder="輸入題材、細產業、股票代號或名稱">
+       <datalist id="mapThemeSuggestions">${themeOptions}</datalist>
      </div>
      <div class="map-count">
        <b>${visibleStocks.length}</b><span>${q?` / ${stocks.length}`:'檔'}</span>

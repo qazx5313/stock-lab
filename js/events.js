@@ -30,6 +30,13 @@ function bindPage(id){
     MAP_QUERY=mapStockSearch.value||'';
     clearTimeout(window.__mapSearchTimer);
     window.__mapSearchTimer=setTimeout(()=>{
+      if(typeof mapFindThemeByQuery==='function'){
+        const hit=mapFindThemeByQuery(MAP_QUERY);
+        if(hit && hit.id!==MAP_SEL){
+          MAP_SEL=hit.id;
+          if(typeof themeParts==='function') MAP_MAJOR=themeParts(hit.name).major;
+        }
+      }
       if(CUR==='map') go('map');
     },220);
   };
@@ -37,6 +44,13 @@ function bindPage(id){
     if(e.key==='Enter'){
       clearTimeout(window.__mapSearchTimer);
       MAP_QUERY=mapStockSearch.value||'';
+      if(typeof mapFindThemeByQuery==='function'){
+        const hit=mapFindThemeByQuery(MAP_QUERY);
+        if(hit){
+          MAP_SEL=hit.id;
+          if(typeof themeParts==='function') MAP_MAJOR=themeParts(hit.name).major;
+        }
+      }
       go('map');
     }
   };
