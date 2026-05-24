@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import os
+import time
+
 from phase6_common import avg, hma, load_price_series, load_stock_map, log, ma, macd, nf, pct, safe_status, series_values, stdev, stock_name, volume_lots
 from sb_common import sb_delete, sb_upsert
 
@@ -120,12 +123,21 @@ def hit_strategy(strategy_id, prices):
     return None
 
 
-def backtest_strategy(strategy, series):
+def backtest_strategy(strategy, series, *, deadline=None, max_symbols=260, max_samples=120):
     samples = []
+    scanned_symbols = 0
     for prices in series.values():
+        if deadline and time.monotonic() >= deadline:
+            break
         if len(prices) < 70:
             continue
-        for i in range(65, len(prices) - 5):
+        scanned_symbols += 1
+        if scanned_symbols > max_symbols:
+            break
+        start = max(65, len(prices) - 160)
+        for i in range(start, len(prices) - 5):
+            if deadline and time.monotonic() >= deadline:
+                break
             hit = hit_strategy(strategy["id"], prices[:i + 1])
             if not hit:
                 continue
@@ -133,8 +145,10 @@ def backtest_strategy(strategy, series):
             exit_price = nf(prices[i + 5]["close"])
             if entry and exit_price:
                 samples.append((exit_price - entry) / entry * 100)
-            if len(samples) >= 280:
+            if len(samples) >= max_samples:
                 break
+        if len(samples) >= max_samples:
+            break
     if not samples:
         return 0, None, None, None
     wins = [x for x in samples if x > 0]
@@ -176,8 +190,17 @@ def main():
             sb_upsert("strategy_results", hits, on_conflict="strategy_id,symbol,date")
 
         backtests = []
+        backtest_seconds = max(5, int(os.getenv("STRATEGY_BACKTEST_SECONDS", "25")))
+        backtest_deadline = time.monotonic() + backtest_seconds
         for strategy in STRATEGIES:
-            sample_count, win_rate, avg_return, max_drawdown = backtest_strategy(strategy, series)
+            if time.monotonic() >= backtest_deadline:
+                log("strategy backtest skipped: reached time budget")
+                break
+            sample_count, win_rate, avg_return, max_drawdown = backtest_strategy(
+                strategy,
+                series,
+                deadline=backtest_deadline,
+            )
             backtests.append({
                 "strategy_id": strategy["id"],
                 "strategy_name": strategy["name"],

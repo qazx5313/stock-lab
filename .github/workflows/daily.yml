@@ -11,7 +11,7 @@ on:
 jobs:
   pipeline:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
 
     steps:
       - name: Checkout repository
@@ -121,10 +121,13 @@ jobs:
 
       - name: 12) Phase 6 strategy center
         if: always()
+        timeout-minutes: 4
+        continue-on-error: true
         working-directory: jobs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+          STRATEGY_BACKTEST_SECONDS: "25"
         run: python strategy_center.py
 
       - name: 13) Phase 6 AI trade journal
