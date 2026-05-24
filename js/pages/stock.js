@@ -61,7 +61,7 @@ function vStock(){
    ${stockDecisionPanel(s)}
 
    <div class="card">
-     <div class="card-h"><h3>TradingView 技術分析</h3><span class="tag">K 線 · 成交量 · MA5/10/20/60 · RSI/KD/MACD</span></div>
+     <div class="card-h"><h3>TradingView 技術分析</h3><span class="tag">近 200 日 K 線 · 成交量 · MA5/10/20/60 · RSI/KD/MACD</span></div>
      <div class="tv-wrap">
        <div id="tvStockChart" class="tv-chart"></div>
      </div>
@@ -139,6 +139,9 @@ function vStock(){
 
 /* 手繪 canvas 圖表（無外部依賴，GitHub Pages 直接可用） */
 /* 抓該股真實歷史，轉成 K 線格式存 DATA.stock.series */
+const STOCK_CHART_VISIBLE_DAYS=200;
+const STOCK_HISTORY_FETCH_LIMIT=420;
+
 function refreshStockSeriesWithLiveQuote(sym,live){
   const series=Array.isArray(DATA.stock&&DATA.stock.series)?DATA.stock.series:null;
   const px=Number(live&&live.px);
@@ -172,22 +175,8 @@ function refreshStockSeriesWithLiveQuote(sym,live){
       DATA.stock.dp=+(((tail.c-before.c)/before.c)*100).toFixed(2);
     }
   }
-  const closes=series.map(x=>x.c);
-  const highs=series.map(x=>x.h);
-  const lows=series.map(x=>x.l);
-  const kd=calcKDSeries(highs,lows,closes);
-  const rsi=calcRSISeries(closes);
-  const md=calcMACDSeries(closes);
-  const lk=lastNum(kd.k), ld=lastNum(kd.d), lr=lastNum(rsi), lh=lastNum(md.hist);
-  DATA.stock.tech={
-    kd, rsi, macd:md,
-    kdText:lk==null||ld==null?'尚無足夠歷史資料':`K ${lk.toFixed(1)} · D ${ld.toFixed(1)} ${lk>=ld?'偏多':'偏弱'}`,
-    kdClass:lk!=null&&ld!=null?(lk>=ld?'up':'down'):'',
-    macdText:lh==null?'尚無足夠歷史資料':`${lh>=0?'柱狀為正':'柱狀為負'} ${lh.toFixed(3)}`,
-    macdClass:lh!=null?(lh>=0?'up':'down'):'',
-    rsiText:lr==null?'尚無足夠歷史資料':`${lr.toFixed(1)} ${lr>=70?'過熱':lr>=50?'偏強':lr<=30?'偏弱':'中性'}`,
-    rsiClass:lr!=null?(lr>=50?'up':'down'):''
-  };
+  DATA.stock.series=normalizeStockSeries(series);
+  updateStockTechFromSeries();
 }
 async function loadStockSeries(sym){
   try{
@@ -202,7 +191,7 @@ async function loadStockSeries(sym){
     DATA.stock.revenue=[];
     const rows = await sbGet(
       `daily_prices?select=date,open,high,low,close,volume,amount&symbol=eq.${sym}`+
-      `&order=date.asc`, 5000);
+      `&order=date.desc&limit=${STOCK_HISTORY_FETCH_LIMIT}`, 5000);
     if(Array.isArray(rows) && rows.length>=5){
       DATA.stock.series = normalizeStockSeries(rows.map(r=>({
         o:Number(r.open)||Number(r.close)||0,
@@ -242,22 +231,7 @@ async function loadStockSeries(sym){
           if(cn&&cn[0]&&cn[0].name) DATA.stock.n=cn[0].name;
         }catch(_){}
       }
-      const closes=DATA.stock.series.map(x=>x.c);
-      const highs=DATA.stock.series.map(x=>x.h);
-      const lows=DATA.stock.series.map(x=>x.l);
-      const kd=calcKDSeries(highs,lows,closes);
-      const rsi=calcRSISeries(closes);
-      const md=calcMACDSeries(closes);
-      const lk=lastNum(kd.k), ld=lastNum(kd.d), lr=lastNum(rsi), lh=lastNum(md.hist);
-      DATA.stock.tech={
-        kd:kd, rsi:rsi, macd:md,
-        kdText:lk==null||ld==null?'尚無足夠歷史資料':`K ${lk.toFixed(1)} · D ${ld.toFixed(1)} ${lk>=ld?'偏多':'偏弱'}`,
-        kdClass:lk!=null&&ld!=null?(lk>=ld?'up':'down'):'',
-        macdText:lh==null?'尚無足夠歷史資料':`${lh>=0?'柱狀為正':'柱狀為負'} ${lh.toFixed(3)}`,
-        macdClass:lh!=null?(lh>=0?'up':'down'):'',
-        rsiText:lr==null?'尚無足夠歷史資料':`${lr.toFixed(1)} ${lr>=70?'過熱':lr>=50?'偏強':lr<=30?'偏弱':'中性'}`,
-        rsiClass:lr!=null?(lr>=50?'up':'down'):''
-      };
+      updateStockTechFromSeries();
       const recent=DATA.stock.series.slice(-20);
       if(recent.length){
         const sup=Math.min(...recent.map(x=>x.l));
@@ -356,22 +330,23 @@ function loadLightweightCharts(){
 function renderTradingViewStockChart(){
   const el=document.getElementById('tvStockChart');
   if(!el) return;
-  const rows=(DATA.stock&&Array.isArray(DATA.stock.series)?DATA.stock.series:[]).slice(-180);
+  const chartData=buildStockChartData(DATA.stock&&DATA.stock.series,STOCK_CHART_VISIBLE_DAYS);
+  const rows=chartData.rows;
   if(rows.length<2){
     el.innerHTML='<div class="muted" style="padding:18px">此股票 K 棒資料不足，請先更新每日資料。</div>';
     return;
   }
   el.innerHTML='<canvas id="tvLiteCanvas" class="tv-canvas"></canvas>';
-  drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), rows);
+  drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), chartData);
   if(el.__tvResizeObserver) el.__tvResizeObserver.disconnect();
-  el.__tvResizeObserver=new ResizeObserver(()=>drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), rows));
+  el.__tvResizeObserver=new ResizeObserver(()=>drawTradingStyleCanvas(el.querySelector('#tvLiteCanvas'), chartData));
   el.__tvResizeObserver.observe(el);
   const canvas=el.querySelector('#tvLiteCanvas');
   canvas.onmousemove=ev=>{
     const rect=canvas.getBoundingClientRect();
-    drawTradingStyleCanvas(canvas, rows, {x:ev.clientX-rect.left,y:ev.clientY-rect.top});
+    drawTradingStyleCanvas(canvas, chartData, {x:ev.clientX-rect.left,y:ev.clientY-rect.top});
   };
-  canvas.onmouseleave=()=>drawTradingStyleCanvas(canvas, rows);
+  canvas.onmouseleave=()=>drawTradingStyleCanvas(canvas, chartData);
 }
 
 function calcMaRows(rows,len){
@@ -390,8 +365,11 @@ function indicatorRows(rows,vals){
     .filter(p=>p.time&&Number.isFinite(p.value));
 }
 
-function drawTradingStyleCanvas(canvas, rows, hover){
+function drawTradingStyleCanvas(canvas, chartData, hover){
+  const payload=Array.isArray(chartData)?buildStockChartData(chartData,STOCK_CHART_VISIBLE_DAYS):(chartData||{});
+  const rows=Array.isArray(payload.rows)?payload.rows:[];
   if(!canvas||!rows||rows.length<2) return;
+  const indicators=payload.indicators||{};
   const host=canvas.parentElement;
   const ratio=window.devicePixelRatio||1;
   const W=Math.max(620,Math.floor(host.clientWidth||1100));
@@ -422,14 +400,14 @@ function drawTradingStyleCanvas(canvas, rows, hover){
   const highs=rows.map(r=>Number(r.h));
   const lows=rows.map(r=>Number(r.l));
   const vols=rows.map(r=>volumeToLots(r.v)||0);
-  const ma5=rows.map((_,i)=>i<4?NaN:rows.slice(i-4,i+1).reduce((a,b)=>a+Number(b.c||0),0)/5);
-  const ma10=rows.map((_,i)=>i<9?NaN:rows.slice(i-9,i+1).reduce((a,b)=>a+Number(b.c||0),0)/10);
-  const ma20=rows.map((_,i)=>i<19?NaN:rows.slice(i-19,i+1).reduce((a,b)=>a+Number(b.c||0),0)/20);
-  const ma60=rows.map((_,i)=>i<59?NaN:rows.slice(i-59,i+1).reduce((a,b)=>a+Number(b.c||0),0)/60);
-  const macd=calcMACDSeries(closes);
-  const kd=calcKDSeries(highs,lows,closes,9);
-  const rsi9=calcRSISeries(closes,9);
-  const rsi55=calcRSISeries(closes,55);
+  const ma5=indicators.ma5||calcMovingAverageValues(closes,5);
+  const ma10=indicators.ma10||calcMovingAverageValues(closes,10);
+  const ma20=indicators.ma20||calcMovingAverageValues(closes,20);
+  const ma60=indicators.ma60||calcMovingAverageValues(closes,60);
+  const macd=indicators.macd||calcMACDSeries(closes);
+  const kd=indicators.kd||calcKDSeries(highs,lows,closes,9);
+  const rsi9=indicators.rsi9||calcRSISeries(closes,9);
+  const rsi55=indicators.rsi55||calcRSISeries(closes,55);
   const hoverIdx=hover&&Number.isFinite(hover.x)?Math.max(0,Math.min(n-1,Math.round((hover.x-L-bw/2)/bw))):n-1;
   const hrow=rows[hoverIdx]||rows[n-1];
   const hv=(arr)=>{const v=Number(arr&&arr[hoverIdx]);return Number.isFinite(v)?v:null;};
@@ -560,13 +538,62 @@ function fmtInd(v){
 function genSeries(n,base,vol){let p=base,a=[];for(let i=0;i<n;i++){const o=p,ch=(Math.sin(i/4)+ (Math.random()-.45))*vol;
   const c=Math.max(base*.6,o+ch);const h=Math.max(o,c)*(1+Math.random()*.012);const l=Math.min(o,c)*(1-Math.random()*.012);
   a.push({o,h,l,c,v:Math.round((6000+Math.random()*9000)*(1+Math.abs(ch)/vol))});p=c;}return a;}
+function updateStockTechFromSeries(){
+  const series=Array.isArray(DATA.stock&&DATA.stock.series)?DATA.stock.series:[];
+  if(series.length<5){DATA.stock.tech=null;return;}
+  const highs=series.map(r=>Number(r.h));
+  const lows=series.map(r=>Number(r.l));
+  const closes=series.map(r=>Number(r.c));
+  const kd=calcKDSeries(highs,lows,closes,9);
+  const rsi=calcRSISeries(closes,14);
+  const macd=calcMACDSeries(closes);
+  DATA.stock.tech={
+    kd,rsi,macd,
+    kdText:`K=${fmtInd(lastNum(kd.k))} D=${fmtInd(lastNum(kd.d))}`,
+    rsiText:`RSI=${fmtInd(lastNum(rsi))}`,
+    macdText:`DIF=${fmtInd(lastNum(macd.dif))} MACD=${fmtInd(lastNum(macd.signal))} OSC=${fmtInd(lastNum(macd.hist))}`
+  };
+}
+function coerceStockBar(r){
+  const c=Number(r&&r.c);
+  if(!Number.isFinite(c)||c<=0) return null;
+  const d=String((r&&r.d)||(r&&r.date)||'').slice(0,10);
+  if(!d) return null;
+  let o=Number(r.o),h=Number(r.h),l=Number(r.l);
+  if(!Number.isFinite(o)||o<=0) o=c;
+  if(!Number.isFinite(h)||h<=0) h=Math.max(o,c);
+  if(!Number.isFinite(l)||l<=0) l=Math.min(o,c);
+  h=Math.max(h,o,c);
+  l=Math.min(l,o,c);
+  if(h<=0||l<=0||h<l) return null;
+  return {o,h,l,c,v:Number(r.v)||0,a:Number(r.a)||0,d};
+}
+function dateGapDays(a,b){
+  const da=new Date(String(a||'').slice(0,10)+'T00:00:00');
+  const db=new Date(String(b||'').slice(0,10)+'T00:00:00');
+  if(Number.isNaN(da.getTime())||Number.isNaN(db.getTime())) return 0;
+  return Math.round((db-da)/86400000);
+}
+function trimUnstableStockHistory(rows){
+  if(!Array.isArray(rows)||rows.length<80) return rows||[];
+  let start=0;
+  for(let i=rows.length-1;i>0;i--){
+    const prev=rows[i-1],cur=rows[i];
+    const gap=dateGapDays(prev.d,cur.d);
+    const pc=Number(prev.c),cc=Number(cur.c);
+    const jump=(pc>0&&cc>0)?Math.abs(cc-pc)/pc:0;
+    if(gap>14||jump>.45){start=i;break;}
+  }
+  const trimmed=rows.slice(start);
+  return trimmed.length>=80?trimmed:rows;
+}
 function normalizeStockSeries(rows){
   const byDate=new Map();
   (rows||[]).forEach(r=>{
-    const d=String(r.d||'').slice(0,10);
-    if(!d || !isFinite(r.c) || r.c<=0) return;
-    const prev=byDate.get(d);
-    if(!prev || Number(r.v||0)>=Number(prev.v||0)) byDate.set(d,{...r,d});
+    const bar=coerceStockBar(r);
+    if(!bar) return;
+    const prev=byDate.get(bar.d);
+    if(!prev || Number(bar.v||0)>=Number(prev.v||0)) byDate.set(bar.d,bar);
   });
   const sorted=[...byDate.values()].sort((a,b)=>String(a.d).localeCompare(String(b.d)));
   const out=[];
@@ -575,7 +602,46 @@ function normalizeStockSeries(rows){
     const sameBar=p&&['o','h','l','c','v'].every(k=>Number(p[k]||0)===Number(r[k]||0));
     if(!sameBar) out.push(r);
   });
+  return trimUnstableStockHistory(out);
+}
+function calcMovingAverageValues(vals,len){
+  const out=Array(vals.length).fill(null);
+  let sum=0,valid=0;
+  vals.forEach((raw,i)=>{
+    const v=Number(raw);
+    if(Number.isFinite(v)){sum+=v;valid++;}
+    const old=Number(vals[i-len]);
+    if(i>=len&&Number.isFinite(old)){sum-=old;valid--;}
+    if(i>=len-1&&valid===len) out[i]=sum/len;
+  });
   return out;
+}
+function buildStockChartData(series,visibleDays=STOCK_CHART_VISIBLE_DAYS){
+  const clean=normalizeStockSeries(series||[]);
+  const closes=clean.map(r=>Number(r.c));
+  const highs=clean.map(r=>Number(r.h));
+  const lows=clean.map(r=>Number(r.l));
+  const start=Math.max(0,clean.length-visibleDays);
+  const slice=arr=>(arr||[]).slice(start);
+  const macd=calcMACDSeries(closes);
+  const kd=calcKDSeries(highs,lows,closes,9);
+  return {
+    rows:clean.slice(start),
+    indicators:{
+      ma5:slice(calcMovingAverageValues(closes,5)),
+      ma10:slice(calcMovingAverageValues(closes,10)),
+      ma20:slice(calcMovingAverageValues(closes,20)),
+      ma60:slice(calcMovingAverageValues(closes,60)),
+      macd:{
+        dif:slice(macd.dif),
+        signal:slice(macd.signal),
+        hist:slice(macd.hist)
+      },
+      kd:{k:slice(kd.k),d:slice(kd.d)},
+      rsi9:slice(calcRSISeries(closes,9)),
+      rsi55:slice(calcRSISeries(closes,55))
+    }
+  };
 }
 function calcForeignCost(series, instRows){
   const pxMap={};
@@ -731,4 +797,3 @@ function drawStockCharts(){
 }
 
 /* ============ 5. 每日報告 ============ */
-
