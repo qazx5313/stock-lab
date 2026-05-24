@@ -8,6 +8,10 @@ const I={
   stock:'<path d="M3 17l5-5 4 4 8-8M21 8h-5M21 8v5"/>',
   report:'<path d="M7 3h10l4 4v14H3V3zM14 3v5h5M8 13h8M8 17h8"/>',
   ai:'<circle cx="12" cy="12" r="3"/><path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2 2M16.4 16.4l2 2M18.4 5.6l-2 2M7.6 16.4l-2 2"/>',
+  strategy:'<path d="M4 19V5M4 19h16M8 15l3-3 3 2 5-7M8 8h3M8 11h2"/>',
+  patterns:'<path d="M4 17l5-10 4 7 3-4 4 7M4 20h16"/>',
+  mainforce:'<path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/>',
+  journal:'<path d="M6 3h9l3 3v15H6zM14 3v4h4M9 12h6M9 16h6M9 8h2"/>',
   account:'<path d="M20 21a8 8 0 0 0-16 0M12 13a5 5 0 1 0 0-10 5 5 0 0 0 0 10z"/>',
   admin:'<path d="M12 2l8 4v6c0 5-3.5 8-8 10-4.5-2-8-5-8-10V6z"/>',
   status:'<path d="M3 12h4l3 8 4-16 3 8h4"/>',
@@ -22,6 +26,10 @@ const PAGES=[
   {id:'observe',t:'觀察報告',s:'管理員發布觀察股票',ic:I.report,grp:'每日盤後'},
   {id:'report',t:'每日報告',s:'盤後自動產生報告',ic:I.report,grp:'每日盤後'},
   {id:'ai',t:'AI 量化模擬操盤實驗室',s:'AI 機器人回測與模擬交易',ic:I.ai,grp:'實驗室'},
+  {id:'strategy',t:'策略中心',s:'策略條件、命中與回測摘要',ic:I.strategy,grp:'實驗室'},
+  {id:'patterns',t:'型態辨識',s:'箱型、突破、反轉與回測型態',ic:I.patterns,grp:'實驗室'},
+  {id:'mainforce',t:'主力行為',s:'洗盤、誘多、出貨與轉強偵測',ic:I.mainforce,grp:'實驗室'},
+  {id:'aiJournal',t:'AI 檢討日誌',s:'AI 模擬交易檢討與策略調整',ic:I.journal,grp:'實驗室'},
   {id:'admin',t:'後台管理',s:'股票 / 題材 / 參數設定',ic:I.admin,grp:'系統'},
   {id:'status',t:'資料更新狀態',s:'每日抓取結果監控',ic:I.status,grp:'系統'},
   {id:'account',t:'帳號登入 / 申請',s:'會員申請、登入與權限狀態',ic:I.account,grp:'帳號',topOnly:true},
@@ -81,7 +89,7 @@ function go(id){
     }else if(!DATA_REAL_READY && !['account','admin','status'].includes(id)){
       v.innerHTML=vDataUnavailable();
     }else{
-      v.innerHTML=({home:vHome,map:vMap,watch:vWatch,atr:vATR,screen:vScreen,stock:vStock,observe:vObserve,report:vReport,ai:vAI,account:vAccount,admin:vAdmin,status:vStatus}[id])();
+      v.innerHTML=({home:vHome,map:vMap,watch:vWatch,atr:vATR,screen:vScreen,stock:vStock,observe:vObserve,report:vReport,ai:vAI,strategy:vStrategyCenter,patterns:vPatterns,mainforce:vMainforce,aiJournal:vAIJournal,account:vAccount,admin:vAdmin,status:vStatus}[id])();
     }
   }catch(err){
     console.error('頁面渲染錯誤 ['+id+']:', err);

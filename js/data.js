@@ -212,8 +212,14 @@ const DATA = {
     {id:'observe',name:'觀察報告',enabled:false,days:7},
     {id:'report',name:'每日報告',enabled:false,days:7},
     {id:'ai',name:'AI 模擬實驗室',enabled:false,days:7},
+    {id:'strategy',name:'策略中心',enabled:false,days:7},
+    {id:'patterns',name:'型態辨識',enabled:false,days:7},
+    {id:'mainforce',name:'主力行為',enabled:false,days:7},
+    {id:'aiJournal',name:'AI 檢討日誌',enabled:false,days:7},
     {id:'status',name:'資料更新狀態',enabled:false,days:7},
   ],
+  phase6:{strategies:[],strategyResults:[],strategyBacktests:[],patterns:[],mainforce:[],aiJournal:[],phase6Reports:[]},
+  phase6Loaded:false,
 };
 const fmtPx=v=>{const n=Number(v);return isFinite(n)?n.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):'—';};
 const sgn=v=>(v>0?'+':'')+v;

@@ -110,3 +110,43 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python data_quality_cleanup.py
+
+      - name: 11) Phase 6 pattern detector
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python compute_patterns.py
+
+      - name: 12) Phase 6 main force detector
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python mainforce_detector.py
+
+      - name: 13) Phase 6 strategy center
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python strategy_center.py
+
+      - name: 14) Phase 6 AI trade journal
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python ai_trade_journal.py
+
+      - name: 15) Phase 6 daily report
+        if: always()
+        working-directory: jobs
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        run: python generate_daily_report.py

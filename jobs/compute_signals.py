@@ -90,6 +90,67 @@ def volume_to_lots(v):
     return n / 1000 if n >= 1000 else n
 
 
+def volume_price_profile(rows, closes, highs, lows, vols):
+    """Phase 6 量價結構評分：用最新 K 棒與近 20/60 日結構判斷。"""
+    if len(closes) < 3:
+        return 50, [], []
+    close = closes[-1]
+    prev_close = closes[-2]
+    high = highs[-1]
+    low = lows[-1]
+    vol = vols[-1]
+    avg20 = sum(vols[-21:-1]) / 20 if len(vols) >= 21 and sum(vols[-21:-1]) else 0
+    high60 = max(highs[-60:]) if len(highs) >= 60 else max(highs)
+    low60 = min(lows[-60:]) if len(lows) >= 60 else min(lows)
+    prev_high20 = max(highs[-21:-1]) if len(highs) >= 21 else max(highs[:-1])
+    ma20_now = ma(closes, 20)
+
+    score = 50
+    tags = []
+    risks = []
+    up = close > prev_close
+    down = close < prev_close
+    vol_ratio = vol / avg20 if avg20 else 1
+
+    if up and vol_ratio >= 1.2:
+        score += 16
+        tags.append("價漲量增")
+    elif up and vol_ratio < 0.85:
+        score -= 5
+        tags.append("價漲量縮")
+        risks.append("動能不足")
+    if down and vol_ratio >= 1.2:
+        score -= 14
+        tags.append("價跌量增")
+        risks.append("賣壓放大")
+    elif down and vol_ratio < 0.85:
+        score += 7
+        tags.append("價跌量縮")
+        tags.append("可能止跌")
+
+    if close <= low60 * 1.12 and vol_ratio >= 1.8 and up:
+        score += 12
+        tags.append("低檔爆量")
+        tags.append("轉強觀察")
+
+    candle_range = max(high - low, 0.01)
+    upper_shadow = (high - close) / candle_range
+    if close >= high60 * 0.92 and vol_ratio >= 1.8 and upper_shadow >= 0.45:
+        score -= 18
+        risks.append("高檔爆量長上影")
+        risks.append("出貨警告")
+
+    if close > prev_high20 and vol_ratio >= 1.3:
+        score += 15
+        tags.append("突破放量")
+    if ma20_now and abs(close - ma20_now) / close * 100 <= 3 and vol_ratio <= 0.85:
+        score += 8
+        tags.append("回測量縮")
+        tags.append("健康整理")
+
+    return max(0, min(100, round(score, 2))), tags, risks
+
+
 # ---------- 技術指標（純 Python）----------
 def ma(seq, n):
     return round(sum(seq[-n:]) / n, 2) if len(seq) >= n else None
@@ -273,6 +334,8 @@ def main():
         if cp is not None and cp >= 5:
             tags.append("強漲")
 
+        vp_score, vp_tags, risk_flags = volume_price_profile(rows, closes, highs, lows, vols)
+
         signals.append(
             {
                 "date": latest,
@@ -284,6 +347,9 @@ def main():
                 "theme_score": theme_s,
                 "final_score": final,
                 "signal_tags": tags,
+                "volume_price_score": vp_score,
+                "volume_price_tags": vp_tags,
+                "risk_flags": risk_flags,
                 "summary": (
                     f"收{closes[-1]} 漲跌{cp if cp is not None else '—'}% "
                     f"MA20={ma20} RSI={rsi14} K={kk} D={dd} "
