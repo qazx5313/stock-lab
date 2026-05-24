@@ -66,15 +66,7 @@ jobs:
           REPAIR_LOOKBACK_DAYS: "3"
         run: python repair_missing_prices.py
 
-      - name: 6) Build stock industry classes
-        if: always()
-        working-directory: jobs
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-        run: python fetch_stock_classes.py
-
-      - name: 7) Validate close prices with TWSE MIS
+      - name: 6) Validate close prices with TWSE MIS
         if: always()
         working-directory: jobs
         env:
@@ -83,7 +75,7 @@ jobs:
           MIS_VALIDATE_MAX_SYMBOLS: "220"
         run: python validate_mis_quotes.py
 
-      - name: 8) Compute daily signals
+      - name: 7) Compute daily signals
         if: always()
         working-directory: jobs
         env:
@@ -91,7 +83,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_signals.py
 
-      - name: 9) Run AI lab
+      - name: 8) Run AI lab
         if: always()
         working-directory: jobs
         env:
@@ -103,7 +95,7 @@ jobs:
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
         run: python run_ai_lab.py
 
-      - name: 10) Data quality cleanup
+      - name: 9) Data quality cleanup
         if: always()
         working-directory: jobs
         env:
@@ -111,7 +103,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python data_quality_cleanup.py
 
-      - name: 11) Phase 6 pattern detector
+      - name: 10) Phase 6 pattern detector
         if: always()
         working-directory: jobs
         env:
@@ -119,7 +111,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python compute_patterns.py
 
-      - name: 12) Phase 6 main force detector
+      - name: 11) Phase 6 main force detector
         if: always()
         working-directory: jobs
         env:
@@ -127,7 +119,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python mainforce_detector.py
 
-      - name: 13) Phase 6 strategy center
+      - name: 12) Phase 6 strategy center
         if: always()
         working-directory: jobs
         env:
@@ -135,7 +127,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python strategy_center.py
 
-      - name: 14) Phase 6 AI trade journal
+      - name: 13) Phase 6 AI trade journal
         if: always()
         working-directory: jobs
         env:
@@ -143,7 +135,7 @@ jobs:
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         run: python ai_trade_journal.py
 
-      - name: 15) Phase 6 daily report
+      - name: 14) Phase 6 daily report
         if: always()
         working-directory: jobs
         env:
