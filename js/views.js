@@ -344,7 +344,7 @@ function themeParts(name){
   return {major,fine,label:major===fine?major:`${major} / ${fine}`};
 }
 function mapAllThemes(){
-  const rows=(DATA.themes||[]).filter(t=>Array.isArray(t.stocks)&&t.stocks.length);
+  const rows=(DATA.themes||[]).filter(t=>t&&t.name);
   if(rows.length) return rows;
   return typeof buildClassThemesFromCaches==='function'?buildClassThemesFromCaches():[];
 }
@@ -354,12 +354,17 @@ function mapIndustryMajors(){
     if(!m || seen.has(m)) return false;
     seen.add(m);
     return true;
-  });
+  }).sort((a,b)=>a.localeCompare(b,'zh-Hant'));
 }
 function mapThemesForMajor(major){
   const rows=mapAllThemes();
-  if(!major) return rows;
-  return rows.filter(t=>themeParts(t.name).major===major);
+  const filtered=!major?rows:rows.filter(t=>themeParts(t.name).major===major);
+  return filtered.sort((a,b)=>{
+    const pa=themeParts(a.name), pb=themeParts(b.name);
+    const fine=pa.fine.localeCompare(pb.fine,'zh-Hant');
+    if(fine) return fine;
+    return ((b.stocks||[]).length)-((a.stocks||[]).length);
+  });
 }
 function mapMarketThemes(){
   return mapAllThemes();

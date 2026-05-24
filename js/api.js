@@ -405,7 +405,7 @@ function applyRealtimeQuotes(rows, options={}){
     DATA.meta.realtimeUpdated=fmtDoneTime(newest.updated_at);
   }
 }
-const REAL_CACHE_KEY='stockLabRealCache:v16';
+const REAL_CACHE_KEY='stockLabRealCache:v17';
 const REAL_CACHE_TTL=1000*60*60*72;
 const REAL_CACHE_FIELDS=[
   'meta','market','themes','themeList','chain','picks','news','risks','screen',
@@ -645,10 +645,9 @@ async function loadReal(){
             t.desc=`${cleanName}：成分 ${t.stocks.length} 檔，平均漲幅 ${Number.isFinite(avg)?avg.toFixed(2):'—'}%，成交金額 ${(amt/100000000).toFixed(2)} 億。`;
           }
         });
-        DATA.themes=DATA.themes.filter(t=>Array.isArray(t.stocks)&&t.stocks.length);
         if(!DATA.themes.length) DATA.themes=buildClassThemesFromCaches();
         DATA.themeList=DATA.themes.map(t=>t.name);
-        if(!DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
+        if(DATA.themes.length && !DATA.themes.some(t=>t.id===MAP_SEL)) MAP_SEL=DATA.themes[0].id;
       }
     }catch(e){ console.warn('themes 載入略過:',e); }
     if(!Array.isArray(DATA.themes) || !DATA.themes.length){
