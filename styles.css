@@ -680,7 +680,13 @@
 .strategy-hit-mini-list{display:grid;gap:5px}
 .strategy-hit-mini-list button{height:24px;display:flex;align-items:center;justify-content:space-between;gap:8px;border:0;background:transparent;padding:0;color:var(--primary);font-size:11px;font-weight:900;cursor:pointer}
 .strategy-hit-mini-list b{color:#EF4444;font-family:var(--mono);font-size:11px}
+.strategy-hit-mini-list.expanded button{height:auto;min-height:26px;border-top:1px solid var(--border-soft)}
+.strategy-hit-mini-list.expanded button:first-child{border-top:0}
 .strategy-hit-empty{color:var(--ink-3);font-size:11px;font-weight:850}
+.strategy-card-detail{margin:10px 14px 0;border:1px solid var(--border-soft);border-radius:8px;background:#F8FBFF;padding:10px 0}
+.strategy-card-detail .strategy-mini-section{padding:0 10px 8px}
+.strategy-card-detail .strategy-hit-area{padding:0 10px}
+.strategy-card-detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
 .strategy-card-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:auto;padding:12px 14px 14px}
 .strategy-card-actions .btn{justify-content:center;min-height:30px}
 .strategy-focus{border-radius:8px;border-color:#BFDBFE;box-shadow:0 12px 26px rgba(37,99,235,.09)}

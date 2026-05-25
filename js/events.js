@@ -13,7 +13,10 @@ function bindPage(id){
     go('strategy');
   });
   document.querySelectorAll('[data-strategy-focus]').forEach(el=>el.onclick=()=>{
-    if(typeof STRATEGY_FOCUS_ID!=='undefined') STRATEGY_FOCUS_ID=el.dataset.strategyFocus||'';
+    if(typeof STRATEGY_FOCUS_ID!=='undefined'){
+      const next=el.dataset.strategyFocus||'';
+      STRATEGY_FOCUS_ID=STRATEGY_FOCUS_ID===next?'':next;
+    }
     go('strategy');
   });
   document.querySelectorAll('[data-strategy-clear]').forEach(el=>el.onclick=()=>{

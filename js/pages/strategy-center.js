@@ -242,19 +242,35 @@ function strategyHitRows(hits){
     ${hits.slice(0,2).map(h=>`<button type="button" data-stock="${esc(h.symbol)}"><span>${esc(h.symbol)} ${esc(h.name||'')}</span><b>${esc(h.score??'—')}</b></button>`).join('')}
   </div>`:'<div class="strategy-hit-empty">尚無命中</div>';
 }
+function strategyInlineDetail(s,hits){
+  const conditions=p6List(s.conditions), risks=p6List(s.risk_rules);
+  return `<div class="strategy-card-detail">
+    <div class="strategy-card-detail-grid">
+      <div class="strategy-mini-section"><span>完整策略條件</span><div>${conditions.map(x=>`<em>${esc(x)}</em>`).join('')||'<em>尚未設定</em>'}</div></div>
+      <div class="strategy-mini-section"><span>完整風險規則</span><div>${risks.map(x=>`<em>${esc(x)}</em>`).join('')||'<em>系統預設</em>'}</div></div>
+    </div>
+    <div class="strategy-hit-area">
+      <span>此策略近期命中</span>
+      ${hits.length?`<div class="strategy-hit-mini-list expanded">
+        ${hits.slice(0,5).map(h=>`<button type="button" data-stock="${esc(h.symbol)}"><span>${esc(h.symbol)} ${esc(h.name||'')}</span><b>${esc(h.score??'—')}</b></button>`).join('')}
+      </div>`:'<div class="strategy-hit-empty">尚無命中</div>'}
+    </div>
+  </div>`;
+}
 function strategyCard(s,hits,backs){
   const sh=strategyHitsAll(hits,s);
   const bt=strategyBacktestFor(backs,s);
   const conditions=p6List(s.conditions);
   const risks=p6List(s.risk_rules);
   const best=sh[0];
-  return `<article class="strategy-work-card ${STRATEGY_FOCUS_ID && strategyKey(STRATEGY_FOCUS_ID)===strategyKey(s.id)?'active':''}">
+  const focused=STRATEGY_FOCUS_ID && (strategyKey(STRATEGY_FOCUS_ID)===strategyKey(s.id) || strategyKey(STRATEGY_FOCUS_ID)===strategyKey(s._local_id));
+  return `<article class="strategy-work-card ${focused?'active':''}">
     <div class="strategy-card-head">
       <div>
         <b>${esc(s.name)}</b>
         <span>${esc(strategySourceLabel(s))} · ${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
       </div>
-      <button type="button" class="strategy-star" data-strategy-focus="${esc(s.id)}" title="查看策略">☆</button>
+      <button type="button" class="strategy-star" data-strategy-focus="${esc(s.id)}" title="${focused?'收合策略':'查看策略'}">${focused?'×':'☆'}</button>
     </div>
     <p>${esc(s.description||'')}</p>
     <div class="strategy-card-metrics">
@@ -268,8 +284,9 @@ function strategyCard(s,hits,backs){
       <span>近期命中</span>
       ${strategyHitRows(sh)}
     </div>
+    ${focused?strategyInlineDetail(s,sh):''}
     <div class="strategy-card-actions">
-      <button type="button" class="btn line sm" data-strategy-focus="${esc(s.id)}">查看策略</button>
+      <button type="button" class="btn line sm" data-strategy-focus="${esc(s.id)}">${focused?'收合策略':'查看策略'}</button>
       ${best?`<button type="button" class="btn sm" data-stock="${esc(best.symbol)}">查看命中股</button>`:`<button type="button" class="btn sm" data-strategy-focus="${esc(s.id)}">查看命中股</button>`}
     </div>
   </article>`;
@@ -294,8 +311,6 @@ function vStrategyCenter(){
   const localTemplates=strategyRegistryTemplates();
   const defs=mergeStrategyDefinitions(remoteDefs,localTemplates);
   const filteredDefs=strategySortRows(defs.filter(s=>strategyMatches(s,hits)),hits,backs);
-  const focused=defs.find(s=>strategyKey(s.id)===strategyKey(STRATEGY_FOCUS_ID) || strategyKey(s._local_id)===strategyKey(STRATEGY_FOCUS_ID));
-  const focusedHits=focused?strategyHitsFor(hits,focused):[];
   const groups=STRATEGY_GROUPS.map(g=>({...g,rows:filteredDefs.filter(s=>strategyTypeOf(s)===g.id)})).filter(g=>g.rows.length);
   return `<div class="strategy-workspace">
     <div class="strategy-titlebar">
@@ -303,7 +318,6 @@ function vStrategyCenter(){
     </div>
     ${strategyKpis(defs,hits,backs)}
     ${strategyToolbar(defs,hits)}
-    ${strategyFocusPanel(focused,focusedHits)}
     <div class="${STRATEGY_VIEW==='grid'?'strategy-flat-grid':'strategy-group-list'}">
       ${STRATEGY_VIEW==='grid'?filteredDefs.map(s=>strategyCard(s,hits,backs)).join(''):groups.map(g=>strategyGroupRow(g,g.rows,hits,backs)).join('')}
     </div>
