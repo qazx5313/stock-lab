@@ -107,6 +107,13 @@ STRATEGY_LIBRARY_TEMPLATES = [
     ("gap_up_fade_risk", "跳空開高走低", "跳空開高後走低，短線賣壓大。", ["跳空開高", "收盤走低"], ["避免追高"]),
 ]
 
+EXECUTABLE_TEMPLATE_IDS = {
+    "volume_breakout_strategy",
+    "box_breakout_strategy",
+    "ma_compression_breakout_strategy",
+    "double_bottom_reversal_strategy",
+}
+
 STRATEGIES += [
     {
         "id": sid,
@@ -114,7 +121,7 @@ STRATEGIES += [
         "description": desc,
         "conditions": conditions,
         "risk_rules": risk_rules,
-        "enabled": False,
+        "enabled": sid in EXECUTABLE_TEMPLATE_IDS,
     }
     for sid, name, desc, conditions, risk_rules in STRATEGY_LIBRARY_TEMPLATES
 ]
@@ -141,6 +148,43 @@ def _stats(prices):
     return closes, highs, lows, vols, latest, prev
 
 
+def _ma_spread_pct(close, *values):
+    clean = [v for v in values if v is not None]
+    if not clean or not close:
+        return None
+    return (max(clean) - min(clean)) / close * 100
+
+
+def _double_bottom_levels(highs, lows, closes):
+    if len(lows) < 45 or len(closes) < 45:
+        return None
+    start = len(lows) - 45
+    end = len(lows) - 5
+    candidates = []
+    for i in range(start + 2, end):
+        if lows[i] <= lows[i - 1] and lows[i] <= lows[i + 1] and lows[i] <= lows[i - 2] and lows[i] <= lows[i + 2]:
+            candidates.append(i)
+    for i, first in enumerate(candidates):
+        for second in candidates[i + 1:]:
+            gap = second - first
+            if gap < 8 or gap > 32:
+                continue
+            low1, low2 = lows[first], lows[second]
+            if low1 <= 0 or low2 <= 0:
+                continue
+            low_diff = abs(low2 - low1) / min(low1, low2) * 100
+            if low_diff > 6:
+                continue
+            neckline = max(highs[first:second + 1])
+            depth = pct(neckline, min(low1, low2)) or 0
+            if depth < 6:
+                continue
+            if close := closes[-1]:
+                if close > neckline and closes[-2] <= neckline:
+                    return first, second, neckline, min(low1, low2)
+    return None
+
+
 def hit_strategy(strategy_id, prices):
     if len(prices) < 65:
         return None
@@ -153,6 +197,9 @@ def hit_strategy(strategy_id, prices):
     ma10 = ma(closes, 10)
     ma20 = ma(closes, 20)
     ma60 = ma(closes, 60)
+    prev_ma5 = ma(closes[:-1], 5)
+    prev_ma10 = ma(closes[:-1], 10)
+    prev_ma20 = ma(closes[:-1], 20)
     hma_now = hma(closes, 9)
     hma_prev = hma(closes[:-1], 9)
     sd = stdev(closes, 9) or 0
@@ -160,6 +207,7 @@ def hit_strategy(strategy_id, prices):
     _, _, hist_prev = macd(closes[:-1])
     high20 = max(highs[-21:-1])
     low20 = min(lows[-21:-1])
+    high10 = max(highs[-11:-1])
     basis = ma20 or close
     band_sd = stdev(closes, 20) or 0
     upper = basis + band_sd * 2
@@ -168,18 +216,34 @@ def hit_strategy(strategy_id, prices):
         return 86, f"收盤上穿 HMA9，STDEV9={sd:.2f}，成交量 {vol:.0f} 張。"
     if strategy_id == "bollinger_r1_v1" and close > upper and vol >= avg20 * 1.3:
         return 82, f"收盤突破布林上軌 {upper:.2f}，量能放大 {vol / max(avg20, 1):.2f} 倍。"
+    if strategy_id == "volume_breakout_strategy" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.5 and vol >= 1000:
+        base = f"突破近 20 日壓力 {high20:.2f}，成交量 {vol:.0f} 張、為 20 日均量 {vol / max(avg20, 1):.2f} 倍。"
+        return 86 if ma20 and close > ma20 else 82, base
     if strategy_id == "box_breakout_v1" and close > high20 and vol >= avg20 * 1.35 and pct(high20, low20) and pct(high20, low20) < 15:
         return 84, f"突破近 20 日箱頂 {high20:.2f}，整理後放量轉強。"
+    if strategy_id == "box_breakout_strategy" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.25:
+        box_width = pct(high20, low20)
+        if box_width and box_width < 15:
+            return 84, f"近 20 日箱型寬度 {box_width:.1f}%，收盤突破箱頂 {high20:.2f} 且量能放大。"
     if strategy_id == "volume_shrink_ma_v1" and ma5 and ma10 and ma20:
-        spread = (max(ma5, ma10, ma20) - min(ma5, ma10, ma20)) / close * 100
+        spread = _ma_spread_pct(close, ma5, ma10, ma20)
         if spread < 3 and abs(close - ma20) / close * 100 < 3 and vol < avg20 * 0.85:
             return 70, f"MA5/10/20 糾結，回測 MA20 且量縮，等待方向選擇。"
+    if strategy_id == "ma_compression_breakout_strategy" and ma5 and ma10 and ma20 and prev_ma5 and prev_ma10 and prev_ma20:
+        spread = _ma_spread_pct(prev_close, prev_ma5, prev_ma10, prev_ma20)
+        if spread is not None and spread < 3 and close > max(ma5, ma10, ma20) and close > high10 and vol >= avg20 * 1.2:
+            return 83, f"MA5/10/20 前一日收斂 {spread:.1f}%，今日放量突破短期壓力 {high10:.2f}。"
     if strategy_id == "ma5_strong_v1" and ma5 and close > ma5 and ma5 > ma(closes[:-1], 5) and vol >= 1000:
         return 78, f"收盤站上 MA5 且 MA5 上彎，成交量 {vol:.0f} 張。"
     if strategy_id == "monthly_support_v1" and ma20 and abs(close - ma20) / close * 100 < 3 and close >= ma20 and vol < avg20:
         return 75, f"回測 MA20 {ma20:.2f} 守住，量能低於 20 日均量。"
     if strategy_id == "macd_turn_v1" and dif and dea and hist and hist_prev is not None and dif > dea and hist > hist_prev and close > (ma20 or close):
         return 77, f"MACD DIF 站上慢線，OSC 由 {hist_prev:.2f} 改善至 {hist:.2f}。"
+    if strategy_id == "double_bottom_reversal_strategy":
+        levels = _double_bottom_levels(highs, lows, closes)
+        if levels and vol >= avg20:
+            _, _, neckline, bottom = levels
+            return 85, f"W底突破頸線 {neckline:.2f}，低點區約 {bottom:.2f}，量能不低於 20 日均量。"
     return None
 
 
@@ -198,6 +262,8 @@ def backtest_strategy(strategy, series, *, deadline=None, max_symbols=260, max_s
         for i in range(start, len(prices) - 5):
             if deadline and time.monotonic() >= deadline:
                 break
+            if not strategy.get("enabled", True):
+                continue
             hit = hit_strategy(strategy["id"], prices[:i + 1])
             if not hit:
                 continue
@@ -227,6 +293,8 @@ def main():
             if not prices or prices[-1]["date"] != latest_date:
                 continue
             for strategy in STRATEGIES:
+                if not strategy.get("enabled", True):
+                    continue
                 hit = hit_strategy(strategy["id"], prices)
                 if not hit:
                     continue
@@ -253,6 +321,8 @@ def main():
         backtest_seconds = max(5, int(os.getenv("STRATEGY_BACKTEST_SECONDS", "25")))
         backtest_deadline = time.monotonic() + backtest_seconds
         for strategy in STRATEGIES:
+            if not strategy.get("enabled", True):
+                continue
             if time.monotonic() >= backtest_deadline:
                 log("strategy backtest skipped: reached time budget")
                 break

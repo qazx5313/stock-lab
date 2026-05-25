@@ -142,7 +142,7 @@ const score = calculateTechnicalScore({
 - AI 模擬操盤：仍以 `jobs/run_ai_lab.py`、`jobs/run_ai_intraday.py` 產生交易資料；可用 registry 的策略說明與風險模板補強前端解釋。
 - 每日報告：`jobs/generate_daily_report.py` 可引用策略、型態、風險分類文字，避免重複撰寫。
 - 股票篩選器：`jobs/compute_signals.py` 繼續負責可執行條件；registry 提供篩選器定義、欄位需求與解釋模板。
-- 策略中心：`jobs/strategy_center.py` 仍寫入 `strategy_definitions`；新增模板先作為定義資料，不會破壞原有命中邏輯。
+- 策略中心：`jobs/strategy_center.py` 仍寫入 `strategy_definitions`；已先把放量突破、箱型突破、均線糾結突破、W底反轉與既有 MACD 轉強接成可執行命中邏輯，其餘新增模板仍先作為定義資料。
 
 ## 如何新增指標、型態、策略
 
@@ -173,6 +173,6 @@ python -m py_compile jobs/compute_signals.py
 ## 已知缺口
 
 - `js/technical-registry.js` 目前已接入每日篩選與策略中心；尚未把所有內容做成完整前台學習頁。
-- 部分新增策略是定義模板，尚未都有實際 `hit_strategy()` 計算邏輯。
+- 部分新增策略仍是定義模板，尚未都有實際 `hit_strategy()` 計算邏輯；目前已可執行：放量突破、箱型突破、均線糾結突破、W底反轉、MACD 轉強。
 - 台股籌碼中的分點、大戶、董監與集保資料需要資料源穩定後才能完整自動評分。
 - K線型態與圖表型態目前以偵測任務與說明資料並存，未來可把 `compute_patterns.py` 的型態名稱改為直接引用 registry id。
