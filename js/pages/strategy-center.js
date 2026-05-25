@@ -52,66 +52,6 @@ function p6List(list){
   if(typeof list==='string'){try{list=JSON.parse(list);}catch(e){list=[list];}}
   return Array.isArray(list)?list.filter(Boolean):[];
 }
-function p6Meta(value){
-  if(!value) return {};
-  if(typeof value==='string'){try{return JSON.parse(value)||{};}catch(e){return {};}}
-  return typeof value==='object'?value:{};
-}
-function p6SignalBadge(hit){
-  const score=Number(hit.score);
-  let t=hit.hit_type||'今日命中';
-  if(t==='今日命中' && Number.isFinite(score)){
-    t=score>=85?'強訊號':score>=75?'普通訊號':'僅觀察';
-  }
-  const risk=(p6Meta(hit.metadata).risk_level||'').toLowerCase();
-  const cls=t.includes('高風險')||risk==='high'?'bad':t.includes('風險')||risk==='medium'?'warm':t.includes('強')?'hot':t.includes('普通')?'good':'obs';
-  return `<span class="badge ${cls}">${esc(t)}</span>`;
-}
-function p6RiskLabel(risk){
-  return ({low:'低',medium:'中',high:'高'})[String(risk||'').toLowerCase()]||'—';
-}
-function p6QualityBars(hit){
-  const meta=p6Meta(hit.metadata);
-  const q=meta.quality_components;
-  if(!q || typeof q!=='object') return hit.hit_type==='今日命中'?'<div class="strategy-quality-empty">等待重新計算分數拆解</div>':'';
-  const rows=[
-    ['基礎',q.base],
-    ['趨勢',q.trend],
-    ['量能',q.volume],
-    ['籌碼',q.chip],
-    ['風險',q.riskPenalty]
-  ];
-  return `<div class="strategy-quality">
-    ${rows.map(([label,val])=>{
-      const n=Number(val)||0;
-      const width=Math.min(100,Math.abs(n)*8);
-      const cls=label==='風險'?'risk':n<0?'neg':'pos';
-      return `<div class="strategy-quality-row ${cls}">
-        <span>${label}</span>
-        <i><b style="width:${width}%"></b></i>
-        <em>${esc(n)}</em>
-      </div>`;
-    }).join('')}
-  </div>`;
-}
-function p6HitButton(hit){
-  const meta=p6Meta(hit.metadata);
-  const risk=meta.risk_level;
-  return `<button type="button" data-stock="${esc(hit.symbol)}">
-    <div class="strategy-hit-top">
-      <b>${esc(hit.symbol)} ${esc(hit.name||'')}</b>
-      <strong class="${dcls(hit.score)}">${hit.score??'—'}</strong>
-    </div>
-    <div class="strategy-hit-badges">
-      ${p6SignalBadge(hit)}
-      ${risk?`<span class="badge obs">風險 ${esc(p6RiskLabel(risk))}</span>`:''}
-      ${meta.volume_ratio!=null?`<span class="badge obs">量比 ${esc(meta.volume_ratio)}</span>`:''}
-    </div>
-    <span>${esc(hit.reason||'')}</span>
-    ${hit.risk_note?`<small>${esc(hit.risk_note)}</small>`:''}
-    ${p6QualityBars(hit)}
-  </button>`;
-}
 function strategyTypeLabel(type){
   return ({
     breakout:'突破',
@@ -264,6 +204,15 @@ function strategyToolbar(defs,hits){
   </div>
   ${strategyTabs(defs,hits)}`;
 }
+function strategyFocusHits(hits){
+  if(!hits.length) return '<div class="strategy-focus-empty">目前資料庫尚無命中股票，排程重新計算後會自動出現。</div>';
+  return `<div class="strategy-focus-hits">
+    ${hits.slice(0,8).map(h=>`<button type="button" data-stock="${esc(h.symbol)}">
+      <div><b>${esc(h.symbol)} ${esc(h.name||'')}</b><span>${esc(h.reason||'')}</span></div>
+      <strong class="${dcls(h.score)}">${esc(h.score??'—')}</strong>
+    </button>`).join('')}
+  </div>`;
+}
 function strategyFocusPanel(s,hits){
   if(!s) return '';
   const conditions=p6List(s.conditions), risks=p6List(s.risk_rules);
@@ -283,7 +232,7 @@ function strategyFocusPanel(s,hits){
       </div>
       <div class="strategy-hits">
         <div class="strategy-hits-title">此策略近期命中</div>
-        ${hits.length?hits.slice(0,8).map(p6HitButton).join(''):'<div class="muted">目前資料庫尚無命中股票，排程重新計算後會自動出現。</div>'}
+        ${strategyFocusHits(hits)}
       </div>
     </div>
   </div>`;
