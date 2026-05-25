@@ -175,30 +175,105 @@ function strategyHitsFor(hits,s){
 let STRATEGY_TYPE_FILTER='all';
 let STRATEGY_ONLY_HITS=false;
 let STRATEGY_FOCUS_ID='';
+let STRATEGY_QUERY='';
+let STRATEGY_SORT='category';
+let STRATEGY_VIEW='group';
+let STRATEGY_OPEN_GROUP='breakout';
+const STRATEGY_GROUPS=[
+  {id:'breakout',label:'突破策略',desc:'偵測價格突破關鍵壓力，開始轉強或主升機會。',accent:'blue'},
+  {id:'retest',label:'回測策略',desc:'過濾突破後回測不破或均線支撐成立。',accent:'cyan'},
+  {id:'reversal',label:'反轉策略',desc:'偵測低檔轉強或背離訊號，捕捉反轉機會。',accent:'violet'},
+  {id:'trend-following',label:'趨勢追蹤策略',desc:'順勢追蹤主要趨勢，強化持續續航力。',accent:'green'},
+  {id:'range',label:'震盪區間策略',desc:'在震盪盤內高拋低吸，累積穩定報酬。',accent:'amber'},
+  {id:'risk-avoid',label:'風險控制策略',desc:'偵測追高、籌碼失衡與流動性風險。',accent:'red'}
+];
 function strategySourceLabel(s){
   return s&&s._source==='technical-registry'?'技術資料庫':'策略中心';
 }
 function strategyTypeOf(s){
   return s.strategy_type || s.strategyType || (s.ui_tags&&s.ui_tags[0]) || 'other';
 }
-function strategyControls(defs){
-  const types=['all','breakout','retest','reversal','trend-following','range','risk-avoid'];
-  return `<div class="strategy-tools">
-    <div class="strategy-tabs">
-      ${types.map(t=>`<button type="button" class="${STRATEGY_TYPE_FILTER===t?'on':''}" data-strategy-filter="${esc(t)}">${t==='all'?'全部':esc(strategyTypeLabel(t))}</button>`).join('')}
-    </div>
-    <button type="button" class="btn line sm ${STRATEGY_ONLY_HITS?'on':''}" data-strategy-toggle-hits="1">只看有命中</button>
-    ${STRATEGY_FOCUS_ID?'<button type="button" class="btn ghost sm" data-strategy-clear="1">清除選取</button>':''}
-    <span class="tag">${defs.length} 組策略 · 已合併技術資料庫</span>
+function strategyGroupMeta(type){
+  return STRATEGY_GROUPS.find(g=>g.id===type)||{id:type,label:strategyTypeLabel(type),desc:'其他策略模板。',accent:'blue'};
+}
+function strategyHitsAll(hits,s){
+  return strategyHitsFor(hits,s).slice().sort((a,b)=>Number(b.score||0)-Number(a.score||0));
+}
+function strategyBacktestFor(backs,s){
+  return (backs||[]).find(b=>strategyKey(b.strategy_id)===strategyKey(s.id) || strategyKey(b.strategy_id)===strategyKey(s._local_id))||{};
+}
+function strategyWinRate(backs,s){
+  const bt=strategyBacktestFor(backs,s);
+  return Number.isFinite(Number(bt.win_rate))?Number(bt.win_rate):null;
+}
+function strategySearchText(s){
+  return [s.id,s._local_id,s.name,s.description,strategyTypeLabel(strategyTypeOf(s)),strategyTypeOf(s),...p6List(s.conditions),...p6List(s.risk_rules),...(s.ui_tags||[])].join(' ').toLowerCase();
+}
+function strategyMatches(s,hits){
+  const q=String(STRATEGY_QUERY||'').trim().toLowerCase();
+  if(STRATEGY_TYPE_FILTER!=='all' && strategyTypeOf(s)!==STRATEGY_TYPE_FILTER) return false;
+  if(STRATEGY_ONLY_HITS && !strategyHitsFor(hits,s).length) return false;
+  return !q || strategySearchText(s).includes(q);
+}
+function strategySortRows(rows,hits,backs){
+  return rows.slice().sort((a,b)=>{
+    const ah=strategyHitsFor(hits,a), bh=strategyHitsFor(hits,b);
+    const as=Number(ah[0]&&ah[0].score||-1), bs=Number(bh[0]&&bh[0].score||-1);
+    if(STRATEGY_SORT==='hits') return bh.length-ah.length || bs-as || String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
+    if(STRATEGY_SORT==='win') return Number(strategyWinRate(backs,b)||-1)-Number(strategyWinRate(backs,a)||-1) || bs-as;
+    if(STRATEGY_SORT==='name') return String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
+    return STRATEGY_GROUPS.findIndex(g=>g.id===strategyTypeOf(a))-STRATEGY_GROUPS.findIndex(g=>g.id===strategyTypeOf(b)) || bs-as || String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
+  });
+}
+function strategyAvgWin(backs,rows){
+  const ids=new Set(rows.flatMap(s=>[strategyKey(s.id),strategyKey(s._local_id)]));
+  const vals=(backs||[]).filter(b=>ids.has(strategyKey(b.strategy_id))).map(b=>Number(b.win_rate)).filter(Number.isFinite);
+  return vals.length?vals.reduce((a,b)=>a+b,0)/vals.length:null;
+}
+function strategyKpis(defs,hits,backs){
+  const enabled=defs.filter(s=>s.enabled!==false).length;
+  const avgWin=strategyAvgWin(backs,defs);
+  return `<div class="strategy-stat-grid">
+    <div class="strategy-stat"><span>策略總數</span><b>${defs.length}</b><em>所有分類合計</em><i></i></div>
+    <div class="strategy-stat green"><span>啟用中</span><b>${enabled}</b><em>正在監控與執行</em><i></i></div>
+    <div class="strategy-stat violet"><span>近期命中</span><b>${hits.length}</b><em>近 20 筆交易日</em><i></i></div>
+    <div class="strategy-stat amber"><span>平均勝率</span><b>${avgWin==null?'—':avgWin.toFixed(1)+'%'}</b><em>加權平均勝率</em><i></i></div>
   </div>`;
+}
+function strategyTabs(defs,hits){
+  const tabs=[{id:'all',label:'全部',count:defs.length},...STRATEGY_GROUPS.map(g=>({id:g.id,label:strategyTypeLabel(g.id),count:defs.filter(s=>strategyTypeOf(s)===g.id).length}))];
+  return `<div class="strategy-tabs">
+    ${tabs.map(t=>`<button type="button" class="${STRATEGY_TYPE_FILTER===t.id?'on':''}" data-strategy-filter="${esc(t.id)}">${esc(t.label)} <b>${t.count}</b></button>`).join('')}
+    <button type="button" class="${STRATEGY_ONLY_HITS?'on':''}" data-strategy-toggle-hits="1">有命中 <b>${defs.filter(s=>strategyHitsFor(hits,s).length).length}</b></button>
+  </div>`;
+}
+function strategyToolbar(defs,hits){
+  return `<div class="strategy-toolbar">
+    <label class="strategy-search">
+      <span>搜尋</span>
+      <input id="strategySearchInput" value="${esc(STRATEGY_QUERY)}" placeholder="搜尋策略名稱、條件或股票..." autocomplete="off">
+      ${STRATEGY_QUERY?'<button type="button" data-strategy-search-clear="1">清除</button>':''}
+    </label>
+    <select id="strategySortSelect" class="strategy-sort" aria-label="策略排序">
+      ${[['category','排序：分類'],['hits','排序：命中數'],['win','排序：勝率'],['name','排序：名稱']].map(([v,t])=>`<option value="${v}" ${STRATEGY_SORT===v?'selected':''}>${t}</option>`).join('')}
+    </select>
+    <div class="strategy-view-toggle">
+      <button type="button" class="${STRATEGY_VIEW==='group'?'on':''}" data-strategy-view="group">分組</button>
+      <button type="button" class="${STRATEGY_VIEW==='grid'?'on':''}" data-strategy-view="grid">卡片</button>
+    </div>
+  </div>
+  ${strategyTabs(defs,hits)}`;
 }
 function strategyFocusPanel(s,hits){
   if(!s) return '';
   const conditions=p6List(s.conditions), risks=p6List(s.risk_rules);
-  return `<div class="card strategy-focus">
+  return `<div class="strategy-focus card">
     <div class="card-h">
       <h3>${esc(s.name)}</h3>
-      <span class="tag">${esc(strategySourceLabel(s))} · ${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
+      <div class="strategy-head-badges">
+        <span class="tag">${esc(strategySourceLabel(s))} · ${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
+        <button type="button" class="btn ghost sm" data-strategy-clear="1">關閉</button>
+      </div>
     </div>
     <div class="strategy-focus-body">
       <div>
@@ -213,85 +288,76 @@ function strategyFocusPanel(s,hits){
     </div>
   </div>`;
 }
+function strategyHitRows(hits){
+  return hits.length?`<div class="strategy-hit-mini-list">
+    ${hits.slice(0,2).map(h=>`<button type="button" data-stock="${esc(h.symbol)}"><span>${esc(h.symbol)} ${esc(h.name||'')}</span><b>${esc(h.score??'—')}</b></button>`).join('')}
+  </div>`:'<div class="strategy-hit-empty">尚無命中</div>';
+}
+function strategyCard(s,hits,backs){
+  const sh=strategyHitsAll(hits,s);
+  const bt=strategyBacktestFor(backs,s);
+  const conditions=p6List(s.conditions);
+  const risks=p6List(s.risk_rules);
+  const best=sh[0];
+  return `<article class="strategy-work-card ${STRATEGY_FOCUS_ID && strategyKey(STRATEGY_FOCUS_ID)===strategyKey(s.id)?'active':''}">
+    <div class="strategy-card-head">
+      <div>
+        <b>${esc(s.name)}</b>
+        <span>${esc(strategySourceLabel(s))} · ${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
+      </div>
+      <button type="button" class="strategy-star" data-strategy-focus="${esc(s.id)}" title="查看策略">☆</button>
+    </div>
+    <p>${esc(s.description||'')}</p>
+    <div class="strategy-card-metrics">
+      <div><span>回測樣本</span><b>${bt.sample_count||0}</b></div>
+      <div><span>勝率</span><b class="${dcls(bt.win_rate)}">${bt.win_rate??'—'}%</b></div>
+      <div><span>命中</span><b>${sh.length}</b></div>
+    </div>
+    <div class="strategy-mini-section"><span>策略條件</span><div>${conditions.slice(0,3).map(x=>`<em>${esc(x)}</em>`).join('')||'<em>尚未設定</em>'}</div></div>
+    <div class="strategy-mini-section"><span>風險規則</span><div>${risks.slice(0,2).map(x=>`<em>${esc(x)}</em>`).join('')||'<em>系統預設</em>'}</div></div>
+    <div class="strategy-hit-area">
+      <span>近期命中</span>
+      ${strategyHitRows(sh)}
+    </div>
+    <div class="strategy-card-actions">
+      <button type="button" class="btn line sm" data-strategy-focus="${esc(s.id)}">查看策略</button>
+      ${best?`<button type="button" class="btn sm" data-stock="${esc(best.symbol)}">查看命中股</button>`:`<button type="button" class="btn sm" data-strategy-focus="${esc(s.id)}">查看命中股</button>`}
+    </div>
+  </article>`;
+}
+function strategyGroupRow(group,rows,hits,backs){
+  const open=STRATEGY_VIEW==='grid' || STRATEGY_OPEN_GROUP===group.id || STRATEGY_TYPE_FILTER===group.id;
+  const hitCount=rows.reduce((n,s)=>n+strategyHitsFor(hits,s).length,0);
+  const avg=strategyAvgWin(backs,rows);
+  return `<section class="strategy-group ${open?'open':''} accent-${group.accent}">
+    <button type="button" class="strategy-group-head" data-strategy-group="${esc(group.id)}">
+      <div class="strategy-group-icon"><i></i></div>
+      <div class="strategy-group-title"><b>${esc(group.label)}</b><span>${esc(group.desc)}</span></div>
+      <div class="strategy-group-meta"><span>${rows.length} 個策略</span><span>近期命中 ${hitCount} 筆</span><span>平均勝率 ${avg==null?'—':avg.toFixed(1)+'%'}</span></div>
+      <strong>${open?'收合':'展開'}</strong>
+    </button>
+    ${open?`<div class="strategy-group-body">${rows.map(s=>strategyCard(s,hits,backs)).join('')}</div>`:''}
+  </section>`;
+}
 function vStrategyCenter(){
   const loading=phase6Ensure('strategy'); if(loading) return loading;
   const p=DATA.phase6||{},remoteDefs=p.strategies||[],hits=p.strategyResults||[],backs=p.strategyBacktests||[];
   const localTemplates=strategyRegistryTemplates();
   const defs=mergeStrategyDefinitions(remoteDefs,localTemplates);
-  const enabled=defs.filter(s=>s.enabled!==false).length;
-  const avgWin=backs.length?backs.reduce((s,b)=>s+(Number(b.win_rate)||0),0)/backs.length:null;
-  const bestByStrategy=new Map();
-  defs.forEach(s=>{
-    const sh=strategyHitsFor(hits,s);
-    if(sh.length) bestByStrategy.set(strategyKey(s.id),sh.slice().sort((a,b)=>Number(b.score||0)-Number(a.score||0))[0]);
-  });
-  const sortedDefs=defs.slice().sort((a,b)=>{
-    const ah=bestByStrategy.get(strategyKey(a.id)), bh=bestByStrategy.get(strategyKey(b.id));
-    return Number(bh&&bh.score||-1)-Number(ah&&ah.score||-1) || Number(b.enabled!==false)-Number(a.enabled!==false) || String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
-  });
-  const filteredDefs=sortedDefs.filter(s=>{
-    if(STRATEGY_TYPE_FILTER!=='all' && strategyTypeOf(s)!==STRATEGY_TYPE_FILTER) return false;
-    if(STRATEGY_ONLY_HITS && !strategyHitsFor(hits,s).length) return false;
-    return true;
-  });
+  const filteredDefs=strategySortRows(defs.filter(s=>strategyMatches(s,hits)),hits,backs);
   const focused=defs.find(s=>strategyKey(s.id)===strategyKey(STRATEGY_FOCUS_ID) || strategyKey(s._local_id)===strategyKey(STRATEGY_FOCUS_ID));
   const focusedHits=focused?strategyHitsFor(hits,focused):[];
-  return `<div class="hero-card phase6-hero">
-    <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>集中管理策略條件、風險控管、近期命中與回測摘要。技術資料庫模板會直接併入策略清單。</p></div>
-    <div class="strategy-kpis">
-      <div><b>${defs.length}</b><span>策略數</span></div>
-      <div><b>${enabled}</b><span>啟用中</span></div>
-      <div><b>${hits.length}</b><span>近期命中</span></div>
-      <div><b>${avgWin==null?'—':avgWin.toFixed(1)+'%'}</b><span>平均勝率</span></div>
+  const groups=STRATEGY_GROUPS.map(g=>({...g,rows:filteredDefs.filter(s=>strategyTypeOf(s)===g.id)})).filter(g=>g.rows.length);
+  return `<div class="strategy-workspace">
+    <div class="strategy-titlebar">
+      <div><h2>策略中心</h2><p>集中管理策略條件、風險控管、近期命中與回測摘要</p></div>
     </div>
-  </div>
-  ${strategyControls(defs)}
-  ${strategyFocusPanel(focused,focusedHits)}
-  <div class="strategy-center-grid">
-    ${filteredDefs.map(s=>{
-      const sh=strategyHitsFor(hits,s).slice(0,5);
-      const best=bestByStrategy.get(strategyKey(s.id));
-      const bt=backs.find(b=>strategyKey(b.strategy_id)===strategyKey(s.id) || strategyKey(b.strategy_id)===strategyKey(s._local_id))||{};
-      const conditions=p6List(s.conditions);
-      const risks=p6List(s.risk_rules);
-      const active=focused && (strategyKey(focused.id)===strategyKey(s.id) || strategyKey(focused._local_id)===strategyKey(s._local_id));
-      return `<article class="strategy-center-card ${s.enabled!==false?'is-on':'is-off'} ${active?'active':''}">
-        <div class="strategy-center-head">
-          <div>
-            <span class="strategy-id">${esc(s.id||'strategy')} · ${esc(strategySourceLabel(s))}</span>
-            <h3>${esc(s.name)}</h3>
-          </div>
-          <div class="strategy-head-badges">
-            ${best?p6SignalBadge(best):''}
-            <span class="badge obs">${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
-            <span class="badge ${s.enabled!==false?'hot':'cool'}">${s.enabled!==false?'啟用':'停用'}</span>
-          </div>
-        </div>
-        <p class="strategy-desc">${esc(s.description||'')}</p>
-        <div class="strategy-metrics">
-          <div><span>回測樣本</span><b>${bt.sample_count||0}</b></div>
-          <div><span>勝率</span><b class="${dcls(bt.win_rate)}">${bt.win_rate??'—'}%</b></div>
-          <div><span>平均報酬</span><b class="${dcls(bt.avg_return)}">${bt.avg_return??'—'}%</b></div>
-          <div><span>命中</span><b>${sh.length}</b></div>
-        </div>
-        <div class="strategy-section">
-          <span>策略條件</span>
-          <div>${conditions.length?conditions.map(x=>`<em>${esc(x)}</em>`).join(''):'<em>尚未設定</em>'}</div>
-        </div>
-        <div class="strategy-section">
-          <span>風險規則</span>
-          <div>${risks.length?risks.map(x=>`<em>${esc(x)}</em>`).join(''):'<em>依系統預設停損控管</em>'}</div>
-        </div>
-        <div class="strategy-hits">
-          <div class="strategy-hits-title">近期命中</div>
-          ${sh.length?sh.map(p6HitButton).join(''):'<div class="muted">尚無命中股票</div>'}
-        </div>
-        <div class="strategy-actions">
-          <button type="button" class="btn line sm" data-strategy-focus="${esc(s.id)}">查看策略</button>
-          ${sh[0]?`<button type="button" class="btn sm" data-stock="${esc(sh[0].symbol)}">查看最高分股票</button>`:''}
-        </div>
-      </article>`;
-    }).join('')}
-  </div>
-  ${!filteredDefs.length?emptyPhase6('沒有符合篩選的策略','請切回全部或關閉只看有命中。'):''}`;
+    ${strategyKpis(defs,hits,backs)}
+    ${strategyToolbar(defs,hits)}
+    ${strategyFocusPanel(focused,focusedHits)}
+    <div class="${STRATEGY_VIEW==='grid'?'strategy-flat-grid':'strategy-group-list'}">
+      ${STRATEGY_VIEW==='grid'?filteredDefs.map(s=>strategyCard(s,hits,backs)).join(''):groups.map(g=>strategyGroupRow(g,g.rows,hits,backs)).join('')}
+    </div>
+    ${!filteredDefs.length?emptyPhase6('沒有符合篩選的策略','請調整搜尋、分類或關閉只看有命中。'):''}
+  </div>`;
 }

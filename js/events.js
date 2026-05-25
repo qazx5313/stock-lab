@@ -20,6 +20,41 @@ function bindPage(id){
     if(typeof STRATEGY_FOCUS_ID!=='undefined') STRATEGY_FOCUS_ID='';
     go('strategy');
   });
+  document.querySelectorAll('[data-strategy-view]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_VIEW!=='undefined') STRATEGY_VIEW=el.dataset.strategyView||'group';
+    go('strategy');
+  });
+  document.querySelectorAll('[data-strategy-group]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_OPEN_GROUP!=='undefined') STRATEGY_OPEN_GROUP=STRATEGY_OPEN_GROUP===el.dataset.strategyGroup?'':el.dataset.strategyGroup;
+    go('strategy');
+  });
+  const strategySearch=document.getElementById('strategySearchInput');
+  if(strategySearch){
+    strategySearch.oninput=()=>{
+      if(typeof STRATEGY_QUERY!=='undefined') STRATEGY_QUERY=strategySearch.value||'';
+      clearTimeout(window.__strategySearchTimer);
+      const pos=strategySearch.selectionStart||0;
+      window.__strategySearchTimer=setTimeout(()=>{
+        if(CUR==='strategy') go('strategy');
+        setTimeout(()=>{
+          const next=document.getElementById('strategySearchInput');
+          if(next){next.focus();try{next.setSelectionRange(pos,pos);}catch(_){}}
+        },0);
+      },220);
+    };
+    strategySearch.onkeydown=e=>{
+      if(e.key==='Enter'){e.preventDefault();if(typeof STRATEGY_QUERY!=='undefined') STRATEGY_QUERY=strategySearch.value||'';go('strategy');}
+    };
+  }
+  document.querySelectorAll('[data-strategy-search-clear]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_QUERY!=='undefined') STRATEGY_QUERY='';
+    go('strategy');
+  });
+  const strategySort=document.getElementById('strategySortSelect');
+  if(strategySort) strategySort.onchange=()=>{
+    if(typeof STRATEGY_SORT!=='undefined') STRATEGY_SORT=strategySort.value||'category';
+    go('strategy');
+  };
   document.querySelectorAll('[data-theme-major]').forEach(el=>el.onclick=()=>{
     MAP_MAJOR=el.dataset.themeMajor||'';
     const first=(typeof mapThemesForMajor==='function'?mapThemesForMajor(MAP_MAJOR):[])[0];
