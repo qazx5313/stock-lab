@@ -693,6 +693,17 @@
 .strategy-focus-hits span{display:block;margin-top:3px;color:var(--ink-2);font-size:11px;font-weight:800;line-height:1.4;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .strategy-focus-hits strong{font-family:var(--mono);font-size:13px;font-weight:950}
 .strategy-focus-empty{border:1px dashed var(--border-soft);border-radius:8px;background:#F8FAFC;color:var(--ink-3);font-size:12px;font-weight:850;padding:12px}
+.workspace-page>.strategy-toolbar{display:flex;grid-template-columns:none;gap:8px;overflow-x:auto;padding-bottom:2px;align-items:stretch}
+.workspace-page .strategy-card-head{padding:18px 18px 14px;display:flex;grid-template-columns:none;gap:13px;align-items:flex-start}
+.workspace-page .strategy-card h3{font-size:16px;font-weight:950;line-height:1.25;white-space:normal;word-break:normal}
+.workspace-page .strategy-card p{font-size:12.5px;color:var(--ink-2);line-height:1.55;margin-top:8px;min-height:58px;white-space:normal;word-break:normal}
+.workspace-page .strategy-stat{position:static;min-height:0;border:0;border-right:1px solid var(--border-soft);border-bottom:1px solid var(--border-soft);border-radius:0;background:transparent;box-shadow:none;padding:12px 16px;overflow:visible}
+.workspace-page .strategy-stat:nth-child(2n){border-right:0}
+.workspace-page .strategy-stat span{display:block;font-size:11px;color:var(--ink-3);font-weight:900}
+.workspace-page .strategy-stat b{display:block;font-size:18px;font-weight:950;margin-top:3px;line-height:1.2;color:var(--ink)}
+.workspace-page .strategy-stat b.up{color:var(--up)}
+.workspace-page .strategy-stat b.down{color:var(--down)}
+.workspace-page .strategy-stat i,.workspace-page .strategy-stat em{display:none}
 .force-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .force-column{background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
 .force-column-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:18px;border-bottom:1px solid var(--border-soft)}
