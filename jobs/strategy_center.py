@@ -59,6 +59,66 @@ STRATEGIES = [
     },
 ]
 
+STRATEGY_LIBRARY_TEMPLATES = [
+    ("volume_breakout_strategy", "放量突破", "突破壓力且量能放大，觀察資金是否進場。", ["收盤突破壓力", "成交量大於20日均量1.3倍"], ["跌回突破價下方停損"]),
+    ("base_breakout_strategy", "平台突破", "平台整理後向上突破，觀察壓力轉支撐。", ["平台整理完成", "收盤突破平台上緣"], ["跌回平台內停損"]),
+    ("previous_high_breakout_strategy", "前高突破", "突破前波高點，確認上方套牢壓力被消化。", ["收盤突破前高", "成交量放大"], ["跌回前高下方停損"]),
+    ("all_time_high_breakout_strategy", "歷史新高突破", "突破長期高點，偏向趨勢延伸觀察。", ["創長期新高", "成交額放大"], ["跌回突破K低點停損"]),
+    ("bollinger_squeeze_breakout_strategy", "布林收口突破", "布林寬度收斂後突破，觀察波動擴張。", ["BBWidth 低檔", "收盤突破上軌"], ["跌回中軌降風險"]),
+    ("triangle_breakout_strategy", "三角收斂突破", "高低點收斂後突破，等待方向選擇。", ["高低點收斂", "突破收斂上緣"], ["跌回三角形內停損"]),
+    ("cup_handle_breakout_strategy", "杯柄突破", "杯柄型態突破杯緣，觀察中期續強。", ["杯柄型態完成", "突破杯緣"], ["跌破柄部低點停損"]),
+    ("limit_up_breakout_strategy", "漲停突破", "漲停K後整理再突破，觀察強勢延續。", ["近20日有漲停K", "突破漲停K高點"], ["跌破漲停K低點停損"]),
+    ("ma_compression_breakout_strategy", "均線糾結突破", "短中期均線收斂後放量突破。", ["MA5/10/20 糾結", "放量突破"], ["跌破糾結區停損"]),
+    ("breakout_retest_hold_strategy", "突破後回測不破", "突破後回測原壓力不破，觀察壓力轉支撐。", ["突破後拉回", "回測突破價不破"], ["跌破突破價停損"]),
+    ("ma5_retest_strategy", "五日線回測", "強勢股沿五日線上攻，量縮回測不破。", ["回測MA5", "量縮止跌"], ["跌破MA5且站不回"]),
+    ("gap_retest_strategy", "缺口回測", "跳空缺口回測不補，觀察缺口支撐。", ["回測缺口上緣", "缺口不補"], ["補缺口且轉弱"]),
+    ("neckline_retest_strategy", "頸線回測", "突破頸線後回測不破，確認型態有效。", ["突破頸線", "回測不破"], ["跌破頸線停損"]),
+    ("box_top_retest_strategy", "箱頂回測", "箱型突破後回測箱頂，確認支撐。", ["突破箱頂", "回測箱頂不破"], ["跌回箱內"]),
+    ("vwap_retest_strategy", "VWAP 回測", "站上VWAP後回測不破，觀察資金成本支撐。", ["站上VWAP", "回測VWAP不破"], ["跌破VWAP"]),
+    ("limit_up_candle_retest_strategy", "漲停K回測", "漲停K後回測高低點區間，確認強勢整理。", ["回測漲停K區間", "量縮止跌"], ["跌破漲停K低點"]),
+    ("double_bottom_reversal_strategy", "W底反轉", "雙底突破頸線，確認低檔反轉。", ["第二低不破", "突破頸線"], ["跌破第二低"]),
+    ("head_shoulders_bottom_reversal_strategy", "頭肩底反轉", "頭肩底完成後突破頸線。", ["右肩完成", "突破頸線"], ["跌破右肩低點"]),
+    ("rsi_bullish_divergence_strategy", "RSI底背離", "價格創低但RSI不再創低，觀察止跌。", ["價格創低", "RSI未創低", "站回短均"], ["跌破新低"]),
+    ("macd_bullish_divergence_strategy", "MACD底背離", "價格創低但MACD動能改善。", ["價格創低", "MACD未創低", "OSC改善"], ["OSC再轉弱"]),
+    ("kd_low_golden_cross_strategy", "KD低檔黃金交叉", "KD低檔轉強，搭配價格止跌。", ["KD低檔K上穿D", "價格止跌"], ["K再跌破D"]),
+    ("long_lower_shadow_reversal_strategy", "長下影止跌", "支撐附近長下影，觀察隔日確認。", ["支撐附近長下影", "隔日站穩"], ["跌破下影低點"]),
+    ("bottom_volume_reversal_strategy", "低檔爆量反轉", "低檔爆量紅K後觀察是否止跌。", ["低檔爆量", "隔日不破低點"], ["爆量後續跌"]),
+    ("oversold_rebound_strategy", "跌深反彈", "跌深後動能指標回升，偏短線反彈。", ["跌幅過大", "RSI過低後轉強"], ["反彈量縮失敗"]),
+    ("ma_bull_trend_strategy", "均線多頭排列", "均線依短到長向上排列，追蹤趨勢延續。", ["MA5>MA10>MA20>MA60", "價格站上均線"], ["跌破MA20"]),
+    ("macd_trend_red_bar_strategy", "MACD順勢紅柱", "MACD紅柱擴大，趨勢動能延續。", ["DIF>MACD", "OSC紅柱擴大"], ["OSC縮小轉黑"]),
+    ("adx_trend_strength_strategy", "ADX趨勢增強", "ADX上升代表趨勢強度提升。", ["ADX上升", "方向指標同向"], ["ADX下降且跌破均線"]),
+    ("supertrend_bull_strategy", "Supertrend多頭", "價格站上Supertrend追蹤線。", ["價格站上Supertrend", "線向上"], ["跌破Supertrend"]),
+    ("ma5_strong_trend_strategy", "強勢股沿五日線", "強勢股回測MA5不破。", ["沿MA5上攻", "回測不破"], ["跌破MA5站不回"]),
+    ("flag_continuation_strategy", "旗形整理後續攻", "急漲後旗形整理再突破。", ["旗形整理", "突破旗面"], ["跌破旗形低點"]),
+    ("n_wave_trend_strategy", "N字型上攻", "高低點墊高形成N字延續。", ["高低點墊高", "突破前高"], ["跌破前低"]),
+    ("box_bottom_range_strategy", "箱底低吸", "箱型下緣支撐附近觀察反彈。", ["箱底支撐", "量縮止跌"], ["跌破箱底"]),
+    ("box_top_range_strategy", "箱頂高賣", "箱型上緣壓力附近降低追價。", ["接近箱頂", "量價背離"], ["突破箱頂放量"]),
+    ("bollinger_band_range_strategy", "布林上下軌反轉", "盤整盤沿布林上下軌操作。", ["觸及上下軌", "動能反轉"], ["通道擴張順勢突破"]),
+    ("rsi_range_strategy", "RSI過熱過冷", "震盪盤使用RSI高低檔循環。", ["RSI過熱或過冷", "接近支撐壓力"], ["趨勢行情鈍化"]),
+    ("kd_range_cycle_strategy", "KD高低檔循環", "震盪盤觀察KD高低檔交叉。", ["KD高低檔交叉", "區間明確"], ["突破區間後失效"]),
+    ("support_resistance_range_strategy", "支撐壓力來回", "支撐與壓力間來回操作。", ["支撐買盤", "壓力賣壓"], ["區間突破或跌破"]),
+    ("top_volume_upper_shadow_risk", "高檔爆量長上影", "高檔爆量長上影代表追價風險。", ["高檔爆量", "長上影"], ["降低追價"]),
+    ("ma20_break_risk", "跌破月線站不回", "跌破MA20後反彈站不回，趨勢轉弱。", ["跌破MA20", "反彈站不回"], ["轉弱避開"]),
+    ("false_breakout_risk", "假突破隔日轉弱", "突破後隔日轉弱，容易套牢追價。", ["突破後跌回", "隔日轉弱"], ["避免追價"]),
+    ("margin_surge_risk", "融資暴增", "融資快速增加且股價高檔，籌碼風險升高。", ["融資快速增加", "股價高檔"], ["降低權重"]),
+    ("institutional_selling_risk", "法人連賣", "法人連續賣超且跌破支撐，趨勢偏弱。", ["法人連賣", "跌破支撐"], ["降低權重"]),
+    ("disposition_risk", "處置風險", "波動過大可能處置，降低追價與槓桿。", ["波動異常", "可能處置"], ["降低槓桿"]),
+    ("liquidity_risk", "流動性不足", "成交量不足容易滑價，排除候選。", ["成交量低於1000張", "買賣價差大"], ["排除候選"]),
+    ("gap_up_fade_risk", "跳空開高走低", "跳空開高後走低，短線賣壓大。", ["跳空開高", "收盤走低"], ["避免追高"]),
+]
+
+STRATEGIES += [
+    {
+        "id": sid,
+        "name": name,
+        "description": desc,
+        "conditions": conditions,
+        "risk_rules": risk_rules,
+        "enabled": False,
+    }
+    for sid, name, desc, conditions, risk_rules in STRATEGY_LIBRARY_TEMPLATES
+]
+
 
 def _definition_rows():
     return [{
@@ -67,7 +127,7 @@ def _definition_rows():
         "description": s["description"],
         "conditions": s["conditions"],
         "risk_rules": s["risk_rules"],
-        "enabled": True,
+        "enabled": s.get("enabled", True),
     } for s in STRATEGIES]
 
 

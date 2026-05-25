@@ -1,7 +1,7 @@
 ---
 title: 技術觀念學習中心
 version: 1.0
-updated: 2026-05-24
+updated: 2026-05-26
 type: learning_center
 ---
 
@@ -16,6 +16,12 @@ type: learning_center
 - 給 AI 判讀：把技術邏輯整理成可檢查的規則，避免單靠單一指標做結論。
 
 重要提醒：本文件是教育與研究用途，不是投資保證。任何策略都必須搭配停損、部位控管與交易紀律。
+
+程式化資料入口：
+
+- 前端與測試用統一 registry：`js/technical-registry.js`
+- 策略中心資料庫種子：`jobs/strategy_center.py`
+- 技術資料庫整併說明：`docs/technical-database-registry.md`
 
 ---
 
