@@ -328,14 +328,7 @@ function updateCapitalFlowDom(){
 }
 function capitalFlowPanel(){
   return `<div class="card market-overview-flow">
-    <div class="card-h"><h3>資金流向 / 類股輪動</h3><span class="tag">Sector Flow</span>
-      <div class="market-overview-flow-tabs">
-        <span class="market-overview-flow-tab active">即時排序</span>
-        <span class="market-overview-flow-tab">漲跌幅</span>
-        <span class="market-overview-flow-tab" data-go="map">類股地圖</span>
-        <span class="market-overview-flow-tab" data-go="map">›</span>
-      </div>
-    </div>
+    <div class="card-h"><h3>資金流向 / 類股輪動</h3><span class="tag">Sector Flow</span></div>
     <div data-capital-flow>${capitalFlowMarkup()}</div>
   </div>`;
 }
