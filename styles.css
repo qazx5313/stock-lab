@@ -79,8 +79,9 @@
     display:flex;align-items:center;gap:10px;padding:15px 20px;border-bottom:1px solid var(--border-soft);
   }
   .card-h h3{font-size:15px;font-weight:800;letter-spacing:-.2px}
-  .card-h .tag{font-size:11px;color:var(--ink-3);font-weight:600}
-  .card-h .more{margin-left:auto;font-size:12px;color:var(--primary);font-weight:700}
+.card-h .tag{font-size:11px;color:var(--ink-3);font-weight:600}
+.card-h .more{margin-left:auto;font-size:12px;color:var(--primary);font-weight:700}
+button.more{border:0;background:transparent;cursor:pointer;padding:0}
   .sec-title{font-size:13px;font-weight:800;color:var(--ink-2);letter-spacing:.4px;margin:4px 0 12px;text-transform:uppercase}
 
   /* ===== Dashboard Home ===== */
@@ -609,6 +610,9 @@
 .strategy-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:auto;padding:0 18px 18px}
 .knowledge-template-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px 18px 18px}
 .knowledge-template-card{border:1px solid var(--border-soft);border-radius:12px;background:#fff;padding:14px 15px;min-width:0}
+.knowledge-template-card[data-screen-template]{cursor:pointer}
+.knowledge-template-card[data-screen-template]:hover{border-color:#93C5FD;background:#F8FBFF}
+.knowledge-template-card.active{border-color:#2563EB;box-shadow:0 10px 22px rgba(37,99,235,.12)}
 .knowledge-template-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
 .knowledge-template-head b{font-size:14px;font-weight:950;line-height:1.35;color:var(--ink)}
 .knowledge-template-card p{margin:9px 0 12px;color:var(--ink-2);font-size:12.5px;line-height:1.55;min-height:38px}

@@ -163,14 +163,42 @@ function bindPage(id){
     const upd=()=>{const x=document.getElementById('selCnt');if(x)x.textContent=SEL.size;
       document.querySelectorAll('[data-f]').forEach(c=>c.classList.toggle('on',SEL.has(c.dataset.f)));};
     document.querySelectorAll('[data-f]').forEach(c=>c.onclick=()=>{
-      SEL.has(c.dataset.f)?SEL.delete(c.dataset.f):SEL.add(c.dataset.f);upd();});
+      SEL.has(c.dataset.f)?SEL.delete(c.dataset.f):SEL.add(c.dataset.f);
+      go('screen');
+    });
+    document.querySelectorAll('[data-screen-template]').forEach(card=>card.onclick=()=>{
+      if(typeof SCREEN_TEMPLATE_ID!=='undefined') SCREEN_TEMPLATE_ID=card.dataset.screenTemplate||'';
+      const t=typeof screenTemplateById==='function'?screenTemplateById(SCREEN_TEMPLATE_ID):null;
+      if(typeof SEL!=='undefined' && typeof screenTemplateChips==='function'){
+        SEL.clear();
+        screenTemplateChips(t).forEach(x=>SEL.add(x));
+      }
+      go('screen');
+    });
+    document.querySelectorAll('[data-screen-template]').forEach(card=>card.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();card.click();}
+    });
     const clr=document.getElementById('clrBtn');
-    if(clr)clr.onclick=()=>{SEL.clear();upd();
-      document.getElementById('resBody').innerHTML=rowsScreen([]);document.getElementById('resCnt').textContent=0;};
-    document.getElementById('runBtn').onclick=()=>{
-      const r=DATA.screen.slice(0,DATA.screen.length);document.getElementById('resBody').innerHTML=rowsScreen(r);
-      document.getElementById('resCnt').textContent=r.length;
-      document.querySelectorAll('#resBody [data-stock]').forEach(el=>el.onclick=async()=>{DATA.stock.c=el.dataset.stock;await loadStockSeries(el.dataset.stock);go('stock');});};
+    if(clr)clr.onclick=()=>{
+      if(typeof SCREEN_TEMPLATE_ID!=='undefined') SCREEN_TEMPLATE_ID='';
+      SEL.clear();
+      go('screen');
+    };
+    const run=document.getElementById('runBtn');
+    if(run)run.onclick=()=>go('screen');
+    const exp=document.getElementById('exportScreenBtn');
+    if(exp)exp.onclick=()=>{
+      const rows=typeof screenApplyRows==='function'?screenApplyRows():(DATA.screen||[]);
+      const head=['代號','名稱','題材','收盤','漲跌%','成交量','符合條件'];
+      const csv=[head,...rows.map(s=>[s.c,s.n,s.t,s.px,s.dp,fmtScreenVol(s.vol),screenReason(s)])]
+        .map(r=>r.map(v=>`"${String(v??'').replace(/"/g,'""')}"`).join(',')).join('\n');
+      const blob=new Blob(['\ufeff'+csv],{type:'text/csv;charset=utf-8'});
+      const a=document.createElement('a');
+      a.href=URL.createObjectURL(blob);
+      a.download='每日篩選.csv';
+      a.click();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+    };
   }
   if(id==='ai'){
     document.querySelectorAll('[data-ai]').forEach(el=>el.onclick=async()=>{AI_VIEW=el.dataset.ai;await loadAIDetailData(AI_VIEW);go('ai');});
