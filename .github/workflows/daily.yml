@@ -121,13 +121,13 @@ jobs:
 
       - name: 12) Phase 6 strategy center
         if: always()
-        timeout-minutes: 10
+        timeout-minutes: 20
         continue-on-error: true
         working-directory: jobs
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
-          STRATEGY_BACKTEST_SECONDS: "8"
+          STRATEGY_BACKTEST_SECONDS: "45"
         run: python strategy_center.py
 
       - name: 13) Phase 6 AI trade journal

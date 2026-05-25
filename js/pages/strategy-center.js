@@ -17,8 +17,8 @@ async function loadPhase6Data(force=false){
   };
   await Promise.all([
     safe('strategies','strategy_definitions?select=*&order=name.asc'),
-    safe('strategyResults','strategy_results?select=*&order=date.desc,score.desc&limit=120'),
-    safe('strategyBacktests','strategy_backtests?select=*&order=date.desc&limit=80'),
+    safe('strategyResults','strategy_results?select=*&order=date.desc,score.desc&limit=1000'),
+    safe('strategyBacktests','strategy_backtests?select=*&order=date.desc&limit=500'),
     safe('patterns','detected_patterns?select=*&order=date.desc,confidence_score.desc&limit=160'),
     safe('mainforce','mainforce_behaviors?select=*&order=date.desc,confidence_score.desc&limit=160'),
     safe('aiJournal','ai_trade_journal?select=*&order=review_date.desc,created_at.desc&limit=120'),
