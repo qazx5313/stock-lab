@@ -142,7 +142,7 @@ const score = calculateTechnicalScore({
 - AI 模擬操盤：仍以 `jobs/run_ai_lab.py`、`jobs/run_ai_intraday.py` 產生交易資料；可用 registry 的策略說明與風險模板補強前端解釋。
 - 每日報告：`jobs/generate_daily_report.py` 可引用策略、型態、風險分類文字，避免重複撰寫。
 - 股票篩選器：`jobs/compute_signals.py` 繼續負責可執行條件；registry 提供篩選器定義、欄位需求與解釋模板。
-- 策略中心：`jobs/strategy_center.py` 仍寫入 `strategy_definitions`；策略模板已全部接成可執行命中邏輯。多數策略使用日 K、成交量、MA、RSI、KD、MACD、布林與 ATR 推導；法人連賣與融資暴增會讀取既有 `institutional_trades`、`margin_trades`，資料缺漏時不會硬造命中。
+- 策略中心：`jobs/strategy_center.py` 仍寫入 `strategy_definitions`；策略模板已全部接成可執行命中邏輯。多數策略使用日 K、成交量、MA、RSI、KD、MACD、布林與 ATR 推導；法人連賣與融資暴增會讀取既有 `institutional_trades`、`margin_trades`，資料缺漏時不會硬造命中。命中後會再經過 `score_strategy_hit()` 統一加權，產生 `強訊號`、`普通訊號`、`僅觀察`、`風險訊號` 等分級。
 
 ## 如何新增指標、型態、策略
 
@@ -173,6 +173,6 @@ python -m py_compile jobs/compute_signals.py
 ## 已知缺口
 
 - `js/technical-registry.js` 目前已接入每日篩選與策略中心；尚未把所有內容做成完整前台學習頁。
-- 策略模板已全部接到 `hit_strategy()`。其中法人連賣、融資暴增會依資料表是否有最新法人與融資資料決定是否命中；若資料源缺漏，策略定義仍會顯示，但不會產生不可靠結果。
+- 策略模板已全部接到 `hit_strategy()`，並以 `score_strategy_hit()` 統一評分。法人連賣、融資暴增會依資料表是否有最新法人與融資資料決定是否命中；若資料源缺漏，策略定義仍會顯示，但不會產生不可靠結果。
 - 台股籌碼中的分點、大戶、董監與集保資料需要資料源穩定後才能完整自動評分。
 - K線型態與圖表型態目前以偵測任務與說明資料並存，未來可把 `compute_patterns.py` 的型態名稱改為直接引用 registry id。

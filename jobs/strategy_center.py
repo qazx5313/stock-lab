@@ -639,6 +639,126 @@ def hit_strategy(strategy_id, prices, context=None):
     return None
 
 
+def _strategy_family(strategy_id):
+    if strategy_id.endswith("_risk") or "_risk" in strategy_id:
+        return "risk"
+    if "_range_" in strategy_id or strategy_id.endswith("_range_strategy"):
+        return "range"
+    if "retest" in strategy_id:
+        return "retest"
+    if "reversal" in strategy_id or "divergence" in strategy_id or "rebound" in strategy_id:
+        return "reversal"
+    if "trend" in strategy_id or "ma_bull" in strategy_id or "supertrend" in strategy_id:
+        return "trend"
+    if "breakout" in strategy_id or "high" in strategy_id:
+        return "breakout"
+    return "mixed"
+
+
+def _score_label(score, family):
+    if family == "risk":
+        if score >= 78:
+            return "高風險訊號"
+        if score >= 68:
+            return "風險訊號"
+        return "風險觀察"
+    if score >= 85:
+        return "強訊號"
+    if score >= 75:
+        return "普通訊號"
+    return "僅觀察"
+
+
+def score_strategy_hit(strategy, prices, context, base_score, reason):
+    closes, highs, lows, vols, latest, _ = _stats(prices)
+    close = closes[-1]
+    vol = vols[-1]
+    avg20 = avg(vols[-20:]) or 0
+    ma5 = ma(closes, 5)
+    ma20 = ma(closes, 20)
+    prev_ma20 = ma(closes[:-1], 20)
+    ma60 = ma(closes, 60)
+    latest_open = nf(latest.get("open"), close)
+    latest_high = highs[-1]
+    latest_low = lows[-1]
+    candle_range = max(latest_high - latest_low, 0)
+    upper_shadow = latest_high - max(latest_open, close)
+    volume_ratio = vol / max(avg20, 1)
+    family = _strategy_family(strategy["id"])
+    components = {"base": int(base_score), "trend": 0, "volume": 0, "chip": 0, "riskPenalty": 0}
+    notes = []
+
+    if ma20 and close > ma20:
+        components["trend"] += 4
+    if ma5 and ma20 and ma5 > ma20:
+        components["trend"] += 4
+    if ma20 and prev_ma20 and ma20 > prev_ma20:
+        components["trend"] += 3
+    if ma60 and close > ma60:
+        components["trend"] += 3
+
+    if volume_ratio >= 2.5:
+        components["volume"] += 7
+        notes.append("量能明顯放大，需確認不是短線過熱")
+    elif volume_ratio >= 1.5:
+        components["volume"] += 8
+    elif volume_ratio >= 1.15:
+        components["volume"] += 5
+    elif family in {"retest", "range"} and volume_ratio <= 0.9:
+        components["volume"] += 5
+
+    inst_rows = _chip_context_rows(context, "institutional")
+    if inst_rows:
+        recent_inst = sum(nf(r.get("total_buy_sell"), nf(r.get("foreign_buy_sell"), 0)) for r in inst_rows[-3:])
+        if recent_inst > 0:
+            components["chip"] += 4
+        elif recent_inst < 0:
+            components["chip"] -= 4
+            notes.append("法人近 3 筆偏賣超")
+
+    margin_rows = _chip_context_rows(context, "margin")
+    if margin_rows:
+        recent_margin = _sum_recent(margin_rows, "margin_change", 3)
+        if recent_margin > 0 and family != "risk":
+            components["riskPenalty"] += 3
+            notes.append("融資增加，留意籌碼浮額")
+
+    if avg20 < 1000:
+        components["riskPenalty"] += 8
+        notes.append("20 日均量低於 1000 張，流動性較弱")
+    if ma20 and close > ma20 * 1.15 and family != "risk":
+        components["riskPenalty"] += 5
+        notes.append("價格距離 MA20 偏遠，追價風險提高")
+    if candle_range and upper_shadow / candle_range >= 0.45:
+        components["riskPenalty"] += 5
+        notes.append("今日上影線偏長")
+
+    raw = base_score + components["trend"] + components["volume"] + components["chip"] - components["riskPenalty"]
+    if family == "risk":
+        raw = base_score + components["riskPenalty"] + max(0, -components["chip"])
+        risk_level = "high" if raw >= 78 else "medium"
+    else:
+        risk_level = "medium" if components["riskPenalty"] >= 8 else "low"
+    score = int(max(0, min(100, round(raw))))
+    label = _score_label(score, family)
+    risk_note = "；".join(notes) if notes else "僅作策略研究，仍需搭配大盤、題材與停損控管。"
+    if family == "risk" and not notes:
+        risk_note = "此為風險避開策略，命中代表應降低追價或部位曝險。"
+    return {
+        "score": score,
+        "hit_type": label,
+        "reason": reason,
+        "risk_note": risk_note,
+        "metadata": {
+            "source": "phase6_strategy_center",
+            "strategy_family": family,
+            "risk_level": risk_level,
+            "quality_components": components,
+            "volume_ratio": round(volume_ratio, 2),
+        },
+    }
+
+
 def backtest_strategy(strategy, series, *, deadline=None, max_symbols=260, max_samples=120):
     samples = []
     scanned_symbols = 0
@@ -691,18 +811,19 @@ def main():
                 hit = hit_strategy(strategy["id"], prices, strategy_context.get(str(symbol), {}))
                 if not hit:
                     continue
-                score, reason = hit
+                base_score, reason = hit
+                scored = score_strategy_hit(strategy, prices, strategy_context.get(str(symbol), {}), base_score, reason)
                 hits.append({
                     "strategy_id": strategy["id"],
                     "strategy_name": strategy["name"],
                     "symbol": symbol,
                     "name": stock_name(stock_map, symbol),
                     "date": latest_date,
-                    "score": score,
-                    "hit_type": "今日命中",
-                    "reason": reason,
-                    "risk_note": "僅作策略研究，仍需搭配大盤、題材與停損控管。",
-                    "metadata": {"source": "phase6_strategy_center"},
+                    "score": scored["score"],
+                    "hit_type": scored["hit_type"],
+                    "reason": scored["reason"],
+                    "risk_note": scored["risk_note"],
+                    "metadata": scored["metadata"],
                 })
         if latest_date:
             sb_delete("strategy_results", f"date=eq.{latest_date}")
