@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import time
 
-from phase6_common import avg, hma, load_price_series, load_stock_map, log, ma, macd, nf, pct, safe_status, series_values, stdev, stock_name, volume_lots
+from phase6_common import avg, hma, load_price_series, load_stock_map, log, ma, macd, nf, pct, rsi, safe_status, series_values, stdev, stock_name, volume_lots
 from sb_common import sb_delete, sb_upsert
 
 
@@ -110,8 +110,13 @@ STRATEGY_LIBRARY_TEMPLATES = [
 EXECUTABLE_TEMPLATE_IDS = {
     "volume_breakout_strategy",
     "box_breakout_strategy",
+    "previous_high_breakout_strategy",
     "ma_compression_breakout_strategy",
+    "breakout_retest_hold_strategy",
+    "ma20_retest_strategy",
     "double_bottom_reversal_strategy",
+    "rsi_bullish_divergence_strategy",
+    "top_volume_upper_shadow_risk",
 }
 
 STRATEGIES += [
@@ -155,15 +160,20 @@ def _ma_spread_pct(close, *values):
     return (max(clean) - min(clean)) / close * 100
 
 
+def _local_low_indexes(lows, start, end):
+    out = []
+    for i in range(start + 2, end):
+        if lows[i] <= lows[i - 1] and lows[i] <= lows[i + 1] and lows[i] <= lows[i - 2] and lows[i] <= lows[i + 2]:
+            out.append(i)
+    return out
+
+
 def _double_bottom_levels(highs, lows, closes):
     if len(lows) < 45 or len(closes) < 45:
         return None
     start = len(lows) - 45
     end = len(lows) - 5
-    candidates = []
-    for i in range(start + 2, end):
-        if lows[i] <= lows[i - 1] and lows[i] <= lows[i + 1] and lows[i] <= lows[i - 2] and lows[i] <= lows[i + 2]:
-            candidates.append(i)
+    candidates = _local_low_indexes(lows, start, end)
     for i, first in enumerate(candidates):
         for second in candidates[i + 1:]:
             gap = second - first
@@ -182,6 +192,52 @@ def _double_bottom_levels(highs, lows, closes):
             if close := closes[-1]:
                 if close > neckline and closes[-2] <= neckline:
                     return first, second, neckline, min(low1, low2)
+    return None
+
+
+def _rsi_bullish_divergence(lows, closes):
+    if len(lows) < 55:
+        return None
+    start = len(lows) - 50
+    end = len(lows) - 2
+    candidates = _local_low_indexes(lows, start, end)
+    pairs = []
+    for i, first in enumerate(candidates):
+        pairs.extend((first, second) for second in candidates[i + 1:])
+    if not pairs:
+        mid = len(lows) - 22
+        first = min(range(start, mid), key=lambda i: lows[i])
+        second = min(range(mid, end), key=lambda i: lows[i])
+        pairs = [(first, second)]
+    for first, second in pairs:
+        first_rsi = rsi(closes[:first + 1])
+        if first_rsi is None:
+            continue
+        gap = second - first
+        if gap < 8 or gap > 34:
+            continue
+        second_rsi = rsi(closes[:second + 1])
+        if second_rsi is None:
+            continue
+        price_near_or_lower = lows[second] <= lows[first] * 1.03
+        rsi_higher = second_rsi >= first_rsi + 3
+        if price_near_or_lower and rsi_higher:
+            return first, second, first_rsi, second_rsi
+    return None
+
+
+def _breakout_retest_level(highs, lows, closes):
+    for days_ago in range(2, 9):
+        breakout_idx = len(closes) - 1 - days_ago
+        if breakout_idx < 25:
+            continue
+        resistance = max(highs[breakout_idx - 21:breakout_idx])
+        breakout_close = closes[breakout_idx]
+        if breakout_close <= resistance or closes[breakout_idx - 1] > resistance:
+            continue
+        retest_low = min(lows[breakout_idx + 1:])
+        if retest_low >= resistance * 0.985 and closes[-1] >= resistance:
+            return resistance, days_ago
     return None
 
 
@@ -208,6 +264,8 @@ def hit_strategy(strategy_id, prices):
     high20 = max(highs[-21:-1])
     low20 = min(lows[-21:-1])
     high10 = max(highs[-11:-1])
+    high60 = max(highs[-61:-1])
+    prev_high60 = max(highs[-62:-2])
     basis = ma20 or close
     band_sd = stdev(closes, 20) or 0
     upper = basis + band_sd * 2
@@ -219,6 +277,8 @@ def hit_strategy(strategy_id, prices):
     if strategy_id == "volume_breakout_strategy" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.5 and vol >= 1000:
         base = f"突破近 20 日壓力 {high20:.2f}，成交量 {vol:.0f} 張、為 20 日均量 {vol / max(avg20, 1):.2f} 倍。"
         return 86 if ma20 and close > ma20 else 82, base
+    if strategy_id == "previous_high_breakout_strategy" and close > high60 and prev_close <= high60 and vol >= avg20 * 1.2 and vol >= 1000:
+        return 84, f"收盤突破近 60 日前高 {high60:.2f}，量能為 20 日均量 {vol / max(avg20, 1):.2f} 倍。"
     if strategy_id == "box_breakout_v1" and close > high20 and vol >= avg20 * 1.35 and pct(high20, low20) and pct(high20, low20) < 15:
         return 84, f"突破近 20 日箱頂 {high20:.2f}，整理後放量轉強。"
     if strategy_id == "box_breakout_strategy" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.25:
@@ -233,10 +293,17 @@ def hit_strategy(strategy_id, prices):
         spread = _ma_spread_pct(prev_close, prev_ma5, prev_ma10, prev_ma20)
         if spread is not None and spread < 3 and close > max(ma5, ma10, ma20) and close > high10 and vol >= avg20 * 1.2:
             return 83, f"MA5/10/20 前一日收斂 {spread:.1f}%，今日放量突破短期壓力 {high10:.2f}。"
+    if strategy_id == "breakout_retest_hold_strategy":
+        retest = _breakout_retest_level(highs, lows, closes)
+        if retest and vol <= avg20 * 1.15:
+            level, days_ago = retest
+            return 80, f"{days_ago} 日前突破壓力 {level:.2f}，拉回測試未跌破且量能收斂。"
     if strategy_id == "ma5_strong_v1" and ma5 and close > ma5 and ma5 > ma(closes[:-1], 5) and vol >= 1000:
         return 78, f"收盤站上 MA5 且 MA5 上彎，成交量 {vol:.0f} 張。"
     if strategy_id == "monthly_support_v1" and ma20 and abs(close - ma20) / close * 100 < 3 and close >= ma20 and vol < avg20:
         return 75, f"回測 MA20 {ma20:.2f} 守住，量能低於 20 日均量。"
+    if strategy_id == "ma20_retest_strategy" and ma20 and prev_ma20 and ma20 >= prev_ma20 and close >= ma20 and lows[-1] <= ma20 * 1.02 and vol <= avg20:
+        return 76, f"月線 MA20 {ma20:.2f} 上彎，盤中回測附近後收盤守住且量縮。"
     if strategy_id == "macd_turn_v1" and dif and dea and hist and hist_prev is not None and dif > dea and hist > hist_prev and close > (ma20 or close):
         return 77, f"MACD DIF 站上慢線，OSC 由 {hist_prev:.2f} 改善至 {hist:.2f}。"
     if strategy_id == "double_bottom_reversal_strategy":
@@ -244,6 +311,20 @@ def hit_strategy(strategy_id, prices):
         if levels and vol >= avg20:
             _, _, neckline, bottom = levels
             return 85, f"W底突破頸線 {neckline:.2f}，低點區約 {bottom:.2f}，量能不低於 20 日均量。"
+    if strategy_id == "rsi_bullish_divergence_strategy":
+        div = _rsi_bullish_divergence(lows, closes)
+        if div and ma5 and close > ma5 and close > prev_close:
+            _, _, first_rsi, second_rsi = div
+            return 78, f"價格回測低檔但 RSI 由 {first_rsi:.1f} 墊高至 {second_rsi:.1f}，今日站回短均。"
+    if strategy_id == "top_volume_upper_shadow_risk":
+        latest_open = nf(latest.get("open"), close)
+        latest_high = highs[-1]
+        latest_low = lows[-1]
+        candle_range = max(latest_high - latest_low, 0)
+        upper_shadow = latest_high - max(latest_open, close)
+        near_high = latest_high >= prev_high60 * 0.98
+        if candle_range and near_high and vol >= avg20 * 1.8 and upper_shadow / candle_range >= 0.45 and close < latest_high * 0.97:
+            return 72, f"高檔爆量長上影，成交量為 20 日均量 {vol / max(avg20, 1):.2f} 倍，追價風險升高。"
     return None
 
 
