@@ -215,14 +215,16 @@ function trendMini(title,o,color){
 function marketSummaryCard(title,o,extra='',chart=null){
   const d=Number(o&&o.d), dp=Number(o&&o.dp), v=Number(o&&o.v);
   const liveKey=title==='台指期'?'txf':(title==='加權指數'?'twse':(title==='櫃買指數'?'tpex':''));
+  const icon=title==='台指期'?'↗':(title==='加權指數'?'↗':(title==='櫃買指數'?'↗':'◇'));
+  const name=title==='台指期'&&o&&o.name?`${title} ${o.name}`:title;
+  const arrow=Number.isFinite(d)?(d>=0?'▲':'▼'):'';
   return `<div class="market-summary-card market-card" ${liveKey?`data-live-card="${liveKey}"`:''}>
-    <div class="market-summary-main">
-      <div style="min-width:0;flex:1">
-        <div class="market-summary-label" ${liveKey?`data-live="${liveKey}-name"`:''}>${esc(title)}</div>
-        <div class="market-summary-value num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-price"`:''}>${Number.isFinite(v)?fmtPx(v):'—'}</div>
-        <div class="market-summary-diff num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''}>${Number.isFinite(d)?`${sgn(d.toFixed(2))}${Number.isFinite(dp)?` (${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
-      </div>
+    <div>
+      <div class="market-summary-top"><span class="market-summary-icon">${icon}</span><span>${esc(name)}</span></div>
+      <div class="market-summary-value num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-price"`:''}>${Number.isFinite(v)?fmtPx(v):'—'}</div>
+      <div class="market-summary-diff num ${dcls(d)}" ${liveKey?`data-live="${liveKey}-diff"`:''}>${Number.isFinite(d)?`${arrow}${sgn(d.toFixed(2))} ${Number.isFinite(dp)?`(${sgn(dp.toFixed(2))}%)`:''}`:'—'}</div>
     </div>
+    <div class="market-summary-divider"></div>
     ${extra?`<div class="market-summary-meta">${extra}</div>`:''}
   </div>`;
 }
@@ -235,9 +237,9 @@ function fearSummaryCard(){
   const fear=Math.max(0,Math.min(100,Math.round(Number.isFinite(vix)?vix:fallback)));
   const label=fear>=70?'恐慌':fear>=55?'偏恐慌':fear>=40?'中性震盪':'偏樂觀';
   return `<div class="market-summary-card fear-summary-card">
-    <div class="market-summary-main">
+    <div class="fear-summary-main">
       <div style="min-width:0;flex:1">
-        <div class="market-summary-label">恐慌指數</div>
+        <div class="market-summary-top"><span class="market-summary-icon">◇</span><span>恐慌指數</span></div>
         <div class="market-summary-value">${fear}</div>
         <div class="market-summary-diff">${label}</div>
       </div>
@@ -245,9 +247,10 @@ function fearSummaryCard(){
         <div class="fear-mini-arc"><div class="fear-mini-needle" style="transform:rotate(${Math.round(-90+fear*1.8)}deg)"></div></div>
       </div>
     </div>
+    <div class="market-summary-divider"></div>
     <div class="market-summary-meta">
-      <div><span>來源</span><b>${Number.isFinite(vix)?'TAIFEX 波動率':'市場漲跌估算'}</b></div>
-      <div><span>數值</span><b>${Number.isFinite(vix)?fmtPx(vix):`${fear}/100`}</b></div>
+      <div class="flow-row"><span>來源</span><b>${Number.isFinite(vix)?'TAIFEX 波動率':'市場漲跌估算'}</b></div>
+      <div class="flow-row"><span>數值</span><b>${Number.isFinite(vix)?fmtPx(vix):`${fear}/100`}</b></div>
     </div>
   </div>`;
 }
@@ -313,15 +316,26 @@ function capitalFlowMarkup(){
       <div class="flow-bars">${capitalFlowBars(weak,'down')}</div>
     </div>
   </div>
-  <div class="flow-note">紅色代表資金偏多，綠色代表偏弱；依即時報價平均漲跌重新排序。</div>`;
+  <div class="flow-note">
+    <span><i class="flow-dot red"></i>紅色代表資金流入較多，表現強勢</span>
+    <span><i class="flow-dot green"></i>綠色代表資金流出較多，表現弱勢</span>
+    <span style="margin-left:auto">依即時報價漲跌幅排序，每分鐘更新</span>
+  </div>`;
 }
 function updateCapitalFlowDom(){
   const el=document.querySelector('[data-capital-flow]');
   if(el) el.innerHTML=capitalFlowMarkup();
 }
 function capitalFlowPanel(){
-  return `<div class="card">
-    <div class="card-h"><h3>資金流向</h3><span class="tag">即時類股強弱</span><span class="more" data-go="map">類股地圖 →</span></div>
+  return `<div class="card market-overview-flow">
+    <div class="card-h"><h3>資金流向 / 類股輪動</h3><span class="tag">Sector Flow</span>
+      <div class="market-overview-flow-tabs">
+        <span class="market-overview-flow-tab active">即時排序</span>
+        <span class="market-overview-flow-tab">漲跌幅</span>
+        <span class="market-overview-flow-tab" data-go="map">類股地圖</span>
+        <span class="market-overview-flow-tab" data-go="map">›</span>
+      </div>
+    </div>
     <div data-capital-flow>${capitalFlowMarkup()}</div>
   </div>`;
 }

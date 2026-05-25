@@ -1,16 +1,74 @@
 /* Page module: home.js */
 
+function homeOverviewStyles(){
+  return `<style>
+    .market-overview-page{max-width:1540px;margin:0 auto;padding:22px 28px 34px;color:#0b1b3a}
+    .market-overview-head{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;margin-bottom:22px}
+    .market-overview-title{display:flex;align-items:flex-end;gap:18px;flex-wrap:wrap}
+    .market-overview-title h2{margin:0;font-size:31px;line-height:1.1;letter-spacing:0;font-weight:950;color:#061638}
+    .market-overview-title span{font-size:15px;font-weight:800;color:#6b7da0;padding-bottom:4px}
+    .market-overview-subtitle{margin:10px 0 0;color:#5b6e91;font-size:15px;font-weight:700}
+    .market-overview-meta{display:flex;align-items:center;gap:10px;flex-wrap:wrap;justify-content:flex-end}
+    .market-overview-chip{display:inline-flex;align-items:center;gap:8px;border:1px solid #e3eaf5;background:#f6f9fe;border-radius:10px;padding:11px 14px;color:#536681;font-weight:850;white-space:nowrap}
+    .market-overview-chip b{color:#e11d2f}
+    .market-overview-page .market-summary-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:18px;margin-bottom:20px}
+    .market-overview-page .market-summary-card{border:1px solid #dbe5f2;background:linear-gradient(180deg,#fff,#fbfdff);border-radius:14px;box-shadow:0 10px 28px rgba(15,35,75,.08);padding:22px;min-height:178px;display:flex;flex-direction:column;justify-content:space-between;overflow:hidden}
+    .market-overview-page .market-summary-top{display:flex;align-items:center;gap:10px;color:#345070;font-size:15px;font-weight:950;margin-bottom:12px}
+    .market-overview-page .market-summary-icon{width:24px;height:24px;border-radius:8px;display:grid;place-items:center;color:#2563eb;background:#eef5ff;font-size:17px}
+    .market-overview-page .market-summary-value{font-size:38px;line-height:1.05;font-weight:950;margin:8px 0 6px;letter-spacing:.3px}
+    .market-overview-page .market-summary-diff{font-size:17px;font-weight:950;margin-bottom:15px}
+    .market-overview-page .market-summary-divider{height:1px;background:#dfe7f2;margin:12px 0 13px}
+    .market-overview-page .market-summary-meta{display:grid;gap:9px;margin-top:auto}
+    .market-overview-page .flow-row{display:flex;align-items:center;justify-content:space-between;gap:12px;color:#536681;font-weight:850}
+    .market-overview-page .flow-row span:last-child,.market-overview-page .flow-row b{color:#274264;font-weight:950}
+    .market-overview-page .fear-summary-main{display:grid;grid-template-columns:1fr 122px;gap:12px;align-items:center}
+    .market-overview-page .fear-mini-meter{width:122px;height:78px;display:grid;place-items:end center}
+    .market-overview-page .fear-mini-arc{width:112px;height:56px;border-radius:112px 112px 0 0;background:conic-gradient(from 270deg,#89efb3 0deg,#22c55e 56deg,#facc15 92deg,#fb923c 126deg,#ef4444 180deg,#e7edf5 180deg);position:relative;overflow:hidden}
+    .market-overview-page .fear-mini-arc:after{content:"";position:absolute;left:18px;right:18px;bottom:0;height:36px;background:#fff;border-radius:80px 80px 0 0}
+    .market-overview-page .fear-mini-needle{position:absolute;left:50%;bottom:0;width:42px;height:4px;border-radius:999px;background:#0f2650;transform-origin:left center;z-index:2}
+    .market-overview-flow.card,.market-overview-bottom .card{border:1px solid #dbe5f2;border-radius:14px;background:#fff;box-shadow:0 10px 28px rgba(15,35,75,.08);overflow:hidden}
+    .market-overview-flow .card-h,.market-overview-bottom .card-h{padding:18px 22px;border-bottom:1px solid #e8eef6}
+    .market-overview-flow .card-h h3,.market-overview-bottom .card-h h3{font-size:22px}
+    .market-overview-flow-tabs{display:flex;gap:8px;margin-left:auto;align-items:center}
+    .market-overview-flow-tab{border:1px solid #d7e3f5;background:#f5f8fd;border-radius:10px;padding:9px 16px;color:#5b6e91;font-size:14px;font-weight:900}
+    .market-overview-flow-tab.active{background:#fff;color:#2563eb;border-color:#9fc0ff;box-shadow:0 4px 12px rgba(37,99,235,.12)}
+    .market-overview-page .flow-board{display:grid;grid-template-columns:1fr 1fr;gap:0;padding:18px 22px 12px}
+    .market-overview-page .flow-lane:first-child{padding-right:24px;border-right:1px dashed #cbd8ea}
+    .market-overview-page .flow-lane:last-child{padding-left:24px}
+    .market-overview-page .flow-lane-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;color:#263e62}
+    .market-overview-page .flow-lane-head b{font-size:16px}
+    .market-overview-page .flow-lane-head span{font-size:12px;color:#8190aa;font-weight:800}
+    .market-overview-page .flow-bars{display:grid;grid-template-columns:repeat(8,minmax(54px,1fr));align-items:end;gap:16px;min-height:165px}
+    .market-overview-page .flow-bar{border:0;background:transparent;display:grid;grid-template-rows:auto 1fr auto;justify-items:center;gap:8px;min-width:0;color:#183358;cursor:pointer}
+    .market-overview-page .flow-bar i{width:34px;min-height:24px;border-radius:8px 8px 2px 2px;align-self:end;box-shadow:inset 0 -12px 18px rgba(0,0,0,.08)}
+    .market-overview-page .flow-bar.pos i{background:linear-gradient(180deg,#ff4a4f,#dc2626)}
+    .market-overview-page .flow-bar.neg i{background:linear-gradient(180deg,#45d18b,#16a34a)}
+    .market-overview-page .flow-pct{font-size:13px;font-weight:950}
+    .market-overview-page .flow-bar.pos .flow-pct{color:#dc2626}
+    .market-overview-page .flow-bar.neg .flow-pct{color:#15905a}
+    .market-overview-page .flow-bar b{font-size:12px;line-height:1.2;max-width:68px;min-height:30px;display:flex;align-items:flex-start;justify-content:center;text-align:center;overflow:hidden;color:#243b60}
+    .market-overview-page .flow-note{display:flex;align-items:center;gap:18px;border-top:1px solid #e8eef6;padding:14px 22px;color:#667895;font-weight:800;font-size:13px}
+    .market-overview-page .flow-note span{display:inline-flex;align-items:center;gap:7px}
+    .market-overview-page .flow-dot{width:8px;height:8px;border-radius:999px;display:inline-block}
+    .market-overview-page .flow-dot.red{background:#dc2626}.market-overview-page .flow-dot.green{background:#16a34a}
+    .market-overview-bottom{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
+    @media (max-width:1180px){.market-overview-page .market-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.market-overview-page .flow-board{grid-template-columns:1fr}.market-overview-page .flow-lane:first-child{padding-right:0;border-right:0;border-bottom:1px dashed #cbd8ea;padding-bottom:20px}.market-overview-page .flow-lane:last-child{padding-left:0;padding-top:20px}.market-overview-bottom{grid-template-columns:1fr}}
+    @media (max-width:760px){.market-overview-page{padding:16px}.market-overview-head{display:block}.market-overview-meta{justify-content:flex-start;margin-top:14px}.market-overview-page .market-summary-grid{grid-template-columns:1fr}.market-overview-page .flow-bars{grid-template-columns:repeat(4,1fr)}}
+  </style>`;
+}
+
 function vHome(){
-  const m=DATA.market;
-  return `<div class="dash fade stagger">
-   <div class="dash-head">
+  const m=DATA.market||{};
+  return `${homeOverviewStyles()}<div class="market-overview-page dash fade stagger">
+   <div class="market-overview-head">
      <div>
-       <div class="dash-title"><span class="target">◎</span>今日市場總覽</div>
-       <div class="hint">即時指數、台指期與資金流向整合，盤後資料完成後自動補齊法人與技術訊號。</div>
+       <div class="market-overview-title"><h2>今日市場總覽</h2><span>Market Overview</span></div>
+       <div class="market-overview-subtitle">整合即時指數、台指期、資金流向、盤後資料與技術訊號，掌握市場脈動。</div>
      </div>
-     <div class="spacer"></div>
-     <span class="badge hot">資料日 ${DATA.meta.date}</span>
-     <span class="badge obs">最後更新 ${DATA.meta.updated}</span>
+     <div class="market-overview-meta">
+       <span class="market-overview-chip">資料日期 <b>${DATA.meta.date}</b></span>
+       <span class="market-overview-chip">最後更新 <b>${DATA.meta.updated}</b></span>
+     </div>
    </div>
 
    <div class="market-summary-grid">
@@ -20,11 +78,9 @@ function vHome(){
      ${fearSummaryCard()}
    </div>
 
-   <div class="grid" style="grid-template-columns:1fr">
-     ${capitalFlowPanel()}
-   </div>
+   ${capitalFlowPanel()}
 
-   <div class="grid" style="grid-template-columns:1fr 1fr">
+   <div class="market-overview-bottom">
      <div class="card">
        <div class="card-h"><h3>市場行事曆</h3><span class="tag">Macro / Earnings</span></div>
        ${marketCalendarPanel()}
