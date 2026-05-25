@@ -52,6 +52,60 @@ function p6List(list){
   if(typeof list==='string'){try{list=JSON.parse(list);}catch(e){list=[list];}}
   return Array.isArray(list)?list.filter(Boolean):[];
 }
+function p6Meta(value){
+  if(!value) return {};
+  if(typeof value==='string'){try{return JSON.parse(value)||{};}catch(e){return {};}}
+  return typeof value==='object'?value:{};
+}
+function p6SignalBadge(hit){
+  const t=hit.hit_type||'今日命中';
+  const risk=(p6Meta(hit.metadata).risk_level||'').toLowerCase();
+  const cls=t.includes('高風險')||risk==='high'?'bad':t.includes('風險')||risk==='medium'?'warm':t.includes('強')?'hot':t.includes('普通')?'good':'obs';
+  return `<span class="badge ${cls}">${esc(t)}</span>`;
+}
+function p6RiskLabel(risk){
+  return ({low:'低',medium:'中',high:'高'})[String(risk||'').toLowerCase()]||'—';
+}
+function p6QualityBars(hit){
+  const meta=p6Meta(hit.metadata);
+  const q=meta.quality_components||{};
+  const rows=[
+    ['基礎',q.base],
+    ['趨勢',q.trend],
+    ['量能',q.volume],
+    ['籌碼',q.chip],
+    ['風險',q.riskPenalty]
+  ];
+  return `<div class="strategy-quality">
+    ${rows.map(([label,val])=>{
+      const n=Number(val)||0;
+      const width=Math.min(100,Math.abs(n)*8);
+      const cls=label==='風險'?'risk':n<0?'neg':'pos';
+      return `<div class="strategy-quality-row ${cls}">
+        <span>${label}</span>
+        <i><b style="width:${width}%"></b></i>
+        <em>${esc(n)}</em>
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+function p6HitButton(hit){
+  const meta=p6Meta(hit.metadata);
+  return `<button type="button" data-stock="${esc(hit.symbol)}">
+    <div class="strategy-hit-top">
+      <b>${esc(hit.symbol)} ${esc(hit.name||'')}</b>
+      <strong class="${dcls(hit.score)}">${hit.score??'—'}</strong>
+    </div>
+    <div class="strategy-hit-badges">
+      ${p6SignalBadge(hit)}
+      <span class="badge obs">風險 ${esc(p6RiskLabel(meta.risk_level))}</span>
+      ${meta.volume_ratio!=null?`<span class="badge obs">量比 ${esc(meta.volume_ratio)}</span>`:''}
+    </div>
+    <span>${esc(hit.reason||'')}</span>
+    ${hit.risk_note?`<small>${esc(hit.risk_note)}</small>`:''}
+    ${p6QualityBars(hit)}
+  </button>`;
+}
 function strategyTypeLabel(type){
   return ({
     breakout:'突破',
@@ -105,6 +159,15 @@ function vStrategyCenter(){
   const avgWin=backs.length?backs.reduce((s,b)=>s+(Number(b.win_rate)||0),0)/backs.length:null;
   const existingIds=new Set(defs.map(s=>String(s.id||'').replace(/_/g,'-')));
   const extraTemplates=localTemplates.filter(t=>!existingIds.has(String(t.id||'').replace(/_/g,'-')));
+  const bestByStrategy=new Map();
+  hits.forEach(h=>{
+    const prev=bestByStrategy.get(h.strategy_id);
+    if(!prev || Number(h.score||0)>Number(prev.score||0)) bestByStrategy.set(h.strategy_id,h);
+  });
+  const sortedDefs=defs.slice().sort((a,b)=>{
+    const ah=bestByStrategy.get(a.id), bh=bestByStrategy.get(b.id);
+    return Number(bh&&bh.score||-1)-Number(ah&&ah.score||-1) || Number(b.enabled)-Number(a.enabled) || String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
+  });
   return `<div class="hero-card phase6-hero">
     <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>集中管理策略條件、風險控管、近期命中與回測摘要。</p></div>
     <div class="strategy-kpis">
@@ -115,8 +178,9 @@ function vStrategyCenter(){
     </div>
   </div>
   <div class="strategy-center-grid">
-    ${defs.map(s=>{
+    ${sortedDefs.map(s=>{
       const sh=hits.filter(h=>h.strategy_id===s.id).slice(0,5);
+      const best=bestByStrategy.get(s.id);
       const bt=backs.find(b=>b.strategy_id===s.id)||{};
       const conditions=p6List(s.conditions);
       const risks=p6List(s.risk_rules);
@@ -126,7 +190,10 @@ function vStrategyCenter(){
             <span class="strategy-id">${esc(s.id||'strategy')}</span>
             <h3>${esc(s.name)}</h3>
           </div>
-          <span class="badge ${s.enabled?'hot':'cool'}">${s.enabled?'啟用':'停用'}</span>
+          <div class="strategy-head-badges">
+            ${best?p6SignalBadge(best):''}
+            <span class="badge ${s.enabled?'hot':'cool'}">${s.enabled?'啟用':'停用'}</span>
+          </div>
         </div>
         <p class="strategy-desc">${esc(s.description||'')}</p>
         <div class="strategy-metrics">
@@ -145,10 +212,7 @@ function vStrategyCenter(){
         </div>
         <div class="strategy-hits">
           <div class="strategy-hits-title">近期命中</div>
-          ${sh.length?sh.map(h=>`<button type="button" data-stock="${esc(h.symbol)}">
-            <b>${esc(h.symbol)} ${esc(h.name||'')}</b>
-            <span>${esc(h.reason||'')}</span>
-          </button>`).join(''):'<div class="muted">尚無命中股票</div>'}
+          ${sh.length?sh.map(p6HitButton).join(''):'<div class="muted">尚無命中股票</div>'}
         </div>
       </article>`;
     }).join('')}
