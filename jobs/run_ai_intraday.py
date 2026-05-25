@@ -37,23 +37,15 @@ def valid_symbol(s):
     return len(s) == 4 and s.isdigit() and s[0] != "0"
 
 
-def volume_shares(v, amount=None, price=None):
+def volume_shares(v):
     n = nfloat(v) or 0
-    amt = nfloat(amount)
-    px = nfloat(price)
-    if n > 0 and amt and px:
-        implied = amt / px
-        if implied > 0:
-            as_shares_err = abs(n - implied) / implied
-            as_lots_err = abs((n * 1000) - implied) / implied
-            if as_lots_err < as_shares_err and as_lots_err <= 0.25:
-                return int(n * 1000)
-    # realtime_quotes.volume is normalized as shares by fetch_realtime_quotes.py.
-    return int(n)
+    # realtime_quotes should be normalized as shares. If a source accidentally
+    # gives lots, convert it so the 1000-lot rule stays strict.
+    return int(n * 1000) if 0 < n < 100000 else int(n)
 
 
-def volume_lots_value(v, amount=None, price=None):
-    return int(volume_shares(v, amount, price) // 1000)
+def volume_lots_value(v):
+    return int(volume_shares(v) // 1000)
 
 
 def name_map():
@@ -85,7 +77,7 @@ def latest_history_by_symbol():
 def quote_rows():
     quotes = sb_select(
         "realtime_quotes",
-        "select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,amount,updated_at&order=updated_at.desc",
+        "select=symbol,name,market,quote_date,quote_time,price,change,change_percent,volume,updated_at&order=updated_at.desc",
         page_size=1000,
         max_rows=50000,
     )
@@ -111,7 +103,7 @@ def append_live_row(history, q, qdate):
     px = nfloat(q.get("price"))
     if px is None:
         return rows
-    vol = volume_shares(q.get("volume"), q.get("amount"), q.get("price"))
+    vol = volume_shares(q.get("volume"))
     prev_close = nfloat(rows[-1].get("close")) if rows else px
     live = {
         "date": qdate,
@@ -129,7 +121,7 @@ def append_live_row(history, q, qdate):
 
 
 def liquidity_ok_quote(q):
-    return volume_lots_value(q.get("volume"), q.get("amount"), q.get("price")) >= MIN_VOLUME_LOTS
+    return volume_lots_value(q.get("volume")) >= MIN_VOLUME_LOTS
 
 
 def intraday_signal(strategy, sym, rows, q, ctx):
@@ -155,8 +147,8 @@ def intraday_signal(strategy, sym, rows, q, ctx):
             "key_date": cur["date"],
             "entry_date": cur["date"],
             "current_price": entry,
-            "volume_lots": volume_lots_value(q.get("volume"), q.get("amount"), q.get("price")),
-            "reason": f"盤中站上HMA9；即時量 {volume_lots_value(q.get('volume'), q.get('amount'), q.get('price')):,} 張；SL/TP 依 STDEV9 計算",
+            "volume_lots": volume_lots_value(q.get("volume")),
+            "reason": f"盤中站上HMA9；即時量 {volume_lots_value(q.get('volume')):,} 張；SL/TP 依 STDEV9 計算",
             "state": {"hma": round(cur["hma9"], 4), "entry_sd": round(sd, 4), "intraday": True},
         }
     if strategy["signal"] == "bollinger":
@@ -175,8 +167,8 @@ def intraday_signal(strategy, sym, rows, q, ctx):
             "key_date": cur["date"],
             "entry_date": cur["date"],
             "current_price": entry,
-            "volume_lots": volume_lots_value(q.get("volume"), q.get("amount"), q.get("price")),
-            "reason": f"盤中突破布林上緣；即時量 {volume_lots_value(q.get('volume'), q.get('amount'), q.get('price')):,} 張；月營收YoY={yoy if yoy is not None else '待補'}",
+            "volume_lots": volume_lots_value(q.get("volume")),
+            "reason": f"盤中突破布林上緣；即時量 {volume_lots_value(q.get('volume')):,} 張；月營收YoY={yoy if yoy is not None else '待補'}",
             "state": {"bb_upper": round(cur["bb_upper"], 4), "revenue_yoy": yoy, "intraday": True},
         }
     return None
@@ -410,7 +402,7 @@ def main():
         cp = nfloat(q.get("change_percent")) or 0
         if cp < 0:
             continue
-        pool.append((volume_lots_value(q.get("volume"), q.get("amount"), q.get("price")), cp, sym, q))
+        pool.append((volume_lots_value(q.get("volume")), cp, sym, q))
     pool.sort(reverse=True)
     pool_rows = [{
         "date": qdate,

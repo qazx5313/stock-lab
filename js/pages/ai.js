@@ -80,9 +80,6 @@ async function loadAIDetailData(agentKey){
       const n=String(((nm[s]||{}).name)||fallback||'').trim();
       return n && n!==s && n!=='尚無名稱' ? n : s;
     };
-    const latestPriceMap=(syms.length && typeof loadLatestPriceMap==='function')
-      ? await loadLatestPriceMap(syms,dateHint).catch(()=>({}))
-      : {};
     const latestPriceRows=syms.length?await sbGet(
       `daily_prices?select=symbol,date,close&symbol=in.(${syms.join(',')})&order=date.desc&limit=2000`,2000
     ).catch(()=>[]): [];
@@ -99,18 +96,6 @@ async function loadAIDetailData(agentKey){
     };
     const cleanReason=reason=>String(reason||'—').replace(/\s*STATE=\{.*\}\s*$/,'').trim()||'—';
     const fmtDate=d=>String(d||'').slice(5).replace('-','/')||'—';
-    const latestQuoteOf=(sym, fallbackPrice)=>{
-      const s=String(sym||'').trim();
-      const q=latestPriceMap[s] || (DATA.priceMap&&DATA.priceMap[s]) || (DATA.realtimeMap&&DATA.realtimeMap[s]) || {};
-      const px=[q.close,q.price,fallbackPrice].map(Number).find(v=>Number.isFinite(v)&&v>0);
-      return {
-        px:Number.isFinite(px)?px:Number(fallbackPrice),
-        chg:Number(q.change),
-        dp:Number(q.change_percent),
-        date:String(q.date||q.quote_date||'').slice(0,10),
-        source:q.source||''
-      };
-    };
     const trades=Array.isArray(tb)?tb:[];
     const buyBySymbol={};
     trades.slice().sort((a,b)=>String(a.trade_date).localeCompare(String(b.trade_date))).forEach(t=>{
@@ -130,18 +115,10 @@ async function loadAIDetailData(agentKey){
       r10:(b.avg_return_10d>0?'+':'')+b.avg_return_10d+'%',
       mdd:b.max_drawdown+'%', pf:String(b.profit_factor),
       res:b.passed?'通過':'不通過'}));
-    DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>{
-      const sym=String(p.symbol||'').trim();
-      const latest=latestQuoteOf(sym,p.current_price);
-      const cp=Number.isFinite(Number(latest.px))?Number(latest.px):Number(p.current_price);
-      return {
-        c:sym, n:nameOf(sym,p.name), bp:Number(p.buy_price), cp,
-        q:Number(p.quantity)||0, bd:fmtDate(p.buy_date),
-        prev:(prevCloseBySymbol[sym]||[]).find(x=>Number(x.close)!==cp)?.close,
-        chg:latest.chg, dp:latest.dp, quoteDate:latest.date, quoteSource:latest.source,
-        reason:cleanReason(p.buy_reason)
-      };
-    });
+    DATA.aiPos=(Array.isArray(ps)?ps:[]).map(p=>({
+      c:p.symbol, n:nameOf(p.symbol,p.name), bp:p.buy_price, cp:p.current_price,
+      q:p.quantity, bd:fmtDate(p.buy_date), prev:(prevCloseBySymbol[String(p.symbol)]||[]).find(x=>Number(x.close)!==Number(p.current_price))?.close,
+      reason:cleanReason(p.buy_reason)}));
     const latestAiDate=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-').slice(0,10);
     DATA.aiBuy=trades.filter(t=>
       t.trade_type==='買進' &&
@@ -190,10 +167,6 @@ async function loadAIDetailData(agentKey){
 function vAIDetail(id){
   const a=DATA.agents.find(x=>x.id===id);
   const latestAiDate=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-').slice(0,10);
-  const aiHoldValue=(DATA.aiPos||[]).reduce((sum,p)=>sum+(Number(p.cp)||0)*(Number(p.q)||0)*1000,0);
-  const holdValue=Number.isFinite(aiHoldValue)&&aiHoldValue>0?Math.round(aiHoldValue):a.hold;
-  const assetValue=Number(a.cash||0)+Number(holdValue||0);
-  const retPct=Number(a.init)?((assetValue-Number(a.init))/Number(a.init)*100):NaN;
   const blk=(title,sub,body)=>`<div class="card"><div class="card-h"><h3>${title}</h3>${sub?`<span class="tag">${sub}</span>`:''}</div>${body}</div>`;
   const tbl=(head,rows)=>`<div class="tbl-wrap"><table><thead><tr>${head.map(h=>`<th class="${h[1]||''}">${h[0]}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>`;
   const deepRows=(DATA.aiDeep&&DATA.aiDeep.length)?DATA.aiDeep:[];
@@ -224,16 +197,16 @@ function vAIDetail(id){
 
    ${blk('1 · AI 投資人概況','',`<div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(130px,1fr));padding:18px 20px;gap:18px">
      ${[['AI 名稱',a.name],['策略類型',a.type],['交易週期','短中波段'],['初始資金','NT$ '+a.init.toLocaleString()],
-        ['目前資產','NT$ '+assetValue.toLocaleString(),'up'],['現金','NT$ '+a.cash.toLocaleString()],
-        ['持股市值','NT$ '+holdValue.toLocaleString()],['累積報酬率',Number.isFinite(retPct)?sgn(retPct.toFixed(1))+'%':a.cum,'up'],['最大回撤',a.mdd,'down'],
+        ['目前資產','NT$ '+(a.cash+a.hold).toLocaleString(),'up'],['現金','NT$ '+a.cash.toLocaleString()],
+        ['持股市值','NT$ '+a.hold.toLocaleString()],['累積報酬率',a.cum,'up'],['最大回撤',a.mdd,'down'],
         ['策略版本',a.ver],['目前狀態',a.status]].map(r=>
        `<div class="stat"><span class="k">${r[0]}</span><span class="v ${r[2]||''}" style="font-size:16px">${r[1]}</span></div>`).join('')}</div>`)}
 
    ${blk('2 · 目前持有股票','放在上方方便快速檢查',tbl(
      [['代號'],['名稱'],['買進日'],['買進價','r'],['現價','r'],['張數','r'],['持股市值','r'],['今日損益','r'],['未實現損益','r'],['報酬率','r']],
-     DATA.aiPos.map(p=>{const pnl=(p.cp-p.bp)*p.q*1000;const ret=((p.cp-p.bp)/p.bp*100);const isTodayBuy=latestAiDate&&String(p.bd||'').replace('/','-')===latestAiDate.slice(5);const td=isTodayBuy?pnl:(Number.isFinite(Number(p.chg))?Number(p.chg)*p.q*1000:(Number(p.prev)?(p.cp-Number(p.prev))*p.q*1000:NaN));
-       return `<tr data-live-row="${esc(p.c)}"><td class="code">${p.c}</td><td><b>${p.n}</b></td><td class="code">${p.bd}</td><td class="r num">${fmtPx(p.bp)}</td>
-       <td class="r num" data-live-cell="px">${fmtPx(p.cp)}</td><td class="r num">${p.q}</td><td class="r num">${(p.cp*p.q*1000).toLocaleString()}</td>
+     DATA.aiPos.map(p=>{const pnl=(p.cp-p.bp)*p.q*1000;const ret=((p.cp-p.bp)/p.bp*100);const isTodayBuy=latestAiDate&&String(p.bd||'').replace('/','-')===latestAiDate.slice(5);const td=isTodayBuy?pnl:(Number(p.prev)?(p.cp-Number(p.prev))*p.q*1000:NaN);
+       return `<tr><td class="code">${p.c}</td><td><b>${p.n}</b></td><td class="code">${p.bd}</td><td class="r num">${fmtPx(p.bp)}</td>
+       <td class="r num">${fmtPx(p.cp)}</td><td class="r num">${p.q}</td><td class="r num">${(p.cp*p.q*1000).toLocaleString()}</td>
        <td class="r num ${td>=0?'up':'down'}">${Number.isFinite(td)?sgn(Math.round(td).toLocaleString()):'—'}</td>
        <td class="r num ${pnl>=0?'up':'down'}">${sgn(Math.round(pnl).toLocaleString())}</td>
        <td class="r num ${ret>=0?'up':'down'}">${sgn(ret.toFixed(1))}%</td></tr>`;}).join('')))}
@@ -287,3 +260,4 @@ function vAIDetail(id){
      <td class="num up" style="white-space:normal">${v.perf}</td></tr>`).join('')))}
   </div>`;
 }
+
