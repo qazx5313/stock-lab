@@ -152,7 +152,7 @@ using (true);
 drop policy if exists "phase6_ai_trade_journal_select" on public.ai_trade_journal;
 create policy "phase6_ai_trade_journal_select"
 on public.ai_trade_journal for select
-to authenticated
+to anon, authenticated
 using (true);
 
 drop policy if exists "phase6_generated_daily_reports_select" on public.generated_daily_reports;

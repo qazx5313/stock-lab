@@ -4,9 +4,16 @@ async function loadPhase6Data(force=false){
   if(PHASE6_LOADING) return DATA.phase6||{};
   PHASE6_LOADING=true;
   DATA.phase6=DATA.phase6||{};
+  DATA.phase6Errors={};
   const safe=async(key,path,fallback=[])=>{
     try{DATA.phase6[key]=await sbGet(path);}
-    catch(err){console.warn(`Phase6 ${key} 載入失敗`,err);DATA.phase6[key]=fallback;DATA.phase6Error=err.message||String(err);}
+    catch(err){
+      const msg=err.message||String(err);
+      console.warn(`Phase6 ${key} 載入失敗`,err);
+      DATA.phase6[key]=fallback;
+      DATA.phase6Errors[key]=msg;
+      DATA.phase6Error=msg;
+    }
   };
   await Promise.all([
     safe('strategies','strategy_definitions?select=*&order=name.asc'),
@@ -19,6 +26,15 @@ async function loadPhase6Data(force=false){
   ]);
   DATA.phase6Loaded=true;PHASE6_LOADING=false;
   return DATA.phase6;
+}
+function phase6RetryOnce(pageId,key){
+  DATA.phase6Retry=DATA.phase6Retry||{};
+  const k=`${pageId}:${key}`;
+  if(DATA.phase6Retry[k]) return;
+  DATA.phase6Retry[k]=true;
+  setTimeout(()=>{
+    loadPhase6Data(true).then(()=>{if(CUR===pageId)go(pageId);});
+  },500);
 }
 function phase6Ensure(pageId){
   if(DATA.phase6Loaded) return '';
