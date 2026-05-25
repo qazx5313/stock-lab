@@ -719,8 +719,8 @@ async function loadReal(){
     // ---- 每日篩選：讀 candidate_pool（均線 + 量能條件）----
     try{
       const cp = await sbGet(
-        `candidate_pool?select=symbol,name,score,reason&date=eq.${d}`+
-        `&order=score.desc&limit=40`, 100);
+        `candidate_pool?select=symbol,name,score,reason,source_module,candidate_type&date=eq.${d}`+
+        `&order=score.desc&limit=500`, 500);
       if(Array.isArray(cp) && cp.length){
         const cpSymbols=[...new Set(cp.map(r=>String(r.symbol||'').trim()).filter(Boolean))];
         const pm = await loadLatestPriceMap(cpSymbols,d);
@@ -743,6 +743,8 @@ async function loadReal(){
             dp:isFinite(cpv)?cpv:0,
             vol:lots,
             reason:r.reason||'成交量 >= 1000 張；站上 MA20/MA60；均線結構轉強；20MA 上升',
+            _screenId:r.source_module||'strong-stock-screener',
+            _screenName:r.candidate_type||'每日篩選',
             ts:s.technical_score!=null?s.technical_score:'—',
             cs:s.chip_score!=null?s.chip_score:'—',
             ms:s.theme_score!=null?s.theme_score:'—',

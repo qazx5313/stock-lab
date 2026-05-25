@@ -350,10 +350,6 @@
     explanationTemplate:extra.explanationTemplate||`${name}：符合 ${conditions.join('、')}，仍需人工確認風險。`
   });
   const SCREENERS=[
-    screener('daily-original-momentum-screener','原每日強勢篩選','trend',['成交量 >= 1000張','站上 MA20/MA60','MA5 > MA10 > MA20 > MA60','20MA 上升'],{
-      description:'原每日篩選邏輯，鎖定有量、有趨勢、均線結構轉強且短中期動能偏多的股票。',
-      outputTags:['有量','有趨勢','均線結構轉強','短中期動能偏多']
-    }),
     screener('strong-stock-screener','強勢股篩選','trend',['收盤站上 MA5/MA20','MA20 上升','成交量 >= 1000張']),
     screener('volume-breakout-screener','放量突破篩選','volume',['收盤突破20日高','量比 >= 1.3']),
     screener('ma-compression-breakout-screener','均線糾結突破篩選','trend',['MA5/10/20 距離小','放量突破']),

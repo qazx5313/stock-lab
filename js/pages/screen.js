@@ -23,8 +23,8 @@ function screenTemplateById(id){
 }
 
 function screenDefaultConditions(){
-  const original=screenTemplateById('daily-original-momentum-screener');
-  return original?screenTemplateChips(original):['有量','有趨勢','均線結構轉強','短中期動能偏多'];
+  const strong=screenTemplateById('strong-stock-screener');
+  return strong?screenTemplateChips(strong):['收盤站上 MA5/MA20','MA20 上升','成交量 >= 1000張'];
 }
 
 function screenTemplateConditions(t){
@@ -38,7 +38,7 @@ function screenTemplateChips(t){
 function screenEnsureState(){
   if(SCREEN_READY) return;
   SCREEN_READY=true;
-  if(!SCREEN_TEMPLATE_ID && screenTemplateById('daily-original-momentum-screener')) SCREEN_TEMPLATE_ID='daily-original-momentum-screener';
+  if(!SCREEN_TEMPLATE_ID && screenTemplateById('strong-stock-screener')) SCREEN_TEMPLATE_ID='strong-stock-screener';
   if(typeof SEL!=='undefined'){
     SEL.clear();
     screenDefaultConditions().forEach(x=>SEL.add(x));
@@ -91,7 +91,8 @@ function screenApplyRows(){
   const t=screenTemplateById(SCREEN_TEMPLATE_ID);
   const selected=typeof SEL!=='undefined'?[...SEL]:screenTemplateChips(t);
   if(!selected.length) return [];
-  let out=rows.filter(r=>selected.every(c=>screenConditionMatch(r,c)));
+  let out=SCREEN_TEMPLATE_ID?rows.filter(r=>r._screenId===SCREEN_TEMPLATE_ID):[];
+  if(!out.length) out=rows.filter(r=>selected.every(c=>screenConditionMatch(r,c)));
   if(t && !out.length){
     out=rows.slice().sort((a,b)=>screenScoreFor(b,t)-screenScoreFor(a,t)).slice(0,Math.min(5,rows.length));
   }
