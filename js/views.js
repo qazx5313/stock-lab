@@ -270,6 +270,24 @@ function fearIndexPanel(){
      ${Number.isFinite(vix)?`<div class="muted" style="font-size:12.5px;margin-top:8px">TAIFEX 波動率 ${fmtPx(vix)}</div>`:''}
    </div>`;
 }
+function flowStockMovePercent(code, row){
+  const c=String(code||'').trim();
+  if(!c) return NaN;
+  const live=(DATA.realtimeMap&&DATA.realtimeMap[c])||{};
+  const daily=(DATA.priceMap&&DATA.priceMap[c])||{};
+  const liveDate=String(live.date||live.quote_date||'').slice(0,10);
+  const dailyDate=String(daily.date||daily.quote_date||'').slice(0,10);
+  const preferLive=window.DATA_CENTER&&DATA_CENTER.session&&DATA_CENTER.session.shouldPreferRealtimeStock
+    ? DATA_CENTER.session.shouldPreferRealtimeStock(live,daily)
+    : ((typeof isRealtimeQuoteTimeNow==='function' && isRealtimeQuoteTimeNow()) || !dailyDate || (liveDate && liveDate>=dailyDate));
+  const liveVal=Number(live.change_percent);
+  const dailyVal=Number(daily.change_percent);
+  if(Number.isFinite(liveVal) && (preferLive || !Number.isFinite(dailyVal))) return liveVal;
+  if(Number.isFinite(dailyVal)) return dailyVal;
+  if(Number.isFinite(liveVal)) return liveVal;
+  const rowVal=Number(row&&row.dp);
+  return Number.isFinite(rowVal)?rowVal:NaN;
+}
 function capitalFlowRows(){
   const groups=new Map();
   (DATA.themes||[]).forEach(t=>{
@@ -287,10 +305,9 @@ function capitalFlowRows(){
     if(!g.id && t.id) g.id=t.id;
     stocks.forEach(s=>{
       const code=String(s&&s.c||'').trim();
-      if(code && g.codes.has(code)) return;
-      if(code) g.codes.add(code);
-      const info=typeof stockKnownInfo==='function'?stockKnownInfo(code):((DATA.stockMap||{})[code]||s);
-      const dp=Number(info&&info.dp);
+      if(!code || g.codes.has(code)) return;
+      g.codes.add(code);
+      const dp=flowStockMovePercent(code,s);
       if(Number.isFinite(dp)){
         g.liveSum+=dp;
         g.liveCount+=1;
