@@ -207,7 +207,7 @@ function patternDetail(row){
 
 function patternStyles(){
   return `<style>
-    .pattern-page{max-width:1480px}
+    .pattern-page{max-width:none}
     .pattern-hero{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;margin-bottom:18px}
     .pattern-hero .eyebrow{letter-spacing:.16em;color:#2563EB;font-weight:850;font-size:12px}
     .pattern-hero h2{font-size:34px;line-height:1.05;margin:6px 0 6px}

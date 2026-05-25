@@ -69,7 +69,7 @@
   .market-pill .down{color:var(--down)}
   .pill.live{background:#FEF2F2;color:var(--up)}
   .menu-btn{display:none}
-  .content{padding:26px;max-width:1320px;width:100%}
+  .content{padding:26px;width:100%;max-width:none}
 
   /* ===== Generic UI ===== */
   .grid{display:grid;gap:16px}
