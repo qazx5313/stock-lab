@@ -125,57 +125,119 @@ function strategyTypeLabel(type){
 function strategyRegistryTemplates(){
   return typeof getStrategiesByType==='function'?getStrategiesByType():[];
 }
-function strategyTemplateLibrary(list,title='技術策略模板庫'){
-  if(!list.length) return '';
-  return `<div class="card">
-    <div class="card-h">
-      <h3>${esc(title)}</h3>
-      <span class="tag">${list.length} 組模板 · 來自技術資料庫</span>
+function strategyKey(id){
+  return String(id||'').trim().toLowerCase().replace(/_/g,'-');
+}
+function strategyNameKey(name){
+  return String(name||'').trim().toLowerCase().replace(/\s+/g,'');
+}
+function strategyTemplateDef(t){
+  return {
+    id:t.id,
+    _local_id:t.id,
+    _source:'technical-registry',
+    name:t.name,
+    description:t.description,
+    conditions:t.entryConditions||t.screenerConditions||[],
+    risk_rules:t.stopLossRules||t.exitConditions||[],
+    enabled:true,
+    strategy_type:t.strategyType,
+    ui_tags:t.uiTags||[]
+  };
+}
+function mergeStrategyDefinitions(remoteDefs,localTemplates){
+  const rows=(remoteDefs||[]).map(s=>({...s,_source:'supabase'}));
+  localTemplates.forEach(t=>{
+    const local=strategyTemplateDef(t);
+    const hit=rows.find(s=>strategyKey(s.id)===strategyKey(t.id) || strategyNameKey(s.name)===strategyNameKey(t.name));
+    if(hit){
+      hit._local_id=t.id;
+      hit._source=hit._source||'supabase';
+      if(!hit.description) hit.description=local.description;
+      if(!p6List(hit.conditions).length) hit.conditions=local.conditions;
+      if(!p6List(hit.risk_rules).length) hit.risk_rules=local.risk_rules;
+      if(!hit.strategy_type) hit.strategy_type=local.strategy_type;
+      if(!hit.ui_tags) hit.ui_tags=local.ui_tags;
+      if(hit.enabled==null) hit.enabled=true;
+    }else{
+      rows.push(local);
+    }
+  });
+  return rows;
+}
+function strategyAliases(s){
+  return new Set([s&&s.id,s&&s._local_id].filter(Boolean).map(strategyKey));
+}
+function strategyHitsFor(hits,s){
+  const aliases=strategyAliases(s), name=strategyNameKey(s&&s.name);
+  return (hits||[]).filter(h=>aliases.has(strategyKey(h.strategy_id)) || (name && strategyNameKey(h.strategy_name)===name));
+}
+let STRATEGY_TYPE_FILTER='all';
+let STRATEGY_ONLY_HITS=false;
+let STRATEGY_FOCUS_ID='';
+function strategySourceLabel(s){
+  return s&&s._source==='technical-registry'?'技術資料庫':'策略中心';
+}
+function strategyTypeOf(s){
+  return s.strategy_type || s.strategyType || (s.ui_tags&&s.ui_tags[0]) || 'other';
+}
+function strategyControls(defs){
+  const types=['all','breakout','retest','reversal','trend-following','range','risk-avoid'];
+  return `<div class="strategy-tools">
+    <div class="strategy-tabs">
+      ${types.map(t=>`<button type="button" class="${STRATEGY_TYPE_FILTER===t?'on':''}" data-strategy-filter="${esc(t)}">${t==='all'?'全部':esc(strategyTypeLabel(t))}</button>`).join('')}
     </div>
-    <div class="knowledge-template-grid strategy-template-grid">
-      ${list.map(t=>`<article class="knowledge-template-card">
-        <div class="knowledge-template-head">
-          <b>${esc(t.name)}</b>
-          <span class="badge obs">${esc(strategyTypeLabel(t.strategyType))}</span>
-        </div>
-        <p>${esc(t.description||'')}</p>
-        <div class="knowledge-template-tags">
-          ${(t.entryConditions||t.screenerConditions||[]).slice(0,4).map(c=>`<span>${esc(c)}</span>`).join('')}
-        </div>
-      </article>`).join('')}
+    <button type="button" class="btn line sm ${STRATEGY_ONLY_HITS?'on':''}" data-strategy-toggle-hits="1">只看有命中</button>
+    ${STRATEGY_FOCUS_ID?'<button type="button" class="btn ghost sm" data-strategy-clear="1">清除選取</button>':''}
+    <span class="tag">${defs.length} 組策略 · 已合併技術資料庫</span>
+  </div>`;
+}
+function strategyFocusPanel(s,hits){
+  if(!s) return '';
+  const conditions=p6List(s.conditions), risks=p6List(s.risk_rules);
+  return `<div class="card strategy-focus">
+    <div class="card-h">
+      <h3>${esc(s.name)}</h3>
+      <span class="tag">${esc(strategySourceLabel(s))} · ${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
+    </div>
+    <div class="strategy-focus-body">
+      <div>
+        <p>${esc(s.description||'')}</p>
+        <div class="strategy-section"><span>策略條件</span><div>${conditions.map(x=>`<em>${esc(x)}</em>`).join('')||'<em>尚未設定</em>'}</div></div>
+        <div class="strategy-section"><span>風險規則</span><div>${risks.map(x=>`<em>${esc(x)}</em>`).join('')||'<em>依系統預設停損控管</em>'}</div></div>
+      </div>
+      <div class="strategy-hits">
+        <div class="strategy-hits-title">此策略近期命中</div>
+        ${hits.length?hits.slice(0,8).map(p6HitButton).join(''):'<div class="muted">目前資料庫尚無命中股票，排程重新計算後會自動出現。</div>'}
+      </div>
     </div>
   </div>`;
 }
 function vStrategyCenter(){
   const loading=phase6Ensure('strategy'); if(loading) return loading;
-  const p=DATA.phase6||{},defs=p.strategies||[],hits=p.strategyResults||[],backs=p.strategyBacktests||[];
+  const p=DATA.phase6||{},remoteDefs=p.strategies||[],hits=p.strategyResults||[],backs=p.strategyBacktests||[];
   const localTemplates=strategyRegistryTemplates();
-  if(!defs.length) return `<div class="hero-card phase6-hero">
-    <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>策略資料表尚未回填時，先顯示本機技術資料庫模板。</p></div>
-    <div class="strategy-kpis">
-      <div><b>${localTemplates.length}</b><span>模板數</span></div>
-      <div><b>0</b><span>啟用中</span></div>
-      <div><b>0</b><span>近期命中</span></div>
-      <div><b>—</b><span>平均勝率</span></div>
-    </div>
-  </div>
-  ${emptyPhase6('策略中心尚無資料','請先在 Supabase 執行 db/phase6_schema.sql，再跑 jobs/strategy_center.py。')}
-  ${strategyTemplateLibrary(localTemplates)}`;
-  const enabled=defs.filter(s=>s.enabled).length;
+  const defs=mergeStrategyDefinitions(remoteDefs,localTemplates);
+  const enabled=defs.filter(s=>s.enabled!==false).length;
   const avgWin=backs.length?backs.reduce((s,b)=>s+(Number(b.win_rate)||0),0)/backs.length:null;
-  const existingIds=new Set(defs.map(s=>String(s.id||'').replace(/_/g,'-')));
-  const extraTemplates=localTemplates.filter(t=>!existingIds.has(String(t.id||'').replace(/_/g,'-')));
   const bestByStrategy=new Map();
-  hits.forEach(h=>{
-    const prev=bestByStrategy.get(h.strategy_id);
-    if(!prev || Number(h.score||0)>Number(prev.score||0)) bestByStrategy.set(h.strategy_id,h);
+  defs.forEach(s=>{
+    const sh=strategyHitsFor(hits,s);
+    if(sh.length) bestByStrategy.set(strategyKey(s.id),sh.slice().sort((a,b)=>Number(b.score||0)-Number(a.score||0))[0]);
   });
   const sortedDefs=defs.slice().sort((a,b)=>{
-    const ah=bestByStrategy.get(a.id), bh=bestByStrategy.get(b.id);
-    return Number(bh&&bh.score||-1)-Number(ah&&ah.score||-1) || Number(b.enabled)-Number(a.enabled) || String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
+    const ah=bestByStrategy.get(strategyKey(a.id)), bh=bestByStrategy.get(strategyKey(b.id));
+    return Number(bh&&bh.score||-1)-Number(ah&&ah.score||-1) || Number(b.enabled!==false)-Number(a.enabled!==false) || String(a.name||'').localeCompare(String(b.name||''),'zh-Hant');
   });
+  const filteredDefs=sortedDefs.filter(s=>{
+    if(STRATEGY_TYPE_FILTER!=='all' && strategyTypeOf(s)!==STRATEGY_TYPE_FILTER) return false;
+    if(STRATEGY_ONLY_HITS && !strategyHitsFor(hits,s).length) return false;
+    return true;
+  });
+  const focused=defs.find(s=>strategyKey(s.id)===strategyKey(STRATEGY_FOCUS_ID) || strategyKey(s._local_id)===strategyKey(STRATEGY_FOCUS_ID));
+  const focusedHits=focused?strategyHitsFor(hits,focused):[];
   return `<div class="hero-card phase6-hero">
-    <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>集中管理策略條件、風險控管、近期命中與回測摘要。</p></div>
+    <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>集中管理策略條件、風險控管、近期命中與回測摘要。技術資料庫模板會直接併入策略清單。</p></div>
     <div class="strategy-kpis">
       <div><b>${defs.length}</b><span>策略數</span></div>
       <div><b>${enabled}</b><span>啟用中</span></div>
@@ -183,22 +245,26 @@ function vStrategyCenter(){
       <div><b>${avgWin==null?'—':avgWin.toFixed(1)+'%'}</b><span>平均勝率</span></div>
     </div>
   </div>
+  ${strategyControls(defs)}
+  ${strategyFocusPanel(focused,focusedHits)}
   <div class="strategy-center-grid">
-    ${sortedDefs.map(s=>{
-      const sh=hits.filter(h=>h.strategy_id===s.id).slice(0,5);
-      const best=bestByStrategy.get(s.id);
-      const bt=backs.find(b=>b.strategy_id===s.id)||{};
+    ${filteredDefs.map(s=>{
+      const sh=strategyHitsFor(hits,s).slice(0,5);
+      const best=bestByStrategy.get(strategyKey(s.id));
+      const bt=backs.find(b=>strategyKey(b.strategy_id)===strategyKey(s.id) || strategyKey(b.strategy_id)===strategyKey(s._local_id))||{};
       const conditions=p6List(s.conditions);
       const risks=p6List(s.risk_rules);
-      return `<article class="strategy-center-card ${s.enabled?'is-on':'is-off'}">
+      const active=focused && (strategyKey(focused.id)===strategyKey(s.id) || strategyKey(focused._local_id)===strategyKey(s._local_id));
+      return `<article class="strategy-center-card ${s.enabled!==false?'is-on':'is-off'} ${active?'active':''}">
         <div class="strategy-center-head">
           <div>
-            <span class="strategy-id">${esc(s.id||'strategy')}</span>
+            <span class="strategy-id">${esc(s.id||'strategy')} · ${esc(strategySourceLabel(s))}</span>
             <h3>${esc(s.name)}</h3>
           </div>
           <div class="strategy-head-badges">
             ${best?p6SignalBadge(best):''}
-            <span class="badge ${s.enabled?'hot':'cool'}">${s.enabled?'啟用':'停用'}</span>
+            <span class="badge obs">${esc(strategyTypeLabel(strategyTypeOf(s)))}</span>
+            <span class="badge ${s.enabled!==false?'hot':'cool'}">${s.enabled!==false?'啟用':'停用'}</span>
           </div>
         </div>
         <p class="strategy-desc">${esc(s.description||'')}</p>
@@ -220,8 +286,12 @@ function vStrategyCenter(){
           <div class="strategy-hits-title">近期命中</div>
           ${sh.length?sh.map(p6HitButton).join(''):'<div class="muted">尚無命中股票</div>'}
         </div>
+        <div class="strategy-actions">
+          <button type="button" class="btn line sm" data-strategy-focus="${esc(s.id)}">查看策略</button>
+          ${sh[0]?`<button type="button" class="btn sm" data-stock="${esc(sh[0].symbol)}">查看最高分股票</button>`:''}
+        </div>
       </article>`;
     }).join('')}
   </div>
-  ${strategyTemplateLibrary(extraTemplates,'尚未回填到策略中心的模板')}`;
+  ${!filteredDefs.length?emptyPhase6('沒有符合篩選的策略','請切回全部或關閉只看有命中。'):''}`;
 }

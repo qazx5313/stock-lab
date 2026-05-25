@@ -4,6 +4,22 @@ function bindPage(id){
     DATA.stock.c=el.dataset.stock;
     await loadStockSeries(el.dataset.stock);
     go('stock');});
+  document.querySelectorAll('[data-strategy-filter]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_TYPE_FILTER!=='undefined') STRATEGY_TYPE_FILTER=el.dataset.strategyFilter||'all';
+    go('strategy');
+  });
+  document.querySelectorAll('[data-strategy-toggle-hits]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_ONLY_HITS!=='undefined') STRATEGY_ONLY_HITS=!STRATEGY_ONLY_HITS;
+    go('strategy');
+  });
+  document.querySelectorAll('[data-strategy-focus]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_FOCUS_ID!=='undefined') STRATEGY_FOCUS_ID=el.dataset.strategyFocus||'';
+    go('strategy');
+  });
+  document.querySelectorAll('[data-strategy-clear]').forEach(el=>el.onclick=()=>{
+    if(typeof STRATEGY_FOCUS_ID!=='undefined') STRATEGY_FOCUS_ID='';
+    go('strategy');
+  });
   document.querySelectorAll('[data-theme-major]').forEach(el=>el.onclick=()=>{
     MAP_MAJOR=el.dataset.themeMajor||'';
     const first=(typeof mapThemesForMajor==='function'?mapThemesForMajor(MAP_MAJOR):[])[0];
