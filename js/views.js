@@ -271,20 +271,43 @@ function fearIndexPanel(){
    </div>`;
 }
 function capitalFlowRows(){
-  return (DATA.themes||[]).map(t=>{
+  const groups=new Map();
+  (DATA.themes||[]).forEach(t=>{
+    if(!t || !t.name) return;
+    const part=typeof themeParts==='function'?themeParts(t.name):{major:themeDisplayName(t.name)};
+    const major=part.major||themeDisplayName(t.name);
     const stocks=Array.isArray(t.stocks)?t.stocks:[];
-    const live=stocks.map(s=>{
-      const info=typeof stockKnownInfo==='function'?stockKnownInfo(s.c):((DATA.stockMap||{})[String(s.c||'')]||s);
-      return Number(info&&info.dp);
-    }).filter(Number.isFinite);
     const raw=String(t.gain||'0').replace('%','').replace('+','').trim();
     const fallback=Number(raw);
-    const gainVal=live.length?live.reduce((a,b)=>a+b,0)/live.length:(Number.isFinite(fallback)?fallback:0);
+    let g=groups.get(major);
+    if(!g){
+      g={...t,name:major,displayName:major,major,codes:new Set(),liveSum:0,liveCount:0,fallbackSum:0,fallbackWeight:0};
+      groups.set(major,g);
+    }
+    if(!g.id && t.id) g.id=t.id;
+    stocks.forEach(s=>{
+      const code=String(s&&s.c||'').trim();
+      if(code && g.codes.has(code)) return;
+      if(code) g.codes.add(code);
+      const info=typeof stockKnownInfo==='function'?stockKnownInfo(code):((DATA.stockMap||{})[code]||s);
+      const dp=Number(info&&info.dp);
+      if(Number.isFinite(dp)){
+        g.liveSum+=dp;
+        g.liveCount+=1;
+      }
+    });
+    if(Number.isFinite(fallback)){
+      const weight=stocks.length||1;
+      g.fallbackSum+=fallback*weight;
+      g.fallbackWeight+=weight;
+    }
+  });
+  return Array.from(groups.values()).map(g=>{
+    const gainVal=g.liveCount?g.liveSum/g.liveCount:(g.fallbackWeight?g.fallbackSum/g.fallbackWeight:0);
     return {
-      ...t,
+      ...g,
       gainVal,
-      stockCount:live.length||stocks.length||0,
-      displayName:typeof themeDisplayName==='function'?themeDisplayName(t.name):t.name
+      stockCount:g.codes.size||g.fallbackWeight||0
     };
   }).filter(t=>t.displayName&&t.stockCount);
 }
@@ -295,7 +318,7 @@ function capitalFlowBars(rows,type){
     const positive=t.gainVal>=0;
     const h=Math.max(18,Math.round(Math.abs(t.gainVal)/max*104));
     const name=String(t.displayName||'').replace(/指數?$/,'');
-    return `<button class="flow-bar ${positive?'pos':'neg'}" data-theme="${esc(t.id||'')}" title="${esc(name)} ${t.gainVal.toFixed(2)}%">
+    return `<button class="flow-bar ${positive?'pos':'neg'}" data-theme-major="${esc(t.major||name)}" title="${esc(name)} ${t.gainVal.toFixed(2)}%">
       <span class="flow-pct">${t.gainVal>0?'+':''}${t.gainVal.toFixed(2)}%</span>
       <i style="height:${h}px"></i>
       <b>${esc(name)}</b>

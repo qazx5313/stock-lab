@@ -4,6 +4,13 @@ function bindPage(id){
     DATA.stock.c=el.dataset.stock;
     await loadStockSeries(el.dataset.stock);
     go('stock');});
+  document.querySelectorAll('[data-theme-major]').forEach(el=>el.onclick=()=>{
+    MAP_MAJOR=el.dataset.themeMajor||'';
+    const first=(typeof mapThemesForMajor==='function'?mapThemesForMajor(MAP_MAJOR):[])[0];
+    MAP_SEL=first?first.id:'';
+    MAP_QUERY='';
+    go('map');
+  });
   document.querySelectorAll('[data-theme]').forEach(el=>el.onclick=()=>{
     const list=typeof mapMarketThemes==='function'?mapMarketThemes():(DATA.themes||[]);
     const t=list.find(x=>x.id===el.dataset.theme); if(t){MAP_SEL=t.id;if(typeof themeParts==='function') MAP_MAJOR=themeParts(t.name).major;go('map');}});
