@@ -58,7 +58,11 @@ function p6Meta(value){
   return typeof value==='object'?value:{};
 }
 function p6SignalBadge(hit){
-  const t=hit.hit_type||'今日命中';
+  const score=Number(hit.score);
+  let t=hit.hit_type||'今日命中';
+  if(t==='今日命中' && Number.isFinite(score)){
+    t=score>=85?'強訊號':score>=75?'普通訊號':'僅觀察';
+  }
   const risk=(p6Meta(hit.metadata).risk_level||'').toLowerCase();
   const cls=t.includes('高風險')||risk==='high'?'bad':t.includes('風險')||risk==='medium'?'warm':t.includes('強')?'hot':t.includes('普通')?'good':'obs';
   return `<span class="badge ${cls}">${esc(t)}</span>`;
@@ -68,7 +72,8 @@ function p6RiskLabel(risk){
 }
 function p6QualityBars(hit){
   const meta=p6Meta(hit.metadata);
-  const q=meta.quality_components||{};
+  const q=meta.quality_components;
+  if(!q || typeof q!=='object') return hit.hit_type==='今日命中'?'<div class="strategy-quality-empty">等待重新計算分數拆解</div>':'';
   const rows=[
     ['基礎',q.base],
     ['趨勢',q.trend],
@@ -91,6 +96,7 @@ function p6QualityBars(hit){
 }
 function p6HitButton(hit){
   const meta=p6Meta(hit.metadata);
+  const risk=meta.risk_level;
   return `<button type="button" data-stock="${esc(hit.symbol)}">
     <div class="strategy-hit-top">
       <b>${esc(hit.symbol)} ${esc(hit.name||'')}</b>
@@ -98,7 +104,7 @@ function p6HitButton(hit){
     </div>
     <div class="strategy-hit-badges">
       ${p6SignalBadge(hit)}
-      <span class="badge obs">風險 ${esc(p6RiskLabel(meta.risk_level))}</span>
+      ${risk?`<span class="badge obs">風險 ${esc(p6RiskLabel(risk))}</span>`:''}
       ${meta.volume_ratio!=null?`<span class="badge obs">量比 ${esc(meta.volume_ratio)}</span>`:''}
     </div>
     <span>${esc(hit.reason||'')}</span>
