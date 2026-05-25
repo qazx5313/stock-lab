@@ -53,6 +53,28 @@ function homeOverviewStyles(){
     .market-overview-page .flow-dot.red{background:#dc2626}.market-overview-page .flow-dot.green{background:#16a34a}
     .market-overview-bottom{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:20px}
     @media (max-width:1180px){.market-overview-page .market-summary-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.market-overview-page .flow-board{grid-template-columns:1fr}.market-overview-page .flow-lane:first-child{padding-right:0;border-right:0;border-bottom:1px dashed #cbd8ea;padding-bottom:20px}.market-overview-page .flow-lane:last-child{padding-left:0;padding-top:20px}.market-overview-bottom{grid-template-columns:1fr}}
+    @media (min-width:761px){
+      .topbar #pgTitle,.topbar #pgSub{visibility:hidden}
+      .market-overview-head{display:block;height:0;margin:0}
+      .market-overview-title{
+        position:fixed;z-index:45;top:9px;left:254px;display:block;max-width:min(52vw,760px);pointer-events:none
+      }
+      .market-overview-title h2{display:inline;font-size:18px;line-height:1.15;letter-spacing:0}
+      .market-overview-title span{display:inline;margin-left:10px;padding-bottom:0;font-size:12px;vertical-align:baseline}
+      .market-overview-subtitle{
+        margin:2px 0 0;font-size:11.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+      }
+      .market-overview-meta{
+        position:fixed;z-index:45;top:11px;right:clamp(170px,17vw,275px);display:flex;align-items:center;justify-content:flex-end;gap:10px;pointer-events:none
+      }
+      .market-overview-chip{padding:8px 13px;border-radius:10px;font-size:13px;background:#f8fbff}
+    }
+    @media (min-width:761px) and (max-width:1120px){
+      .market-overview-title{max-width:42vw}
+      .market-overview-subtitle{display:none}
+      .market-overview-meta{right:150px;gap:8px}
+      .market-overview-chip{padding:7px 10px;font-size:12px}
+    }
     @media (max-width:760px){.market-overview-page{padding:16px}.market-overview-head{display:block}.market-overview-meta{justify-content:flex-start;margin-top:14px}.market-overview-page .market-summary-grid{grid-template-columns:1fr}.market-overview-page .flow-bars{grid-template-columns:repeat(4,1fr)}}
   </style>`;
 }
