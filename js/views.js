@@ -295,7 +295,7 @@ function capitalFlowBars(rows,type){
     const positive=t.gainVal>=0;
     const h=Math.max(18,Math.round(Math.abs(t.gainVal)/max*104));
     const name=String(t.displayName||'').replace(/指數?$/,'');
-    return `<button class="flow-bar ${positive?'pos':'neg'}" data-go="map" title="${esc(name)} ${t.gainVal.toFixed(2)}%">
+    return `<button class="flow-bar ${positive?'pos':'neg'}" data-theme="${esc(t.id||'')}" title="${esc(name)} ${t.gainVal.toFixed(2)}%">
       <span class="flow-pct">${t.gainVal>0?'+':''}${t.gainVal.toFixed(2)}%</span>
       <i style="height:${h}px"></i>
       <b>${esc(name)}</b>

@@ -37,8 +37,8 @@ function homeOverviewStyles(){
     .market-overview-page .flow-lane-head b{font-size:16px}
     .market-overview-page .flow-lane-head span{font-size:12px;color:#8190aa;font-weight:800}
     .market-overview-page .flow-bars{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));align-items:end;gap:10px;min-height:168px;overflow:hidden}
-    .market-overview-page .flow-bar{border:0;background:transparent;display:grid;grid-template-rows:auto 1fr auto;justify-items:center;gap:6px;min-width:0;width:100%;color:#183358;cursor:pointer;overflow:hidden}
-    .market-overview-page .flow-bar i{width:30px;min-height:22px;border-radius:8px 8px 2px 2px;align-self:end;box-shadow:inset 0 -12px 18px rgba(0,0,0,.08)}
+    .market-overview-page .flow-bar{border:0;background:transparent;display:grid;grid-template-rows:16px 112px 34px;justify-items:center;align-items:end;gap:6px;min-width:0;width:100%;height:168px;color:#183358;cursor:pointer;overflow:hidden}
+    .market-overview-page .flow-bar i{width:30px;min-height:22px;max-height:112px;border-radius:8px 8px 2px 2px;align-self:end;box-shadow:inset 0 -12px 18px rgba(0,0,0,.08)}
     .market-overview-page .flow-bar.pos i{background:linear-gradient(180deg,#ff4a4f,#dc2626)}
     .market-overview-page .flow-bar.neg i{background:linear-gradient(180deg,#45d18b,#16a34a)}
     .market-overview-page .flow-pct{font-size:11.5px;font-weight:950;line-height:1.1;white-space:nowrap}
