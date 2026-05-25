@@ -62,7 +62,7 @@ function homeOverviewStyles(){
       .market-overview-title h2{display:inline;font-size:18px;line-height:1.15;letter-spacing:0}
       .market-overview-title span{display:inline;margin-left:10px;padding-bottom:0;font-size:12px;vertical-align:baseline}
       .market-overview-subtitle{
-        margin:2px 0 0;font-size:11.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis
+        position:fixed;z-index:45;top:32px;left:254px;max-width:min(52vw,760px);margin:0;font-size:11.5px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;pointer-events:none
       }
       .market-overview-meta{
         position:fixed;z-index:45;top:11px;right:clamp(170px,17vw,275px);display:flex;align-items:center;justify-content:flex-end;gap:10px;pointer-events:none
