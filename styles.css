@@ -585,6 +585,14 @@
 .strategy-hits button:hover{border-color:#bfdbfe;background:#f8fbff}
 .strategy-hits b{display:block;color:var(--primary);font-size:13px}
 .strategy-hits span{display:block;margin-top:3px;color:var(--ink-2);font-size:12px;line-height:1.45;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.knowledge-template-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;padding:16px 18px 18px}
+.knowledge-template-card{border:1px solid var(--border-soft);border-radius:12px;background:#fff;padding:14px 15px;min-width:0}
+.knowledge-template-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.knowledge-template-head b{font-size:14px;font-weight:950;line-height:1.35;color:var(--ink)}
+.knowledge-template-card p{margin:9px 0 12px;color:var(--ink-2);font-size:12.5px;line-height:1.55;min-height:38px}
+.knowledge-template-tags{display:flex;flex-wrap:wrap;gap:6px}
+.knowledge-template-tags span{display:inline-flex;align-items:center;border-radius:7px;background:#F8FAFC;border:1px solid var(--border-soft);color:var(--ink-2);font-size:11px;font-weight:850;padding:5px 7px;line-height:1.25}
+.strategy-template-grid{grid-template-columns:repeat(4,minmax(0,1fr))}
 .force-board{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
 .force-column{background:#fff;border:1px solid var(--border);border-radius:16px;box-shadow:var(--shadow);overflow:hidden}
 .force-column-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;padding:18px;border-bottom:1px solid var(--border-soft)}
@@ -609,6 +617,6 @@
   .hero-card{align-items:flex-start;flex-direction:column}
   .grid-2{grid-template-columns:1fr}
   .split-row{grid-template-columns:repeat(2,auto 1fr)}
-  .strategy-kpis,.strategy-center-grid,.force-board{grid-template-columns:1fr;min-width:0}
+  .strategy-kpis,.strategy-center-grid,.knowledge-template-grid,.strategy-template-grid,.force-board{grid-template-columns:1fr;min-width:0}
 }
 

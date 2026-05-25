@@ -117,6 +117,11 @@ type: technical_database_registry
 <script src="js/technical-registry.js?v=20260526-knowledge-merge" defer></script>
 ```
 
+目前已接入：
+
+- `js/pages/screen.js`：每日篩選頁會讀取 `getScreenersByCategory()`，顯示技術資料庫中的篩選模板與條件。
+- `js/pages/strategy-center.js`：策略中心會讀取 `getStrategiesByType()`，當 Supabase 策略資料尚未回填時，先顯示本機策略模板；資料回填後，仍以原本 `strategy_definitions`、`strategy_results`、`strategy_backtests` 為主。
+
 前端頁面可直接呼叫：
 
 ```js
@@ -167,7 +172,7 @@ python -m py_compile jobs/compute_signals.py
 
 ## 已知缺口
 
-- `js/technical-registry.js` 目前是前端 registry 與說明資料，尚未把所有內容做成前台學習頁。
+- `js/technical-registry.js` 目前已接入每日篩選與策略中心；尚未把所有內容做成完整前台學習頁。
 - 部分新增策略是定義模板，尚未都有實際 `hit_strategy()` 計算邏輯。
 - 台股籌碼中的分點、大戶、董監與集保資料需要資料源穩定後才能完整自動評分。
 - K線型態與圖表型態目前以偵測任務與說明資料並存，未來可把 `compute_patterns.py` 的型態名稱改為直接引用 registry id。

@@ -52,12 +52,59 @@ function p6List(list){
   if(typeof list==='string'){try{list=JSON.parse(list);}catch(e){list=[list];}}
   return Array.isArray(list)?list.filter(Boolean):[];
 }
+function strategyTypeLabel(type){
+  return ({
+    breakout:'突破',
+    retest:'回測',
+    reversal:'反轉',
+    'trend-following':'趨勢追蹤',
+    range:'震盪區間',
+    'risk-avoid':'風險避開'
+  })[type]||type||'策略';
+}
+function strategyRegistryTemplates(){
+  return typeof getStrategiesByType==='function'?getStrategiesByType():[];
+}
+function strategyTemplateLibrary(list,title='技術策略模板庫'){
+  if(!list.length) return '';
+  return `<div class="card">
+    <div class="card-h">
+      <h3>${esc(title)}</h3>
+      <span class="tag">${list.length} 組模板 · 來自技術資料庫</span>
+    </div>
+    <div class="knowledge-template-grid strategy-template-grid">
+      ${list.map(t=>`<article class="knowledge-template-card">
+        <div class="knowledge-template-head">
+          <b>${esc(t.name)}</b>
+          <span class="badge obs">${esc(strategyTypeLabel(t.strategyType))}</span>
+        </div>
+        <p>${esc(t.description||'')}</p>
+        <div class="knowledge-template-tags">
+          ${(t.entryConditions||t.screenerConditions||[]).slice(0,4).map(c=>`<span>${esc(c)}</span>`).join('')}
+        </div>
+      </article>`).join('')}
+    </div>
+  </div>`;
+}
 function vStrategyCenter(){
   const loading=phase6Ensure('strategy'); if(loading) return loading;
   const p=DATA.phase6||{},defs=p.strategies||[],hits=p.strategyResults||[],backs=p.strategyBacktests||[];
-  if(!defs.length) return emptyPhase6('策略中心尚無資料','請先在 Supabase 執行 db/phase6_schema.sql，再跑 jobs/strategy_center.py。');
+  const localTemplates=strategyRegistryTemplates();
+  if(!defs.length) return `<div class="hero-card phase6-hero">
+    <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>策略資料表尚未回填時，先顯示本機技術資料庫模板。</p></div>
+    <div class="strategy-kpis">
+      <div><b>${localTemplates.length}</b><span>模板數</span></div>
+      <div><b>0</b><span>啟用中</span></div>
+      <div><b>0</b><span>近期命中</span></div>
+      <div><b>—</b><span>平均勝率</span></div>
+    </div>
+  </div>
+  ${emptyPhase6('策略中心尚無資料','請先在 Supabase 執行 db/phase6_schema.sql，再跑 jobs/strategy_center.py。')}
+  ${strategyTemplateLibrary(localTemplates)}`;
   const enabled=defs.filter(s=>s.enabled).length;
   const avgWin=backs.length?backs.reduce((s,b)=>s+(Number(b.win_rate)||0),0)/backs.length:null;
+  const existingIds=new Set(defs.map(s=>String(s.id||'').replace(/_/g,'-')));
+  const extraTemplates=localTemplates.filter(t=>!existingIds.has(String(t.id||'').replace(/_/g,'-')));
   return `<div class="hero-card phase6-hero">
     <div><div class="eyebrow">STRATEGY CENTER</div><h2>策略中心</h2><p>集中管理策略條件、風險控管、近期命中與回測摘要。</p></div>
     <div class="strategy-kpis">
@@ -105,5 +152,6 @@ function vStrategyCenter(){
         </div>
       </article>`;
     }).join('')}
-  </div>`;
+  </div>
+  ${strategyTemplateLibrary(extraTemplates,'尚未回填到策略中心的模板')}`;
 }
