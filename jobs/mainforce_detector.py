@@ -21,7 +21,7 @@ def detect(symbol, name, prices):
     low = lows[-1]
     avg20 = avg(vols[-20:]) or 0
     vol = vols[-1]
-    if vol < MIN_MAINFORCE_VOLUME_LOTS or avg20 < MIN_MAINFORCE_AVG20_LOTS:
+    if vol <= MIN_MAINFORCE_VOLUME_LOTS or avg20 < MIN_MAINFORCE_AVG20_LOTS:
         return []
     support = min(lows[-21:-1])
     resistance = max(highs[-21:-1])
@@ -51,7 +51,7 @@ def detect(symbol, name, prices):
     if low < support * 0.995 and close > support and close_position >= 0.58 and vol <= avg20 * 1.35:
         add("假跌破洗盤", 76, f"盤中跌破支撐 {support:.2f} 後收回，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "中", "觀察隔日是否站穩支撐。")
     range20 = pct(max(highs[-20:]), min(lows[-20:]))
-    if range20 and range20 < 10 and vol >= MIN_MAINFORCE_VOLUME_LOTS and vol <= avg20 * 0.9:
+    if range20 and range20 < 10 and vol > MIN_MAINFORCE_VOLUME_LOTS and vol <= avg20 * 0.9:
         add("橫盤磨人洗盤", 67, f"近 20 日區間收斂 {range20:.1f}%，成交量 {vol:.0f} 張且低於均量。", "低", "等待放量突破方向。")
     if pct(close, open_price) and pct(close, open_price) < -5 and vol >= avg20 * 1.2:
         add("急殺長黑洗盤", 70, f"出現長黑且成交量 {vol:.0f} 張，為 20 日均量 {volume_ratio:.2f} 倍。", "高", "未收回前不追多。")

@@ -3,7 +3,7 @@ function vMainforce(){
   const rows=((DATA.phase6&&DATA.phase6.mainforce)||[]).filter(r=>{
     const info=(typeof stockKnownInfo==='function')?stockKnownInfo(r.symbol):{};
     const vol=Number(info&&info.vol);
-    return !(Number.isFinite(vol) && vol>0 && vol<1000);
+    return !(Number.isFinite(vol) && vol>0 && vol<=1000);
   });
   if(!rows.length) return emptyPhase6('主力行為尚無資料','請執行 jobs/mainforce_detector.py 產生洗盤、誘多、出貨與回測成功訊號。');
   const types=[
