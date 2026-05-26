@@ -721,7 +721,12 @@ def main():
         by_screen[candidate["source_module"]].append(candidate)
     cand = []
     for sid in sorted(by_screen):
-        cand.extend(sorted(by_screen[sid], key=lambda s: s["score"], reverse=True)[:30])
+        per_symbol = {}
+        for candidate in sorted(by_screen[sid], key=lambda s: s["score"], reverse=True):
+            symbol = str(candidate.get("symbol") or "").strip()
+            if symbol and symbol not in per_symbol:
+                per_symbol[symbol] = candidate
+        cand.extend(list(per_symbol.values())[:30])
     cand = sorted(cand, key=lambda s: (s["source_module"], -s["score"], s["symbol"]))
     sb_delete("candidate_pool", f"date=eq.{latest}")
     sb_upsert("candidate_pool", cand)

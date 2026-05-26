@@ -96,11 +96,19 @@ function screenApplyRows(){
   if(t && !out.length){
     out=rows.slice().sort((a,b)=>screenScoreFor(b,t)-screenScoreFor(a,t)).slice(0,Math.min(5,rows.length));
   }
-  return out.map(r=>({
+  const mapped=out.map(r=>({
     ...r,
     reason:selected.join('；'),
     _screenScore:t?screenScoreFor(r,t):Number(r.total)||0
   })).sort((a,b)=>(Number(b._screenScore)||0)-(Number(a._screenScore)||0));
+  const deduped=new Map();
+  mapped.forEach(r=>{
+    const key=String(r.c||r.symbol||'').trim();
+    if(!key) return;
+    const prev=deduped.get(key);
+    if(!prev || Number(r._screenScore||0)>Number(prev._screenScore||0)) deduped.set(key,r);
+  });
+  return [...deduped.values()];
 }
 
 function screenTemplateLibrary(){
