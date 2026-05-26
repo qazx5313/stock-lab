@@ -3,6 +3,9 @@ from __future__ import annotations
 from phase6_common import avg, load_price_series, load_stock_map, log, ma, nf, pct, safe_status, series_values, stock_name, volume_lots
 from sb_common import sb_delete, sb_upsert
 
+MIN_MAINFORCE_VOLUME_LOTS = 1000
+MIN_MAINFORCE_AVG20_LOTS = 500
+
 
 def detect(symbol, name, prices):
     if len(prices) < 45:
@@ -18,9 +21,17 @@ def detect(symbol, name, prices):
     low = lows[-1]
     avg20 = avg(vols[-20:]) or 0
     vol = vols[-1]
+    if vol < MIN_MAINFORCE_VOLUME_LOTS or avg20 < MIN_MAINFORCE_AVG20_LOTS:
+        return []
     support = min(lows[-21:-1])
     resistance = max(highs[-21:-1])
     ma20 = ma(closes, 20) or close
+    prev_close = closes[-2]
+    candle_range = max(high - low, 0.01)
+    close_position = (close - low) / candle_range
+    upper_shadow = (high - max(open_price, close)) / candle_range
+    lower_shadow = (min(open_price, close) - low) / candle_range
+    volume_ratio = vol / max(avg20, 1)
     out = []
 
     def add(kind, score, evidence, risk, action):
@@ -35,23 +46,24 @@ def detect(symbol, name, prices):
             "suggested_action": action,
         })
 
-    if low < support and close > support and vol <= avg20 * 1.35:
-        add("假跌破洗盤", 76, f"盤中跌破支撐 {support:.2f} 後收回，量能未失控。", "中", "觀察隔日是否站穩支撐。")
-    if pct(max(highs[-20:]), min(lows[-20:])) and pct(max(highs[-20:]), min(lows[-20:])) < 10 and vol < avg20:
-        add("橫盤磨人洗盤", 67, "近 20 日區間收斂且量能低於均量。", "低", "等待放量突破方向。")
-    if pct(close, open_price) and pct(close, open_price) < -5 and vol > avg20 * 1.2:
-        add("急殺長黑洗盤", 70, "出現長黑且放量，需觀察是否快速收回。", "高", "未收回前不追多。")
-    if high > open_price * 1.05 and close < (high + low) / 2:
-        add("拉高後快速回落", 74, "盤中拉高超過 5% 但收在半分位下方。", "高", "小心短線追價風險。")
-    if high > resistance and close < resistance:
-        add("假突破誘多", 80, f"突破前壓 {resistance:.2f} 後收回。", "高", "等待重新站回突破價。")
-    upper_shadow = (high - close) / max(high - low, 0.01)
-    if vol > avg20 * 1.8 and upper_shadow > 0.45 and close > ma20:
-        add("高檔爆量出貨", 82, "爆量長上影，疑似上方籌碼鬆動。", "高", "降低追價，嚴守停損。")
-    if abs(low - resistance) / close * 100 < 3 and close > resistance and vol < avg20 * 1.2:
-        add("突破後回測成功", 78, "回測前壓轉支撐後收在突破價上方。", "中低", "可列入續強觀察。")
-    if ma20 > ma(closes[:-5], 20) and pct(max(highs[-25:]), min(lows[-25:])) < 14 and vol < avg20 * 1.15:
-        add("主升段前整理", 72, "MA20 上升且區間整理，量能未失控。", "中", "放量突破可提高關注。")
+    if low < support * 0.995 and close > support and close_position >= 0.58 and vol <= avg20 * 1.35:
+        add("假跌破洗盤", 76, f"盤中跌破支撐 {support:.2f} 後收回，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "中", "觀察隔日是否站穩支撐。")
+    range20 = pct(max(highs[-20:]), min(lows[-20:]))
+    if range20 and range20 < 10 and vol >= MIN_MAINFORCE_VOLUME_LOTS and vol <= avg20 * 0.9:
+        add("橫盤磨人洗盤", 67, f"近 20 日區間收斂 {range20:.1f}%，成交量 {vol:.0f} 張且低於均量。", "低", "等待放量突破方向。")
+    if pct(close, open_price) and pct(close, open_price) < -5 and vol >= avg20 * 1.2:
+        add("急殺長黑洗盤", 70, f"出現長黑且成交量 {vol:.0f} 張，為 20 日均量 {volume_ratio:.2f} 倍。", "高", "未收回前不追多。")
+    if high > open_price * 1.05 and close_position <= 0.45 and vol >= avg20:
+        add("拉高後快速回落", 74, f"盤中拉高超過 5% 但收在半分位下方，成交量 {vol:.0f} 張。", "高", "小心短線追價風險。")
+    if high > resistance * 1.005 and close < resistance and close_position <= 0.45 and vol >= avg20 * 0.9:
+        add("假突破誘多", 80, f"盤中突破前壓 {resistance:.2f} 後收回，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "高", "等待重新站回突破價。")
+    if vol >= avg20 * 1.8 and upper_shadow > 0.45 and close > ma20 and high >= max(highs[-61:-1]) * 0.95:
+        add("高檔爆量出貨", 82, f"高檔爆量長上影，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "高", "降低追價，嚴守停損。")
+    if abs(low - resistance) / close * 100 < 3 and close > resistance and prev_close > resistance and vol <= avg20 * 1.2:
+        add("突破後回測成功", 78, f"回測前壓 {resistance:.2f} 轉支撐後收在突破價上方，成交量 {vol:.0f} 張。", "中低", "可列入續強觀察。")
+    ma20_prev5 = ma(closes[:-5], 20)
+    if ma20_prev5 and ma20 > ma20_prev5 and range20 and range20 < 14 and vol <= avg20 * 1.15 and close >= ma20:
+        add("主升段前整理", 72, f"MA20 上升且區間整理，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "中", "放量突破可提高關注。")
     return out
 
 

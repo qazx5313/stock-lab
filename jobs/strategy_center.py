@@ -6,6 +6,9 @@ import time
 from phase6_common import avg, hma, load_price_series, load_stock_map, log, ma, macd, nf, pct, rsi, safe_status, series_values, stdev, stock_name, volume_lots
 from sb_common import sb_delete, sb_select, sb_upsert
 
+MIN_STRATEGY_VOLUME_LOTS = 1000
+MIN_STRATEGY_AVG20_LOTS = 500
+
 
 STRATEGIES = [
     {
@@ -99,6 +102,9 @@ STRATEGY_LIBRARY_TEMPLATES = [
     ("kd_range_cycle_strategy", "KD高低檔循環", "震盪盤觀察KD高低檔交叉。", ["KD高低檔交叉", "區間明確"], ["突破區間後失效"]),
     ("support_resistance_range_strategy", "支撐壓力來回", "支撐與壓力間來回操作。", ["支撐買盤", "壓力賣壓"], ["區間突破或跌破"]),
     ("top_volume_upper_shadow_risk", "高檔爆量長上影", "高檔爆量長上影代表追價風險。", ["高檔爆量", "長上影"], ["降低追價"]),
+    ("main_force_wash_reversal_strategy", "主力洗盤後轉強", "盤中跌破支撐後收回，觀察洗盤後重新轉強。", ["跌破支撐後收回", "長下影", "量能未失控"], ["跌破洗盤低點停損"]),
+    ("false_breakout_intraday_risk", "假突破誘多風險", "盤中突破壓力但收盤跌回，容易套牢追價。", ["盤中突破前高", "收盤跌回壓力", "長上影"], ["避免追價"]),
+    ("top_distribution_volume_risk", "高檔爆量出貨風險", "高位階爆量長上影，觀察籌碼鬆動。", ["接近60日高檔", "爆量長上影", "收盤偏弱"], ["降低追價與曝險"]),
     ("ma20_break_risk", "跌破月線站不回", "跌破MA20後反彈站不回，趨勢轉弱。", ["跌破MA20", "反彈站不回"], ["轉弱避開"]),
     ("false_breakout_risk", "假突破隔日轉弱", "突破後隔日轉弱，容易套牢追價。", ["突破後跌回", "隔日轉弱"], ["避免追價"]),
     ("margin_surge_risk", "融資暴增", "融資快速增加且股價高檔，籌碼風險升高。", ["融資快速增加", "股價高檔"], ["降低權重"]),
@@ -385,6 +391,8 @@ def hit_strategy(strategy_id, prices, context=None):
     prev_close = closes[-2]
     vol = vols[-1]
     avg20 = avg(vols[-20:]) or 0
+    if strategy_id != "liquidity_risk" and (vol < MIN_STRATEGY_VOLUME_LOTS or avg20 < MIN_STRATEGY_AVG20_LOTS):
+        return None
     ma5 = ma(closes, 5)
     ma10 = ma(closes, 10)
     ma20 = ma(closes, 20)
@@ -416,6 +424,7 @@ def hit_strategy(strategy_id, prices, context=None):
     candle_range = max(latest_high - latest_low, 0)
     upper_shadow = latest_high - max(latest_open, close)
     lower_shadow = min(latest_open, close) - latest_low
+    close_position = (close - latest_low) / max(candle_range, 0.01)
     inst_rows = _chip_context_rows(context, "institutional")
     margin_rows = _chip_context_rows(context, "margin")
 
@@ -547,6 +556,16 @@ def hit_strategy(strategy_id, prices, context=None):
     if strategy_id == "long_lower_shadow_reversal_strategy":
         if candle_range and lower_shadow / candle_range >= .45 and latest_low <= low20 * 1.03 and close > prev_close:
             return 76, f"低檔長下影止跌，下影占 K 棒 {lower_shadow / candle_range * 100:.0f}%，支撐約 {low20:.2f}。"
+    if strategy_id == "main_force_wash_reversal_strategy":
+        if (
+            latest_low < low20 * 0.995
+            and close > low20
+            and close_position >= 0.58
+            and candle_range
+            and lower_shadow / candle_range >= 0.35
+            and vol <= avg20 * 1.6
+        ):
+            return 80, f"盤中跌破 20 日支撐 {low20:.2f} 後收回，長下影占比 {lower_shadow / candle_range * 100:.0f}%，量比 {vol / max(avg20, 1):.2f}。"
     if strategy_id == "bottom_volume_reversal_strategy":
         if latest_low <= min(lows[-61:-1]) * 1.03 and close > latest_open and close > prev_close and vol >= avg20 * 1.8:
             return 79, f"低檔爆量紅 K，成交量為 20 日均量 {vol / max(avg20, 1):.2f} 倍，觀察止跌。"
@@ -612,6 +631,13 @@ def hit_strategy(strategy_id, prices, context=None):
         near_high = latest_high >= prev_high60 * 0.98
         if candle_range and near_high and vol >= avg20 * 1.8 and upper_shadow / candle_range >= 0.45 and close < latest_high * 0.97:
             return 72, f"高檔爆量長上影，成交量為 20 日均量 {vol / max(avg20, 1):.2f} 倍，追價風險升高。"
+    if strategy_id == "false_breakout_intraday_risk":
+        if candle_range and latest_high > high20 * 1.005 and close < high20 and close_position <= 0.45 and vol >= avg20 * 0.9:
+            return 74, f"盤中突破 20 日前高 {high20:.2f} 後收回，長上影且量比 {vol / max(avg20, 1):.2f}，疑似誘多。"
+    if strategy_id == "top_distribution_volume_risk":
+        near_high = latest_high >= prev_high60 * 0.98
+        if candle_range and near_high and vol >= avg20 * 1.8 and upper_shadow / candle_range >= 0.45 and close_position <= 0.5:
+            return 76, f"接近 60 日高檔且爆量長上影，成交量 {vol:.0f} 張、量比 {vol / max(avg20, 1):.2f}。"
     if strategy_id == "ma20_break_risk" and ma20 and latest_high >= ma20 * .98 and close < ma20 and prev_close < (prev_ma20 or ma20):
         return 70, f"跌破月線後反彈站不回 MA20 {ma20:.2f}，趨勢轉弱風險。"
     if strategy_id == "false_breakout_risk":
