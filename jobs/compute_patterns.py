@@ -4,6 +4,8 @@ from pattern_detector import detect_patterns_for_symbol
 from phase6_common import avg, load_price_series, load_stock_map, log, ma, nf, safe_status, stock_name, volume_lots
 from sb_common import sb_delete, sb_upsert
 
+MIN_PATTERN_VOLUME_LOTS = 1000
+
 
 def _pattern_key(row):
     return (str(row.get("symbol")), str(row.get("date")), str(row.get("pattern_type")))
@@ -55,14 +57,26 @@ def build_baseline_patterns(stock_map, series, latest_date, existing_keys, limit
         ma20 = ma(closes, 20)
         avg_vol20 = avg(vols[-20:]) or 0
         vol = vols[-1]
+        if vol < MIN_PATTERN_VOLUME_LOTS:
+            continue
         support = min(lows[-20:])
         resistance = max(highs[-20:])
-        prev_res = max(highs[-40:-20]) if len(highs) >= 40 else resistance
+        prev_res = max(highs[-21:-1]) if len(highs) >= 21 else resistance
+        prev_close = closes[-2] if len(closes) >= 2 else close
+        close_position = (close - lows[-1]) / max(highs[-1] - lows[-1], 0.01)
         name = stock_name(stock_map, symbol)
 
         candidates = []
-        if prev_res and close > prev_res and avg_vol20 and vol >= avg_vol20 * 1.2:
-            candidates.append(_row(symbol, name, latest, "放量突破", 78, support, prev_res, "收盤突破前段壓力，且成交量高於 20 日均量。", "隔日若跌回突破價，需視為假突破風險。"))
+        if (
+            prev_res
+            and close > prev_res * 1.005
+            and prev_close <= prev_res
+            and avg_vol20 >= MIN_PATTERN_VOLUME_LOTS * 0.5
+            and vol >= MIN_PATTERN_VOLUME_LOTS
+            and vol >= avg_vol20 * 1.5
+            and close_position >= 0.55
+        ):
+            candidates.append(_row(symbol, name, latest, "放量突破", 78, support, prev_res, "今日剛收盤突破前段壓力，且成交量明顯高於 20 日均量。", "隔日若跌回突破價，需視為假突破風險。"))
         if ma20 and abs(close - ma20) / close * 100 <= 4 and avg_vol20 and vol <= avg_vol20 * 0.9:
             candidates.append(_row(symbol, name, latest, "量縮回測", 72, ma20, resistance, "價格回測 MA20 附近，量能低於 20 日均量。", "跌破 MA20 且放量時，整理結構轉弱。"))
         rng_pct = (resistance - support) / close * 100 if close else 99

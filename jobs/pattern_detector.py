@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from phase6_common import avg, hma, ma, nf, pct, rsi, series_values, stdev, volume_lots
 
+MIN_PATTERN_VOLUME_LOTS = 1000
+
 
 def _nums(values):
     return [v for v in (nf(x) for x in values) if v is not None]
@@ -70,7 +72,10 @@ def detect_patterns_for_symbol(symbol, name, rows):
     prev_close = closes[-2]
     avg_vol20 = avg(volumes[-20:]) or 0
     vol = volumes[-1]
+    if vol < MIN_PATTERN_VOLUME_LOTS:
+        return []
     out = []
+    close_position = (close - lows[-1]) / max(highs[-1] - lows[-1], 0.01)
 
     rng_pct = (resistance - support) / close * 100 if close else 99
     if rng_pct <= 12:
@@ -119,11 +124,25 @@ def detect_patterns_for_symbol(symbol, name, rows):
             out.append(_row(symbol, name, latest, "頭肩底", 68, head_low, resistance, "中段低點明顯低於左右肩，且重新站上短均。", "需突破頸線並守住才較可靠。"))
 
     prev_res = _safe_max(r.get("high") for r in prev20)
-    if prev_res is not None and nf(latest.get("high")) is not None and nf(latest.get("high")) > prev_res and close < prev_res:
+    if (
+        prev_res is not None
+        and nf(latest.get("high")) is not None
+        and nf(latest.get("high")) > prev_res
+        and close < prev_res
+        and vol >= MIN_PATTERN_VOLUME_LOTS
+    ):
         out.append(_row(symbol, name, latest, "假突破", 78, support, prev_res, "盤中突破前高但收盤跌回壓力下。", "追價容易被套，需等待重新站穩。"))
-    if prev_res is not None and close > prev_res and avg_vol20 and vol > avg_vol20 * 1.5:
+    if (
+        prev_res is not None
+        and close > prev_res * 1.005
+        and prev_close <= prev_res
+        and avg_vol20 >= MIN_PATTERN_VOLUME_LOTS * 0.5
+        and vol >= MIN_PATTERN_VOLUME_LOTS
+        and vol >= avg_vol20 * 1.5
+        and close_position >= 0.55
+    ):
         out.append(_row(symbol, name, latest, "放量突破", 82, support, prev_res, "收盤突破前高且成交量明顯放大。", "隔日若跌回突破區，需視為假突破風險。"))
-    if abs(close - (ma(closes, 20) or close)) / close * 100 < 3 and vol < avg_vol20 * 0.8:
+    if abs(close - (ma(closes, 20) or close)) / close * 100 < 3 and avg_vol20 and vol < avg_vol20 * 0.8:
         out.append(_row(symbol, name, latest, "量縮回測", 75, ma(closes, 20), resistance, "回測 MA20 附近且量能收縮。", "若跌破均線並放量，整理結構轉弱。"))
 
     return out

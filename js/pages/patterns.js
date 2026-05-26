@@ -43,8 +43,17 @@ function patternStock(row){
   };
 }
 
+function patternLiquidityOk(row){
+  const s=row&&row._stock||{};
+  const vol=Number(s.vol);
+  if(Number.isFinite(vol) && vol>0 && vol<1000) return false;
+  return true;
+}
+
 function patternRows(){
-  return ((DATA.phase6&&DATA.phase6.patterns)||[]).map((r,i)=>({...r,_idx:i,_kind:patternKind(r.pattern_type),_stock:patternStock(r)}));
+  return ((DATA.phase6&&DATA.phase6.patterns)||[])
+    .map((r,i)=>({...r,_idx:i,_kind:patternKind(r.pattern_type),_stock:patternStock(r)}))
+    .filter(patternLiquidityOk);
 }
 
 function patternFilterRows(rows){
