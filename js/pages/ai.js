@@ -49,9 +49,11 @@ async function loadAIDetailData(agentKey){
   if(!a || !a._id) return;
   const aid=a._id;
   try{
+    const dateHint=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-').slice(0,10);
+    const candidateDateFilter=dateHint?`&date=eq.${encodeURIComponent(dateHint)}`:'';
     const [cs,bk,ps,tb,dp]=await Promise.all([
       sbGet(
-        `ai_candidates?select=symbol,agent_reason,accepted_by_agent&agent_id=eq.${aid}&order=id.desc`,200
+        `ai_candidates?select=symbol,date,agent_reason,accepted_by_agent&agent_id=eq.${aid}${candidateDateFilter}&order=id.desc`,200
       ),
       sbGet(
         `ai_backtests?select=symbol,matched_conditions,sample_count,win_rate,avg_return_5d,avg_return_3d,avg_return_10d,max_drawdown,profit_factor,passed&agent_id=eq.${aid}&order=id.desc`,200
@@ -73,7 +75,6 @@ async function loadAIDetailData(agentKey){
       ...(Array.isArray(tb)?tb.map(x=>x.symbol):[]),
       ...(Array.isArray(dp)?dp.map(x=>x.symbol):[])
     ].map(x=>String(x||'').trim()).filter(Boolean))];
-    const dateHint=String((DATA.meta&&DATA.meta.date)||'').replaceAll('/','-');
     const nm=await loadNameMap(syms,dateHint);
     const nameOf=(sym, fallback='')=>{
       const s=String(sym||'').trim();

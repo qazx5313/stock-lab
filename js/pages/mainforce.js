@@ -1,6 +1,9 @@
 function vMainforce(){
   const loading=phase6Ensure('mainforce'); if(loading) return loading;
-  const rows=((DATA.phase6&&DATA.phase6.mainforce)||[]).filter(r=>{
+  const source=typeof phase6LatestRows==='function'
+    ? phase6LatestRows((DATA.phase6&&DATA.phase6.mainforce)||[])
+    : ((DATA.phase6&&DATA.phase6.mainforce)||[]);
+  const rows=source.filter(r=>{
     const info=(typeof stockKnownInfo==='function')?stockKnownInfo(r.symbol):{};
     const vol=Number(info&&info.vol);
     return !(Number.isFinite(vol) && vol>0 && vol<=1000);

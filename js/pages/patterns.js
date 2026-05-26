@@ -51,7 +51,10 @@ function patternLiquidityOk(row){
 }
 
 function patternRows(){
-  return ((DATA.phase6&&DATA.phase6.patterns)||[])
+  const source=typeof phase6LatestRows==='function'
+    ? phase6LatestRows((DATA.phase6&&DATA.phase6.patterns)||[])
+    : ((DATA.phase6&&DATA.phase6.patterns)||[]);
+  return source
     .map((r,i)=>({...r,_idx:i,_kind:patternKind(r.pattern_type),_stock:patternStock(r)}))
     .filter(patternLiquidityOk);
 }

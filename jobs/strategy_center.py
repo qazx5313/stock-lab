@@ -8,6 +8,7 @@ from sb_common import sb_delete, sb_select, sb_upsert
 
 MIN_STRATEGY_VOLUME_LOTS = 1000
 MIN_STRATEGY_AVG20_LOTS = 500
+RECENT_SIGNAL_DAYS = 3
 
 
 STRATEGIES = [
@@ -213,6 +214,8 @@ def _rsi_bullish_divergence(lows, closes):
         gap = second - first
         if gap < 8 or gap > 34:
             continue
+        if len(lows) - 1 - second > RECENT_SIGNAL_DAYS:
+            continue
         second_rsi = rsi(closes[:second + 1])
         if second_rsi is None:
             continue
@@ -224,7 +227,7 @@ def _rsi_bullish_divergence(lows, closes):
 
 
 def _breakout_retest_level(highs, lows, closes):
-    for days_ago in range(2, 9):
+    for days_ago in range(2, RECENT_SIGNAL_DAYS + 2):
         breakout_idx = len(closes) - 1 - days_ago
         if breakout_idx < 25:
             continue
@@ -275,7 +278,7 @@ def _vwma(closes, vols, length=20):
     return sum(c * q for c, q in zip(closes[-length:], v)) / total
 
 
-def _recent_limit_up(highs, lows, closes, lookback=20):
+def _recent_limit_up(highs, lows, closes, lookback=8):
     start = max(1, len(closes) - lookback - 1)
     for i in range(len(closes) - 2, start - 1, -1):
         cp = pct(closes[i], closes[i - 1])
@@ -284,7 +287,7 @@ def _recent_limit_up(highs, lows, closes, lookback=20):
     return None
 
 
-def _gap_up_zone(highs, lows, lookback=12):
+def _gap_up_zone(highs, lows, lookback=5):
     start = max(1, len(highs) - lookback - 1)
     for i in range(len(highs) - 2, start - 1, -1):
         if lows[i] > highs[i - 1] * 1.01:
@@ -306,6 +309,8 @@ def _macd_bullish_divergence(lows, closes):
         pairs = [(min(range(start, mid), key=lambda i: lows[i]), min(range(mid, end), key=lambda i: lows[i]))]
     for first, second in pairs:
         if second - first < 8 or second - first > 34:
+            continue
+        if len(lows) - 1 - second > RECENT_SIGNAL_DAYS:
             continue
         _, _, h1 = macd(closes[:first + 1])
         _, _, h2 = macd(closes[:second + 1])
@@ -400,6 +405,7 @@ def hit_strategy(strategy_id, prices, context=None):
     prev_ma5 = ma(closes[:-1], 5)
     prev_ma10 = ma(closes[:-1], 10)
     prev_ma20 = ma(closes[:-1], 20)
+    prev_ma60 = ma(closes[:-1], 60)
     hma_now = hma(closes, 9)
     hma_prev = hma(closes[:-1], 9)
     sd = stdev(closes, 9) or 0
@@ -415,6 +421,9 @@ def hit_strategy(strategy_id, prices, context=None):
     band_sd = stdev(closes, 20) or 0
     upper = basis + band_sd * 2
     lower = basis - band_sd * 2
+    prev_basis = prev_ma20 or prev_close
+    prev_band_sd = stdev(closes[:-1], 20) or 0
+    prev_upper = prev_basis + prev_band_sd * 2
     bb_width = (upper - lower) / basis * 100 if basis else None
     atr_now = _atr(highs, lows, closes)
     rsi_now = rsi(closes)
@@ -431,7 +440,7 @@ def hit_strategy(strategy_id, prices, context=None):
 
     if strategy_id == "hma_stdev_v1" and hma_now and hma_prev and prev_close <= hma_prev and close > hma_now and vol > 1000:
         return 86, f"收盤上穿 HMA9，STDEV9={sd:.2f}，成交量 {vol:.0f} 張。"
-    if strategy_id == "bollinger_r1_v1" and close > upper and vol >= avg20 * 1.3:
+    if strategy_id == "bollinger_r1_v1" and close > upper and prev_close <= prev_upper and vol >= avg20 * 1.3:
         return 82, f"收盤突破布林上軌 {upper:.2f}，量能放大 {vol / max(avg20, 1):.2f} 倍。"
     if strategy_id == "volume_breakout_strategy" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.5 and vol > 1000:
         base = f"突破近 20 日壓力 {high20:.2f}，成交量 {vol:.0f} 張、為 20 日均量 {vol / max(avg20, 1):.2f} 倍。"
@@ -466,15 +475,15 @@ def hit_strategy(strategy_id, prices, context=None):
         handle_low = min(lows[-12:-1])
         depth = pct(left_high, cup_low) or 0
         handle_depth = pct(left_high, handle_low) or 0
-        if 12 <= depth <= 40 and handle_depth <= depth * .55 and close > left_high and vol >= avg20 * 1.2:
+        if 12 <= depth <= 40 and handle_depth <= depth * .55 and close > left_high and prev_close <= left_high and vol >= avg20 * 1.2:
             return 82, f"杯柄型態突破杯緣 {left_high:.2f}，杯底回檔約 {depth:.1f}%。"
     if strategy_id == "limit_up_breakout_strategy":
         lu = _recent_limit_up(highs, lows, closes)
         if lu:
             _, lu_high, lu_low = lu
-            if close > lu_high and vol >= avg20 * 1.15:
-                return 83, f"近 20 日漲停 K 高點 {lu_high:.2f} 再突破，漲停 K 低點 {lu_low:.2f} 為風險線。"
-    if strategy_id == "box_breakout_v1" and close > high20 and vol >= avg20 * 1.35 and pct(high20, low20) and pct(high20, low20) < 15:
+            if close > lu_high and prev_close <= lu_high and vol >= avg20 * 1.15:
+                return 83, f"近 8 日漲停 K 高點 {lu_high:.2f} 今日再突破，漲停 K 低點 {lu_low:.2f} 為風險線。"
+    if strategy_id == "box_breakout_v1" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.35 and pct(high20, low20) and pct(high20, low20) < 15:
         return 84, f"突破近 20 日箱頂 {high20:.2f}，整理後放量轉強。"
     if strategy_id == "box_breakout_strategy" and close > high20 and prev_close <= high20 and vol >= avg20 * 1.25:
         box_width = pct(high20, low20)
@@ -522,14 +531,14 @@ def hit_strategy(strategy_id, prices, context=None):
             _, lu_high, lu_low = lu
             if lu_low <= latest_low <= lu_high and close >= (lu_high + lu_low) / 2 and vol <= avg20:
                 return 78, f"回測漲停 K 區間 {lu_low:.2f}~{lu_high:.2f}，收盤守住中線以上。"
-    if strategy_id == "ma5_strong_v1" and ma5 and close > ma5 and ma5 > ma(closes[:-1], 5) and vol > 1000:
-        return 78, f"收盤站上 MA5 且 MA5 上彎，成交量 {vol:.0f} 張。"
+    if strategy_id == "ma5_strong_v1" and ma5 and prev_ma5 and close > ma5 and prev_close <= prev_ma5 and ma5 > prev_ma5 and vol > 1000:
+        return 78, f"今日收盤重新站上 MA5 且 MA5 上彎，成交量 {vol:.0f} 張。"
     if strategy_id == "monthly_support_v1" and ma20 and abs(close - ma20) / close * 100 < 3 and close >= ma20 and vol < avg20:
         return 75, f"回測 MA20 {ma20:.2f} 守住，量能低於 20 日均量。"
     if strategy_id == "ma20_retest_strategy" and ma20 and prev_ma20 and ma20 >= prev_ma20 and close >= ma20 and lows[-1] <= ma20 * 1.02 and vol <= avg20:
         return 76, f"月線 MA20 {ma20:.2f} 上彎，盤中回測附近後收盤守住且量縮。"
-    if strategy_id == "macd_turn_v1" and dif and dea and hist and hist_prev is not None and dif > dea and hist > hist_prev and close > (ma20 or close):
-        return 77, f"MACD DIF 站上慢線，OSC 由 {hist_prev:.2f} 改善至 {hist:.2f}。"
+    if strategy_id == "macd_turn_v1" and dif and dea and hist and hist_prev is not None and dif > dea and hist_prev <= 0 < hist and close > (ma20 or close):
+        return 77, f"MACD OSC 由 {hist_prev:.2f} 翻紅至 {hist:.2f}，DIF 站上慢線。"
     if strategy_id == "double_bottom_reversal_strategy":
         levels = _double_bottom_levels(highs, lows, closes)
         if levels and vol >= avg20:
@@ -575,7 +584,9 @@ def hit_strategy(strategy_id, prices, context=None):
         if recent_rsi_low <= 35 and close > prev_close and ma5 and close >= ma5:
             return 75, f"近期 RSI 最低 {recent_rsi_low:.1f} 後反彈，收盤站回短均。"
     if strategy_id == "ma_bull_trend_strategy" and ma5 and ma10 and ma20 and ma60 and close > ma5 > ma10 > ma20 > ma60:
-        return 82, f"均線多頭排列 MA5>{ma10:.2f}>{ma20:.2f}>{ma60:.2f}，價格站上短均。"
+        prior_aligned = prev_ma5 and prev_ma10 and prev_ma20 and prev_ma60 and prev_close > prev_ma5 > prev_ma10 > prev_ma20 > prev_ma60
+        if not prior_aligned or close > high20:
+            return 82, f"今日進入均線多頭排列或同步突破前高，MA5>{ma10:.2f}>{ma20:.2f}>{ma60:.2f}。"
     if strategy_id == "macd_trend_red_bar_strategy" and dif and dea and hist and hist_prev is not None and dif > dea and hist > 0 and hist > hist_prev and close > (ma20 or close):
         return 79, f"MACD 順勢紅柱擴大，OSC 由 {hist_prev:.2f} 增至 {hist:.2f}。"
     if strategy_id == "adx_trend_strength_strategy" and ma20 and prev_ma20 and atr_now:
@@ -585,10 +596,10 @@ def hit_strategy(strategy_id, prices, context=None):
     if strategy_id == "supertrend_bull_strategy" and atr_now and ma20:
         trail = ma20 - atr_now * 2
         prev_trail = (prev_ma20 or ma20) - atr_now * 2
-        if close > trail and trail >= prev_trail and close > ma20:
+        if close > trail and trail >= prev_trail and close > ma20 and (prev_close <= prev_trail or close > high20):
             return 77, f"價格站上 ATR 追蹤線 {trail:.2f}，趨勢線維持上行。"
-    if strategy_id == "ma5_strong_trend_strategy" and ma5 and prev_ma5 and close > ma5 and ma5 > prev_ma5 and lows[-3] >= ma5 * .98 and vol > 1000:
-        return 79, f"強勢股沿 MA5 上攻，近 3 日未有效跌破五日線 {ma5:.2f}。"
+    if strategy_id == "ma5_strong_trend_strategy" and ma5 and prev_ma5 and close > ma5 and ma5 > prev_ma5 and lows[-3] >= ma5 * .98 and vol > 1000 and (prev_close <= prev_ma5 or close > high10):
+        return 79, f"強勢股今日站回 MA5 或突破短壓，近 3 日未有效跌破五日線 {ma5:.2f}。"
     if strategy_id == "flag_continuation_strategy":
         surge = pct(max(highs[-21:-8]), min(lows[-35:-21])) or 0
         pullback = pct(max(highs[-8:-1]), min(lows[-8:-1])) or 0

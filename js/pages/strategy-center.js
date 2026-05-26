@@ -41,6 +41,12 @@ function phase6Ensure(pageId){
   loadPhase6Data().then(()=>{if(CUR===pageId)go(pageId);});
   return `<div class="card card-pad"><h3>正在載入第六階段資料</h3><p class="muted">若資料表尚未建立，這裡會先顯示空狀態。</p></div>`;
 }
+function phase6LatestRows(rows,dateKey='date'){
+  const arr=Array.isArray(rows)?rows:[];
+  const dates=arr.map(r=>String(r&&r[dateKey]||'').slice(0,10)).filter(Boolean).sort();
+  const latest=dates[dates.length-1]||'';
+  return latest?arr.filter(r=>String(r&&r[dateKey]||'').slice(0,10)===latest):arr;
+}
 function emptyPhase6(title,msg){
   return `<div class="card card-pad"><h3>${esc(title)}</h3><p class="muted">${esc(msg||'目前尚無資料，請先執行 GitHub Actions 或確認 Supabase schema。')}</p></div>`;
 }
@@ -307,7 +313,7 @@ function strategyGroupRow(group,rows,hits,backs){
 }
 function vStrategyCenter(){
   const loading=phase6Ensure('strategy'); if(loading) return loading;
-  const p=DATA.phase6||{},remoteDefs=p.strategies||[],hits=p.strategyResults||[],backs=p.strategyBacktests||[];
+  const p=DATA.phase6||{},remoteDefs=p.strategies||[],hits=phase6LatestRows(p.strategyResults||[]),backs=phase6LatestRows(p.strategyBacktests||[]);
   const localTemplates=strategyRegistryTemplates();
   const defs=mergeStrategyDefinitions(remoteDefs,localTemplates);
   const filteredDefs=strategySortRows(defs.filter(s=>strategyMatches(s,hits)),hits,backs);

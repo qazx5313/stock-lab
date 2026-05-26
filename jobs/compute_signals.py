@@ -407,6 +407,10 @@ def main():
             and closes[-1] >= ma20 and closes[-1] >= ma60
             and ma5 > ma10 > ma20 > ma60
             and ma20_prev is not None and ma20 > ma20_prev
+            and (
+                prev_close < ma20_prev
+                or (prev_high20 and closes[-1] > prev_high20 * 1.005)
+            )
         ):
             add_screen_candidate(
                 "strong-stock-screener",
@@ -491,22 +495,25 @@ def main():
             limit_idx, limit_day = limit_candidates[-1]
             limit_high = float(limit_day.get("high") or limit_day.get("close") or 0)
             limit_low = float(limit_day.get("low") or limit_day.get("close") or 0)
+            days_since_limit = len(rows) - 1 - limit_idx
             after_high = max(highs[limit_idx + 1 :])
             after_low = min(lows[limit_idx + 1 :])
             after_range = ((after_high - after_low) / max(limit_low, 0.01) * 100) if limit_low else None
             if (
                 limit_high
+                and 3 <= days_since_limit <= 8
                 and after_range is not None
                 and after_range <= 18
                 and after_low >= limit_low * 0.96
                 and closes[-1] <= limit_high * 1.12
                 and closes[-1] >= limit_low
+                and closes[-1] >= (ma5 or closes[-1]) * 0.98
                 and (vol_x or 1) <= 1.6
             ):
                 add_screen_candidate(
                     "limit-up-consolidation-screener",
                     "一個月內漲停後整理篩選",
-                    f"近 20 日有漲停 K，之後整理振幅 {after_range:.1f}%、未跌破漲停低點。",
+                    f"{days_since_limit} 日前漲停 K，之後整理振幅 {after_range:.1f}%、未跌破漲停低點。",
                     final * 100 + 200,
                 )
 
@@ -621,6 +628,7 @@ def main():
                 prior_rsi is not None
                 and recent_rsi is not None
                 and recent_idx - prior_idx >= 8
+                and len(lows) - 1 - recent_idx <= 3
                 and recent_low <= prior_low * 1.02
                 and recent_rsi >= prior_rsi + 5
                 and prior_rsi <= 45

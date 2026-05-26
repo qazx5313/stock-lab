@@ -72,7 +72,7 @@ def detect_patterns_for_symbol(symbol, name, rows):
     prev_close = closes[-2]
     avg_vol20 = avg(volumes[-20:]) or 0
     vol = volumes[-1]
-    if vol < MIN_PATTERN_VOLUME_LOTS:
+    if vol <= MIN_PATTERN_VOLUME_LOTS:
         return []
     out = []
     close_position = (close - lows[-1]) / max(highs[-1] - lows[-1], 0.01)
@@ -103,25 +103,29 @@ def detect_patterns_for_symbol(symbol, name, rows):
         lows40 = lows[-40:]
         low1 = _safe_min(lows40[:20])
         low2 = _safe_min(lows40[20:])
-        if None not in (low1, low2) and abs(low1 - low2) / close * 100 < 4 and close > ma(closes, 20):
-            out.append(_row(symbol, name, latest, "W底", 73, min(low1, low2), resistance, "兩次測底未破且重新站回均線。", "頸線未突破前仍可能回測。"))
+        neckline = _safe_max(highs[-40:-1])
+        if None not in (low1, low2, neckline) and abs(low1 - low2) / close * 100 < 4 and prev_close <= neckline and close > neckline * 1.005:
+            out.append(_row(symbol, name, latest, "W底", 78, min(low1, low2), neckline, "兩次測底未破，今日剛突破頸線。", "若跌回頸線下方，反轉訊號失效。"))
         highs40 = highs[-40:]
         high1 = _safe_max(highs40[:20])
         high2 = _safe_max(highs40[20:])
-        if None not in (high1, high2) and abs(high1 - high2) / close * 100 < 4 and close < ma(closes, 20):
-            out.append(_row(symbol, name, latest, "M頭", 72, support, max(high1, high2), "兩次攻高失敗且收回均線下方。", "若重新站回頸線，空方訊號失效。"))
+        top_neckline = _safe_min(lows[-40:-1])
+        if None not in (high1, high2, top_neckline) and abs(high1 - high2) / close * 100 < 4 and prev_close >= top_neckline and close < top_neckline * 0.995:
+            out.append(_row(symbol, name, latest, "M頭", 76, top_neckline, max(high1, high2), "兩次攻高失敗，今日剛跌破頸線。", "若重新站回頸線，空方訊號失效。"))
 
     if len(highs) >= 55 and len(lows) >= 55:
         left = _safe_max(highs[-55:-38])
         head = _safe_max(highs[-38:-18])
         right = _safe_max(highs[-18:])
-        if None not in (left, head, right) and head > left * 1.03 and head > right * 1.03 and close < ma(closes, 20):
-            out.append(_row(symbol, name, latest, "頭肩頂", 68, support, head, "中段高點明顯高於左右肩，且短線轉弱。", "型態需跌破頸線才完全確認。"))
+        top_support = _safe_min(lows[-38:-1])
+        if None not in (left, head, right, top_support) and head > left * 1.03 and head > right * 1.03 and prev_close >= top_support and close < top_support * 0.995:
+            out.append(_row(symbol, name, latest, "頭肩頂", 76, top_support, head, "頭肩頂完成後，今日剛跌破頸線支撐。", "若重新站回頸線，型態失效。"))
         left_low = _safe_min(lows[-55:-38])
         head_low = _safe_min(lows[-38:-18])
         right_low = _safe_min(lows[-18:])
-        if None not in (left_low, head_low, right_low) and head_low < left_low * 0.97 and head_low < right_low * 0.97 and close > ma(closes, 20):
-            out.append(_row(symbol, name, latest, "頭肩底", 68, head_low, resistance, "中段低點明顯低於左右肩，且重新站上短均。", "需突破頸線並守住才較可靠。"))
+        bottom_resistance = _safe_max(highs[-38:-1])
+        if None not in (left_low, head_low, right_low, bottom_resistance) and head_low < left_low * 0.97 and head_low < right_low * 0.97 and prev_close <= bottom_resistance and close > bottom_resistance * 1.005:
+            out.append(_row(symbol, name, latest, "頭肩底", 78, head_low, bottom_resistance, "頭肩底完成後，今日剛突破頸線壓力。", "若跌回頸線下方，型態失效。"))
 
     prev_res = _safe_max(r.get("high") for r in prev20)
     if (
@@ -129,7 +133,7 @@ def detect_patterns_for_symbol(symbol, name, rows):
         and nf(latest.get("high")) is not None
         and nf(latest.get("high")) > prev_res
         and close < prev_res
-        and vol >= MIN_PATTERN_VOLUME_LOTS
+        and vol > MIN_PATTERN_VOLUME_LOTS
     ):
         out.append(_row(symbol, name, latest, "假突破", 78, support, prev_res, "盤中突破前高但收盤跌回壓力下。", "追價容易被套，需等待重新站穩。"))
     if (
@@ -137,12 +141,19 @@ def detect_patterns_for_symbol(symbol, name, rows):
         and close > prev_res * 1.005
         and prev_close <= prev_res
         and avg_vol20 >= MIN_PATTERN_VOLUME_LOTS * 0.5
-        and vol >= MIN_PATTERN_VOLUME_LOTS
+        and vol > MIN_PATTERN_VOLUME_LOTS
         and vol >= avg_vol20 * 1.5
         and close_position >= 0.55
     ):
         out.append(_row(symbol, name, latest, "放量突破", 82, support, prev_res, "收盤突破前高且成交量明顯放大。", "隔日若跌回突破區，需視為假突破風險。"))
-    if abs(close - (ma(closes, 20) or close)) / close * 100 < 3 and avg_vol20 and vol < avg_vol20 * 0.8:
+    if (
+        len(volumes) >= 3
+        and abs(close - (ma(closes, 20) or close)) / close * 100 < 3
+        and lows[-1] <= (ma(closes, 20) or close) * 1.02
+        and avg_vol20
+        and vol < avg_vol20 * 0.8
+        and vol <= volumes[-2] <= volumes[-3]
+    ):
         out.append(_row(symbol, name, latest, "量縮回測", 75, ma(closes, 20), resistance, "回測 MA20 附近且量能收縮。", "若跌破均線並放量，整理結構轉弱。"))
 
     return out

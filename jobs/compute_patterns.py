@@ -57,7 +57,7 @@ def build_baseline_patterns(stock_map, series, latest_date, existing_keys, limit
         ma20 = ma(closes, 20)
         avg_vol20 = avg(vols[-20:]) or 0
         vol = vols[-1]
-        if vol < MIN_PATTERN_VOLUME_LOTS:
+        if vol <= MIN_PATTERN_VOLUME_LOTS:
             continue
         support = min(lows[-20:])
         resistance = max(highs[-20:])
@@ -72,13 +72,21 @@ def build_baseline_patterns(stock_map, series, latest_date, existing_keys, limit
             and close > prev_res * 1.005
             and prev_close <= prev_res
             and avg_vol20 >= MIN_PATTERN_VOLUME_LOTS * 0.5
-            and vol >= MIN_PATTERN_VOLUME_LOTS
+            and vol > MIN_PATTERN_VOLUME_LOTS
             and vol >= avg_vol20 * 1.5
             and close_position >= 0.55
         ):
             candidates.append(_row(symbol, name, latest, "放量突破", 78, support, prev_res, "今日剛收盤突破前段壓力，且成交量明顯高於 20 日均量。", "隔日若跌回突破價，需視為假突破風險。"))
-        if ma20 and abs(close - ma20) / close * 100 <= 4 and avg_vol20 and vol <= avg_vol20 * 0.9:
-            candidates.append(_row(symbol, name, latest, "量縮回測", 72, ma20, resistance, "價格回測 MA20 附近，量能低於 20 日均量。", "跌破 MA20 且放量時，整理結構轉弱。"))
+        if (
+            ma20
+            and len(vols) >= 3
+            and abs(close - ma20) / close * 100 <= 4
+            and lows[-1] <= ma20 * 1.02
+            and avg_vol20
+            and vol <= avg_vol20 * 0.85
+            and vol <= vols[-2] <= vols[-3]
+        ):
+            candidates.append(_row(symbol, name, latest, "量縮回測", 72, ma20, resistance, "今日回測 MA20 附近且連續量縮，量能低於 20 日均量。", "跌破 MA20 且放量時，整理結構轉弱。"))
         rng_pct = (resistance - support) / close * 100 if close else 99
         if rng_pct <= 18:
             candidates.append(_row(symbol, name, latest, "箱型整理", 66, support, resistance, "近 20 日高低區間收斂，價格仍在箱型內。", "等待放量突破箱頂或跌破箱底。"))
@@ -97,12 +105,13 @@ def main():
         stock_map = load_stock_map()
         series = load_price_series()
         rows = []
-        latest_date = None
+        latest_date = max((prices[-1]["date"] for prices in series.values() if prices), default=None)
         skipped = 0
         for symbol, prices in series.items():
             if len(prices) < 35:
                 continue
-            latest_date = max(latest_date or prices[-1]["date"], prices[-1]["date"])
+            if latest_date and prices[-1]["date"] != latest_date:
+                continue
             try:
                 rows.extend(detect_patterns_for_symbol(symbol, stock_name(stock_map, symbol), prices))
             except Exception as exc:
