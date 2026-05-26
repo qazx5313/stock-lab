@@ -177,7 +177,7 @@ def enrich(rows):
 def liquidity_ok(rows, i):
     if i < 0 or i >= len(rows):
         return False
-    return (nfloat(rows[i].get("volume")) or 0) > MIN_VOLUME_SHARES
+    return (nfloat(rows[i].get("volume")) or 0) >= MIN_VOLUME_SHARES
 
 
 def avg_volume(rows, i, days):
@@ -516,14 +516,18 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
         rows = normalize_rows(raw)
         if len(rows) < 35 or rows[-1]["date"] != latest:
             continue
-        stats, _active = run_backtest(strategy, sym, rows, ctx)
-        sig = latest_signal(strategy, sym, rows, ctx)
+        stats, active = run_backtest(strategy, sym, rows, ctx)
+        sig = latest_signal(strategy, sym, rows, ctx) or active
         if not sig:
             continue
         sig["symbol"] = sym
-        sig["reason"] = sig.get("reason") or "最新交易日訊號"
+        sig["reason"] = sig.get("reason") or "回測持股延續"
         signals.append(sig)
-        reason = sig["reason"]
+        reason = (
+            f"回測持股延續：{sig.get('entry_date')} 進場後尚未觸發出場；{sig['reason']}"
+            if sig.get("carry_from_backtest")
+            else sig["reason"]
+        )
         candidates.append(
             {
                 "agent_id": aid,
@@ -638,7 +642,8 @@ def run_strategy(agent, strategy, latest, prices_by_sym, name_map, ctx):
     spent = sum(int(t["amount"]) for t in buys)
     cash_after = cash - spent
     asset_after = current_asset_value + sum(int(p["market_value"]) for p in positions)
-    review = f"{strategy['name']} 掃描 {len(prices_by_sym)} 檔，最新交易日訊號 {len(signals)} 檔，買進 {len(buys)} 檔，賣出 {len(sells)} 檔。"
+    carry_count = sum(1 for s in signals if s.get("carry_from_backtest"))
+    review = f"{strategy['name']} 掃描 {len(prices_by_sym)} 檔，今日訊號 {len(signals)-carry_count} 檔，回測延續 {carry_count} 檔，買進 {len(buys)} 檔，賣出 {len(sells)} 檔。"
     sb_upsert(
         "ai_reviews",
         [
