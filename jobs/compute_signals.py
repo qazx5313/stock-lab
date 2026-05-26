@@ -279,6 +279,7 @@ def main():
         rsi14 = rsi(closes)
         kk, dd = kd(highs, lows, closes)
         dif, sig, hist = macd(closes)
+        _, _, prev_hist = macd(closes[:-1])
         vol_x = round(vols[-1] / (sum(vols[-21:-1]) / 20), 2) if len(vols) >= 21 and sum(vols[-21:-1]) else None
         cp = cur.get("change_percent")
         try:
@@ -361,22 +362,30 @@ def main():
         )
 
         vol_lots = vols[-1]
+        prev_close = closes[-2] if len(closes) >= 2 else closes[-1]
         avg20_vol = sum(vols[-21:-1]) / 20 if len(vols) >= 21 and sum(vols[-21:-1]) else 0
         prev_high20 = max(highs[-21:-1]) if len(highs) >= 21 else None
-        high20 = max(highs[-20:]) if len(highs) >= 20 else None
-        low20 = min(lows[-20:]) if len(lows) >= 20 else None
+        prev_low20 = min(lows[-21:-1]) if len(lows) >= 21 else None
         high60 = max(highs[-60:]) if len(highs) >= 60 else None
-        low60 = min(lows[-60:]) if len(lows) >= 60 else None
         latest_open = float(cur.get("open") or closes[-1])
         candle_range = max(highs[-1] - lows[-1], 0.01)
         upper_shadow = highs[-1] - max(latest_open, closes[-1])
         lower_shadow = min(latest_open, closes[-1]) - lows[-1]
+        close_position = (closes[-1] - lows[-1]) / candle_range
+        inst_values = []
+        for ir in inst_by_sym.get(sym, []):
+            raw = ir.get("total_buy_sell")
+            if raw is None:
+                raw = ir.get("foreign_buy_sell")
+            try:
+                inst_values.append(float(raw or 0))
+            except Exception:
+                inst_values.append(0)
         ma_spread = (
             (max(ma5, ma10, ma20) - min(ma5, ma10, ma20)) / closes[-1] * 100
             if ma5 is not None and ma10 is not None and ma20 is not None and closes[-1]
             else None
         )
-        box_range = ((high20 - low20) / low20 * 100) if high20 and low20 else None
 
         def add_screen_candidate(sid, name, reason, score):
             screen_candidates.append(
@@ -409,122 +418,265 @@ def main():
                 final * 100 + vol_lots,
             )
 
-        if prev_high20 and vol_x and closes[-1] > prev_high20 and vol_x >= 1.3:
+        if (
+            prev_high20
+            and vol_x
+            and vol_lots >= 1000
+            and prev_close <= prev_high20
+            and closes[-1] > prev_high20 * 1.005
+            and vol_x >= 1.3
+            and close_position >= 0.55
+        ):
             add_screen_candidate(
                 "volume-breakout-screener",
                 "放量突破篩選",
-                f"收盤突破 20 日高 {prev_high20:.2f}，量比 {vol_x}。",
+                f"今日剛收盤突破 20 日高 {prev_high20:.2f}，量比 {vol_x}、成交量 {round(vol_lots):,} 張。",
                 final * 100 + vol_lots,
             )
 
-        if ma_spread is not None and ma_spread <= 4 and ma5 and ma10 and ma20 and closes[-1] > max(ma5, ma10, ma20) and (vol_x or 0) >= 1.1:
+        prev_ma5, prev_ma10, prev_ma20 = ma(closes[:-1], 5), ma(closes[:-1], 10), ma(closes[:-1], 20)
+        prev_ma_spread = (
+            (max(prev_ma5, prev_ma10, prev_ma20) - min(prev_ma5, prev_ma10, prev_ma20)) / closes[-2] * 100
+            if prev_ma5 is not None and prev_ma10 is not None and prev_ma20 is not None and len(closes) >= 2 and closes[-2]
+            else None
+        )
+        just_broke_ma_cluster = (
+            ma_spread is not None
+            and prev_ma_spread is not None
+            and prev_ma_spread <= 2.8
+            and ma5 and ma10 and ma20
+            and vol_lots >= 1000
+            and closes[-1] > max(ma5, ma10, ma20)
+            and prev_close <= max(prev_ma5, prev_ma10, prev_ma20) * 1.005
+            and (vol_x or 0) >= 1.2
+        )
+        if just_broke_ma_cluster:
             add_screen_candidate(
                 "ma-compression-breakout-screener",
                 "均線糾結突破篩選",
-                f"MA5/10/20 距離 {ma_spread:.1f}% 並放量站上糾結區。",
+                f"前一日 MA5/10/20 糾結 {prev_ma_spread:.1f}%，今日放量站上糾結區。",
                 final * 100 + vol_lots,
             )
 
-        if ma20 and ma20_prev and ma20 >= ma20_prev and lows[-1] <= ma20 * 1.02 and closes[-1] >= ma20 and (vol_x or 1) <= 0.95:
+        retest_volume_shrunk = (
+            len(vols) >= 8
+            and vol_lots <= vols[-2]
+            and vols[-2] <= vols[-3]
+            and vol_lots <= max(avg20_vol, 1) * 0.8
+            and sum(vols[-3:]) / 3 <= max(avg20_vol, 1) * 0.9
+            and sum(vols[-3:]) / 3 < sum(vols[-8:-3]) / 5
+        )
+        retest_price_held = (
+            ma20
+            and ma20_prev
+            and ma20 >= ma20_prev
+            and lows[-1] <= ma20 * 1.015
+            and closes[-1] >= ma20 * 0.995
+            and closes[-1] <= prev_close * 1.025
+        )
+        if retest_price_held and retest_volume_shrunk:
             add_screen_candidate(
                 "low-volume-retest-screener",
                 "量縮回測篩選",
-                f"回測 MA20 {ma20} 守住，量比 {vol_x or '—'} 低於近期均量。",
+                f"回測 MA20 {ma20} 守住，今日量 {round(vol_lots):,} 張低於昨日且低於 20 日均量。",
                 final * 100 + max(0, 1000 - vol_lots),
             )
 
-        limit_rows = [r for r in rows[-21:-1] if r.get("change_percent") is not None and float(r.get("change_percent") or 0) >= 9]
-        if limit_rows:
-            limit_high = max(float(r.get("high") or r.get("close") or 0) for r in limit_rows)
-            if limit_high and closes[-1] >= limit_high * 0.92 and box_range is not None and box_range <= 22:
+        limit_candidates = []
+        for idx in range(max(0, len(rows) - 21), len(rows) - 3):
+            day = rows[idx]
+            if day.get("change_percent") is not None and float(day.get("change_percent") or 0) >= 9:
+                limit_candidates.append((idx, day))
+        if limit_candidates:
+            limit_idx, limit_day = limit_candidates[-1]
+            limit_high = float(limit_day.get("high") or limit_day.get("close") or 0)
+            limit_low = float(limit_day.get("low") or limit_day.get("close") or 0)
+            after_high = max(highs[limit_idx + 1 :])
+            after_low = min(lows[limit_idx + 1 :])
+            after_range = ((after_high - after_low) / max(limit_low, 0.01) * 100) if limit_low else None
+            if (
+                limit_high
+                and after_range is not None
+                and after_range <= 18
+                and after_low >= limit_low * 0.96
+                and closes[-1] <= limit_high * 1.12
+                and closes[-1] >= limit_low
+                and (vol_x or 1) <= 1.6
+            ):
                 add_screen_candidate(
                     "limit-up-consolidation-screener",
                     "一個月內漲停後整理篩選",
-                    f"近 20 日有漲停 K，整理振幅 {box_range:.1f}% 且未明顯跌破漲停區。",
-                    final * 100 + len(limit_rows) * 50,
+                    f"近 20 日有漲停 K，之後整理振幅 {after_range:.1f}%、未跌破漲停低點。",
+                    final * 100 + 200,
                 )
 
-        if box_range is not None and box_range <= 15 and high20 and closes[-1] >= high20 * 0.98:
+        prev_box_range = (
+            (prev_high20 - prev_low20) / prev_low20 * 100
+            if prev_high20 and prev_low20
+            else None
+        )
+        if (
+            prev_box_range is not None
+            and prev_box_range <= 12
+            and prev_close <= prev_high20 * 1.005
+            and closes[-1] > prev_high20 * 1.005
+            and (vol_x or 0) >= 1.15
+            and close_position >= 0.55
+        ):
             add_screen_candidate(
                 "box-breakout-screener",
                 "箱型整理突破篩選",
-                f"近 20 日箱型振幅 {box_range:.1f}%，收盤接近或突破箱頂 {high20:.2f}。",
+                f"前 20 日箱型振幅 {prev_box_range:.1f}%，今日剛突破箱頂 {prev_high20:.2f}。",
                 final * 100 + vol_lots,
             )
 
         if len(highs) >= 30:
             early_high = max(highs[-30:-15])
-            late_high = max(highs[-15:])
+            late_high = max(highs[-15:-1])
             early_low = min(lows[-30:-15])
-            late_low = min(lows[-15:])
-            if late_high <= early_high * 1.03 and late_low >= early_low * 0.97 and box_range is not None and box_range <= 18 and closes[-1] >= late_high * 0.98:
+            late_low = min(lows[-15:-1])
+            contraction = late_high <= early_high * 0.99 and late_low >= early_low * 1.01
+            if (
+                contraction
+                and prev_close <= late_high
+                and closes[-1] > late_high * 1.005
+                and (vol_x or 0) >= 1.1
+                and close_position >= 0.55
+            ):
                 add_screen_candidate(
                     "triangle-breakout-screener",
                     "三角收斂突破篩選",
-                    f"高低點逐步收斂，收盤接近收斂上緣 {late_high:.2f}。",
+                    f"高點降低、低點墊高後，今日剛突破收斂上緣 {late_high:.2f}。",
                     final * 100 + vol_lots,
                 )
 
         if len(lows) >= 45:
-            left_low = min(lows[-45:-24])
-            right_low = min(lows[-23:-5])
-            neckline = max(highs[-24:-5])
-            if left_low and abs(right_low - left_low) / left_low * 100 <= 6 and closes[-1] > neckline:
+            left_window = range(len(lows) - 45, len(lows) - 25)
+            right_window = range(len(lows) - 20, len(lows) - 4)
+            left_idx = min(left_window, key=lambda i: lows[i])
+            right_idx = min(right_window, key=lambda i: lows[i])
+            left_low = lows[left_idx]
+            right_low = lows[right_idx]
+            neckline = max(highs[left_idx:right_idx + 1])
+            if (
+                left_low
+                and right_idx - left_idx >= 12
+                and abs(right_low - left_low) / left_low * 100 <= 6
+                and prev_close <= neckline
+                and closes[-1] > neckline * 1.005
+                and (vol_x or 0) >= 1.05
+            ):
                 add_screen_candidate(
                     "double-bottom-screener",
                     "W底反轉篩選",
-                    f"雙低點接近，收盤突破頸線 {neckline:.2f}。",
+                    f"雙低點接近，今日剛突破頸線 {neckline:.2f}。",
                     final * 100 + vol_lots,
                 )
 
-            head_low = min(lows[-45:-20])
-            shoulder_low = min(min(lows[-60:-45] or [head_low]), min(lows[-20:-5] or [head_low]))
-            neckline_hs = max(highs[-25:-5])
-            if head_low < shoulder_low * 0.94 and closes[-1] > neckline_hs:
+        if len(lows) >= 65:
+            left_shoulder = min(lows[-65:-45])
+            head_low = min(lows[-44:-24])
+            right_shoulder = min(lows[-23:-5])
+            neckline_hs = max(highs[-44:-5])
+            shoulders_close = abs(left_shoulder - right_shoulder) / max(left_shoulder, 0.01) * 100 <= 10
+            if (
+                shoulders_close
+                and head_low < min(left_shoulder, right_shoulder) * 0.94
+                and prev_close <= neckline_hs
+                and closes[-1] > neckline_hs * 1.005
+                and (vol_x or 0) >= 1.05
+            ):
                 add_screen_candidate(
                     "head-shoulders-bottom-screener",
                     "頭肩底反轉篩選",
-                    f"頭肩底雛形完成，收盤突破頸線 {neckline_hs:.2f}。",
+                    f"頭低於兩肩且兩肩接近，今日剛突破頸線 {neckline_hs:.2f}。",
                     final * 100 + vol_lots,
                 )
 
-        if dif is not None and sig is not None and hist is not None and dif > sig and hist > 0 and ma20 and closes[-1] >= ma20:
+        macd_just_turned = (
+            dif is not None and sig is not None and hist is not None
+            and prev_hist is not None
+            and prev_hist <= 0 < hist
+            and dif > sig
+            and ma20 and closes[-1] >= ma20
+        )
+        if macd_just_turned:
             add_screen_candidate(
                 "macd-turn-screener",
                 "MACD轉強篩選",
-                f"DIF {dif} > MACD {sig}，OSC {hist} 為正且收盤站上 MA20。",
+                f"MACD OSC 由 {prev_hist} 翻紅至 {hist}，DIF {dif} 站上慢線且收盤站上 MA20。",
                 final * 100 + tech_s,
             )
 
-        if len(closes) >= 35:
-            prior_rsi = rsi(closes[:-10])
-            prior_low = min(lows[-35:-12])
-            recent_low = min(lows[-12:])
-            if rsi14 is not None and prior_rsi is not None and recent_low <= prior_low * 1.03 and rsi14 >= prior_rsi + 3 and closes[-1] >= (ma5 or closes[-1]):
+        if len(closes) >= 50:
+            prior_start, prior_end = len(lows) - 45, len(lows) - 15
+            recent_start, recent_end = len(lows) - 14, len(lows) - 2
+            prior_idx = min(range(prior_start, prior_end), key=lambda i: lows[i])
+            recent_idx = min(range(recent_start, recent_end), key=lambda i: lows[i])
+            prior_low = lows[prior_idx]
+            recent_low = lows[recent_idx]
+            prior_rsi = rsi(closes[: prior_idx + 1])
+            recent_rsi = rsi(closes[: recent_idx + 1])
+            rsi_diverged = (
+                prior_rsi is not None
+                and recent_rsi is not None
+                and recent_idx - prior_idx >= 8
+                and recent_low <= prior_low * 1.02
+                and recent_rsi >= prior_rsi + 5
+                and prior_rsi <= 45
+                and recent_rsi <= 60
+                and closes[-1] > closes[-2]
+                and closes[-1] >= (ma5 or closes[-1])
+            )
+            if rsi_diverged:
                 add_screen_candidate(
                     "rsi-divergence-screener",
                     "RSI底背離篩選",
-                    f"價格接近前低但 RSI 由 {prior_rsi} 改善至 {rsi14}，收盤轉強。",
+                    f"價格低點 {prior_low:.2f}->{recent_low:.2f}，RSI {prior_rsi}->{recent_rsi} 墊高後收盤轉強。",
                     final * 100 + tech_s,
                 )
 
-        if cont_buy >= 3:
+        recent_inst = inst_values[-3:] if len(inst_values) >= 3 else []
+        prior_inst = inst_values[-6:-3] if len(inst_values) >= 6 else []
+        recent_inst_sum = sum(recent_inst)
+        prior_inst_sum = sum(prior_inst)
+        chip_just_turned = (
+            len(recent_inst) == 3
+            and all(v > 0 for v in recent_inst[-2:])
+            and recent_inst_sum > 0
+            and (not prior_inst or prior_inst_sum <= 0 or recent_inst_sum >= abs(prior_inst_sum) * 0.8)
+        )
+        if chip_just_turned:
             add_screen_candidate(
                 "chip-turn-screener",
                 "法人籌碼轉強篩選",
-                f"三大法人或外資連續 {cont_buy} 筆買超，籌碼改善。",
+                f"近 3 筆法人買超合計轉正 {round(recent_inst_sum):,}，前段籌碼未延續買超。",
                 final * 100 + chip_s * 10,
             )
 
-        if low20 and lows[-1] < low20 * 1.01 and closes[-1] > (ma20 or closes[-1]) and lower_shadow / candle_range >= 0.35:
+        if (
+            prev_low20
+            and lows[-1] < prev_low20 * 0.995
+            and closes[-1] > prev_low20
+            and close_position >= 0.65
+            and lower_shadow / candle_range >= 0.35
+            and (vol_x or 1) <= 1.6
+        ):
             add_screen_candidate(
                 "main-force-wash-screener",
                 "主力洗盤後轉強篩選",
-                f"盤中測試近期低點後收回，長下影占比 {lower_shadow / candle_range:.0%}。",
+                f"盤中跌破 20 日支撐 {prev_low20:.2f} 後收回，長下影占比 {lower_shadow / candle_range:.0%}。",
                 final * 100 + vol_lots,
             )
 
-        if prev_high20 and highs[-1] > prev_high20 and closes[-1] < prev_high20 and upper_shadow / candle_range >= 0.35:
+        if (
+            prev_high20
+            and highs[-1] > prev_high20 * 1.005
+            and closes[-1] < prev_high20
+            and close_position <= 0.45
+            and upper_shadow / candle_range >= 0.35
+            and (vol_x or 0) >= 1.1
+        ):
             add_screen_candidate(
                 "false-breakout-risk-screener",
                 "假突破風險篩選",
@@ -532,7 +684,14 @@ def main():
                 final * 100 + vol_lots,
             )
 
-        if high60 and closes[-1] >= high60 * 0.9 and (vol_x or 0) >= 1.5 and upper_shadow / candle_range >= 0.4:
+        if (
+            high60
+            and highs[-1] >= high60 * 0.98
+            and closes[-1] >= high60 * 0.9
+            and (vol_x or 0) >= 1.4
+            and upper_shadow / candle_range >= 0.4
+            and (closes[-1] < latest_open or close_position <= 0.45)
+        ):
             add_screen_candidate(
                 "top-distribution-risk-screener",
                 "高檔出貨風險篩選",
@@ -556,7 +715,14 @@ def main():
     log("題材表由 fetch_stock_classes 管理，本步不覆寫 themes/theme_stocks")
 
     # ---- 候選池：每日篩選新邏輯 ----
-    cand = sorted(screen_candidates, key=lambda s: s["score"], reverse=True)[:80]
+    # 每個模板保留自己的前段名單，避免強勢股等大類把小眾模板整批擠掉。
+    by_screen = defaultdict(list)
+    for candidate in screen_candidates:
+        by_screen[candidate["source_module"]].append(candidate)
+    cand = []
+    for sid in sorted(by_screen):
+        cand.extend(sorted(by_screen[sid], key=lambda s: s["score"], reverse=True)[:30])
+    cand = sorted(cand, key=lambda s: (s["source_module"], -s["score"], s["symbol"]))
     sb_delete("candidate_pool", f"date=eq.{latest}")
     sb_upsert("candidate_pool", cand)
     log(f"候選池 {len(cand)} 檔")

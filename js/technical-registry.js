@@ -350,21 +350,21 @@
     explanationTemplate:extra.explanationTemplate||`${name}：符合 ${conditions.join('、')}，仍需人工確認風險。`
   });
   const SCREENERS=[
-    screener('strong-stock-screener','強勢股篩選','trend',['收盤站上 MA5/MA20','MA20 上升','成交量 >= 1000張']),
-    screener('volume-breakout-screener','放量突破篩選','volume',['收盤突破20日高','量比 >= 1.3']),
-    screener('ma-compression-breakout-screener','均線糾結突破篩選','trend',['MA5/10/20 距離小','放量突破']),
-    screener('low-volume-retest-screener','量縮回測篩選','volume',['回測支撐','成交量低於20日均量']),
-    screener('limit-up-consolidation-screener','一個月內漲停後整理篩選','chart-pattern',['近20日有漲停K','整理不破漲停K低點']),
-    screener('box-breakout-screener','箱型整理突破篩選','chart-pattern',['箱型振幅小','突破箱頂']),
-    screener('triangle-breakout-screener','三角收斂突破篩選','chart-pattern',['高低點收斂','突破收斂線']),
-    screener('double-bottom-screener','W底反轉篩選','chart-pattern',['第二低不破','突破頸線']),
-    screener('head-shoulders-bottom-screener','頭肩底反轉篩選','chart-pattern',['右肩完成','突破頸線']),
-    screener('macd-turn-screener','MACD轉強篩選','momentum',['DIF > MACD','OSC 增加','收盤站上 MA20']),
-    screener('rsi-divergence-screener','RSI底背離篩選','momentum',['價格創低','RSI 未創低','收盤轉強']),
-    screener('chip-turn-screener','法人籌碼轉強篩選','chip',['三大法人合計買超','近3日籌碼改善']),
-    screener('main-force-wash-screener','主力洗盤後轉強篩選','chip',['假跌破收回','量能未失控','隔日轉強']),
-    screener('false-breakout-risk-screener','假突破風險篩選','risk',['突破後跌回','長上影或量價背離'],{bias:'risk'}),
-    screener('top-distribution-risk-screener','高檔出貨風險篩選','risk',['高檔爆量長上影','法人或主力轉賣'],{bias:'risk'})
+    screener('strong-stock-screener','強勢股篩選','trend',['成交量 >= 1000張','站上 MA20/MA60','MA5 > MA10 > MA20 > MA60','20MA 上升']),
+    screener('volume-breakout-screener','放量突破篩選','volume',['前日未突破20日高','今日收盤剛突破20日高','量比 >= 1.3','成交量 >= 1000張']),
+    screener('ma-compression-breakout-screener','均線糾結突破篩選','trend',['前一日 MA5/10/20 糾結 <= 2.8%','今日站上糾結區','量比 >= 1.2','成交量 >= 1000張']),
+    screener('low-volume-retest-screener','量縮回測篩選','volume',['回測 MA20 守住','最近3日量能遞減','成交量低於20日均量8成','非放量急拉']),
+    screener('limit-up-consolidation-screener','一個月內漲停後整理篩選','chart-pattern',['近20日有漲停K','整理不破漲停K低點','整理振幅 <= 18%','量能未失控']),
+    screener('box-breakout-screener','箱型整理突破篩選','chart-pattern',['前20日箱型振幅 <= 12%','前日仍在箱內','今日剛突破箱頂','量比 >= 1.15']),
+    screener('triangle-breakout-screener','三角收斂突破篩選','chart-pattern',['高點降低','低點墊高','前日未突破收斂上緣','今日剛突破收斂上緣']),
+    screener('double-bottom-screener','W底反轉篩選','chart-pattern',['兩個低點相近','低點間隔足夠','前日未突破頸線','今日剛突破頸線']),
+    screener('head-shoulders-bottom-screener','頭肩底反轉篩選','chart-pattern',['頭低於兩肩','左右肩接近','前日未突破頸線','今日剛突破頸線']),
+    screener('macd-turn-screener','MACD轉強篩選','momentum',['OSC 由綠翻紅','DIF 站上慢線','收盤站上 MA20']),
+    screener('rsi-divergence-screener','RSI底背離篩選','momentum',['價格低點不高於前低','RSI 低點墊高','RSI 位於低檔區','收盤轉強']),
+    screener('chip-turn-screener','法人籌碼轉強篩選','chip',['近3筆法人買超轉正','最近2筆連續買超','前段籌碼未延續買超']),
+    screener('main-force-wash-screener','主力洗盤後轉強篩選','chip',['盤中跌破20日支撐','收盤重新站回支撐','長下影收回','量能未失控']),
+    screener('false-breakout-risk-screener','假突破風險篩選','risk',['盤中突破20日高','收盤跌回壓力下','長上影','量比 >= 1.1'],{bias:'risk'}),
+    screener('top-distribution-risk-screener','高檔出貨風險篩選','risk',['接近60日高檔','量比 >= 1.4','長上影','收盤偏弱'],{bias:'risk'})
   ];
   function dedupe(records){
     const out=new Map();
