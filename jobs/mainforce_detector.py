@@ -27,6 +27,8 @@ def detect(symbol, name, prices):
     resistance = max(highs[-21:-1])
     ma20 = ma(closes, 20) or close
     prev_close = closes[-2]
+    prev_high60 = max(highs[-61:-1])
+    prev_high5 = max(highs[-6:-1])
     candle_range = max(high - low, 0.01)
     close_position = (close - low) / candle_range
     upper_shadow = (high - max(open_price, close)) / candle_range
@@ -57,8 +59,15 @@ def detect(symbol, name, prices):
         add("拉高後快速回落", 74, f"盤中拉高超過 5% 但收在半分位下方，成交量 {vol:.0f} 張。", "高", "小心短線追價風險。")
     if high > resistance * 1.005 and close < resistance and close_position <= 0.45 and vol >= avg20 * 0.9:
         add("假突破誘多", 80, f"盤中突破前壓 {resistance:.2f} 後收回，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "高", "等待重新站回突破價。")
-    if vol >= avg20 * 1.8 and upper_shadow > 0.45 and close > ma20 and high >= max(highs[-61:-1]) * 0.95:
-        add("高檔爆量出貨", 82, f"高檔爆量長上影，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "高", "降低追價，嚴守停損。")
+    if (
+        vol >= avg20 * 1.8
+        and upper_shadow > 0.45
+        and close_position <= 0.5
+        and close > ma20
+        and high >= prev_high60 * 0.98
+        and high >= prev_high5 * 0.995
+    ):
+        add("高檔爆量出貨", 82, f"今日接近 60 日高檔且爆量長上影，成交量 {vol:.0f} 張、量比 {volume_ratio:.2f}。", "高", "降低追價，嚴守停損。")
     if abs(low - resistance) / close * 100 < 3 and close > resistance and prev_close > resistance and vol <= avg20 * 1.2:
         add("突破後回測成功", 78, f"回測前壓 {resistance:.2f} 轉支撐後收在突破價上方，成交量 {vol:.0f} 張。", "中低", "可列入續強觀察。")
     ma20_prev5 = ma(closes[:-5], 20)
